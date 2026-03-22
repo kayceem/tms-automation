@@ -1,0 +1,40 @@
+{
+  "_comment": "Order store for managing multiple orders. Only ONE order with 'execute: true' and 'success: false' will be executed.",
+  "_instructions": {
+    "execute": "Set to true to mark this order for execution",
+    "success": "Automatically set to true after successful execution",
+    "ticker": "Ticker symbol from ticker_store.json",
+    "price": "Order price per unit",
+    "quantity": "Number of units to buy",
+    "mode": "Execution mode: 'normal', 'ipo', or 'ipo-sniper'",
+    "limit": "(Optional) Upper limit price for IPO mode",
+    "time": "(Optional) Scheduled execution time in HH:MM or HH:MM:SS format",
+    "refresh_before": "(Optional) Seconds before execution to refresh tokens (default: 20)",
+    "sell": "(Optional) Set to true for sell order, false/omit for buy order"
+  },
+  "orders": [
+    {
+      "id": "rsml_ipo",
+      "execute": true,
+      "success": false,
+      "ticker": "RSML",
+      "price": 1375.1,
+      "limit": 1375.1,
+      "quantity": 100,
+      "mode": "ipo",
+      "time": "11:00:01",
+      "refresh_before": 30,
+      "sell": false
+    },
+    {
+      "id": "hfin_ipo",
+      "execute": false,
+      "success": false,
+      "ticker": "HFIN",
+      "price": 179.7,
+      "quantity": 500,
+      "mode": "ipo",
+      "limit": 179.7
+    }
+  ]
+}

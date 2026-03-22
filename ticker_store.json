@@ -1,0 +1,35 @@
+{
+  "_comment": "Ticker store for NEPSE securities. Maps ticker symbols to their security_id and exchange_security_id",
+  "_format": {
+    "TICKER": {
+      "security_id": 123,
+      "exchange_security_id": 456,
+      "name": "Company Name (Optional)"
+    }
+  },
+  "SABBL": {
+    "security_id": 3098,
+    "exchange_security_id": 9305,
+    "name": "Salapa Bikash Bank Limited"
+  },
+  "RSML": {
+    "security_id": 3099,
+    "exchange_security_id": 9306,
+    "name": "Reliance Spinning Mills Limited"
+  },
+  "HFIN": {
+      "security_id": 3100,
+      "exchange_security_id": 9308,
+      "name": "Hotel Forest Inn Limited"
+  },
+  "SOHL": {
+      "security_id": 3101,
+      "exchange_security_id": 9311,
+      "name": "Solu Hydro Power Limited"
+    },
+    "BJHL": {
+        "security_id": 3103,
+        "exchange_security_id": 9322,
+        "name": "Bhujung Hydropower Limited"
+    }
+}

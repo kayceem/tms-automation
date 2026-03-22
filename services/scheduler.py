@@ -1,0 +1,162 @@
+"""Scheduler service for executing orders at specific times."""
+
+import time
+from datetime import datetime, timedelta
+from typing import Callable, Dict, Any
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class OrderScheduler:
+    """Scheduler for executing orders at specific times."""
+
+    @staticmethod
+    def parse_time(time_str: str) -> datetime:
+        """
+        Parse time string to datetime object.
+
+        Args:
+            time_str: Time in format HH:MM or HH:MM:SS
+
+        Returns:
+            datetime object for today at specified time
+
+        Raises:
+            ValueError: If time format is invalid
+        """
+        try:
+            # Try parsing with seconds
+            if time_str.count(':') == 2:
+                time_obj = datetime.strptime(time_str, '%H:%M:%S').time()
+            # Try parsing without seconds
+            elif time_str.count(':') == 1:
+                time_obj = datetime.strptime(time_str, '%H:%M').time()
+            else:
+                raise ValueError("Invalid time format")
+
+            # Combine with today's date
+            now = datetime.now()
+            scheduled_time = datetime.combine(now.date(), time_obj)
+
+            # If the time has already passed today, schedule for tomorrow
+            if scheduled_time < now:
+                scheduled_time += timedelta(days=1)
+
+            return scheduled_time
+
+        except ValueError as e:
+            raise ValueError(
+                f"Invalid time format '{time_str}'. "
+                "Please use HH:MM or HH:MM:SS format (e.g., 14:30 or 14:30:00)"
+            ) from e
+
+    @staticmethod
+    def wait_until(target_time: datetime, tms_client=None, user_id: str = "unknown"):
+        """
+        Wait until the specified time, refreshing tokens 15 seconds before.
+
+        Args:
+            target_time: Target datetime to wait for
+            tms_client: Optional TMSClient instance for token refresh
+            user_id: User identifier for logging
+        """
+        now = datetime.now()
+        wait_seconds = (target_time - now).total_seconds()
+
+        if wait_seconds <= 0:
+            logger.warning(f"[{user_id}] Target time has already passed!")
+            return
+
+        logger.info(
+            f"[{user_id}] Scheduled execution: "
+            f"current={now.strftime('%Y-%m-%d %H:%M:%S')}, "
+            f"target={target_time.strftime('%Y-%m-%d %H:%M:%S')}, "
+            f"wait={int(wait_seconds)}s"
+        )
+
+        # Calculate when to refresh tokens (30 seconds before execution)
+        refresh_time = target_time - timedelta(seconds=30)
+        refresh_seconds = (refresh_time - datetime.now()).total_seconds()
+
+        # If we have enough time, wait until refresh time
+        if refresh_seconds > 0 and tms_client:
+            logger.info(
+                f"[{user_id}] Token refresh scheduled for "
+                f"{refresh_time.strftime('%H:%M:%S')} (30s before execution)"
+            )
+            try:
+                time.sleep(refresh_seconds)
+            except KeyboardInterrupt:
+                logger.info(f"[{user_id}] Wait interrupted by user")
+                raise
+
+            # Refresh tokens
+            logger.info(f"[{user_id}] PRE-EXECUTION TOKEN REFRESH")
+            logger.debug(
+                f"[{user_id}] Current={datetime.now().strftime('%H:%M:%S')}, "
+                f"Execution={target_time.strftime('%H:%M:%S')}"
+            )
+
+            success = tms_client.refresh_tokens()
+            if success:
+                logger.info(f"[{user_id}] Tokens refreshed successfully")
+            else:
+                logger.warning(
+                    f"[{user_id}] Token refresh failed, will attempt with current tokens"
+                )
+
+            # Update wait_seconds for final countdown
+            wait_seconds = (target_time - datetime.now()).total_seconds()
+
+        # Show countdown for last 10 seconds
+        if wait_seconds > 10:
+            logger.debug(f"[{user_id}] Sleeping for {int(wait_seconds - 10)}s until countdown")
+            try:
+                time.sleep(wait_seconds - 10)
+            except KeyboardInterrupt:
+                logger.info(f"[{user_id}] Wait interrupted by user")
+                raise
+            wait_seconds = 10
+
+        # Countdown
+        logger.debug(f"[{user_id}] Starting final countdown: {int(wait_seconds)}s")
+        try:
+            for i in range(int(wait_seconds), 0, -1):
+                if i <= 5:  # Only log last 5 seconds
+                    logger.debug(f"[{user_id}] Order execution in {i} seconds")
+                time.sleep(1)
+        except KeyboardInterrupt:
+            logger.info(f"[{user_id}] Countdown interrupted by user")
+            raise
+
+        logger.info(f"[{user_id}] Executing order now!")
+
+    @classmethod
+    def schedule_order(
+        cls,
+        time_str: str,
+        order_func: Callable,
+        tms_client=None,
+        user_id: str = "unknown",
+        **order_params
+    ) -> Dict[str, Any]:
+        """
+        Schedule an order to be executed at a specific time.
+        Automatically refreshes tokens 20 seconds before execution.
+
+        Args:
+            time_str: Time string in HH:MM or HH:MM:SS format
+            order_func: Function to execute (should be OrderService.execute_order)
+            tms_client: Optional TMSClient instance for pre-execution token refresh
+            user_id: User identifier for logging
+            **order_params: Parameters to pass to order_func
+
+        Returns:
+            Result from order_func
+        """
+        target_time = cls.parse_time(time_str)
+        logger.info(f"[{user_id}] Order scheduled for {target_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        cls.wait_until(target_time, tms_client=tms_client, user_id=user_id)
+        return order_func(**order_params)
