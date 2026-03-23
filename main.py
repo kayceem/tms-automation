@@ -255,7 +255,8 @@ def load_user_configs(args: argparse.Namespace) -> List[UserConfig]:
 def execute_order_for_user(
     user_config: UserConfig,
     order_params: Dict[str, Any],
-    scheduled_time: str = None
+    scheduled_time: str = None,
+    stagger_delay: float = 0.0
 ) -> Dict[str, Any]:
     """
     Execute an order for a single user (thread-safe).
@@ -264,6 +265,7 @@ def execute_order_for_user(
         user_config: User configuration
         order_params: Order parameters dictionary
         scheduled_time: Optional scheduled time string
+        stagger_delay: Delay in seconds to stagger multi-user execution
 
     Returns:
         API response dictionary
@@ -273,6 +275,12 @@ def execute_order_for_user(
     try:
         logger.info(f"[{user_id}] Starting order execution")
 
+        # Apply stagger delay for multi-user execution
+        if stagger_delay > 0:
+            import time
+            logger.debug(f"[{user_id}] Stagger delay: {stagger_delay:.3f}s")
+            time.sleep(stagger_delay)
+
         # Create user-specific TMS client
         tms_client = TMSClient(user_config)
 
@@ -281,7 +289,7 @@ def execute_order_for_user(
 
         # Execute order
         if scheduled_time:
-            # Scheduled execution
+            # Scheduled execution - stagger is applied before scheduling
             result = OrderScheduler.schedule_order(
                 time_str=scheduled_time,
                 order_func=order_service.execute_order,
@@ -396,27 +404,36 @@ def execute_from_order_store(
                 scheduled_time=order['time']
             )
         else:
-            # Multi-user - execute in parallel threads
-            logger.info(f"Starting {len(user_configs)} threads for parallel execution")
+            # Multi-user - execute in parallel threads with staggering
+            num_users = len(user_configs)
+            logger.info(f"Starting {num_users} threads for parallel execution")
+
+            # Calculate stagger delays to spread execution across 1.5 seconds
+            max_stagger = min(1.5, num_users - 1)
+            stagger_increment = max_stagger / max(1, num_users - 1) if num_users > 1 else 0
+
+            logger.info(f"Staggering execution: {stagger_increment:.3f}s between users (max spread: {max_stagger:.1f}s)")
 
             threads = []
             exceptions = []
 
-            def thread_wrapper(user_config):
+            def thread_wrapper(user_config, delay):
                 try:
                     execute_order_for_user(
                         user_config=user_config,
                         order_params=order_params,
-                        scheduled_time=order['time']
+                        scheduled_time=order['time'],
+                        stagger_delay=delay
                     )
                 except Exception as e:
                     exceptions.append((user_config.user_id, e))
 
-            # Create and start threads
-            for user_config in user_configs:
+            # Create and start threads with staggered delays
+            for idx, user_config in enumerate(user_configs):
+                stagger_delay = idx * stagger_increment
                 thread = threading.Thread(
                     target=thread_wrapper,
-                    args=(user_config,),
+                    args=(user_config, stagger_delay),
                     name=f"User-{user_config.user_id}"
                 )
                 threads.append(thread)
@@ -540,27 +557,37 @@ def main():
                     scheduled_time=args.time
                 )
             else:
-                # Multi-user - execute in parallel threads
-                logger.info(f"Starting {len(user_configs)} threads for parallel execution")
+                # Multi-user - execute in parallel threads with staggering
+                num_users = len(user_configs)
+                logger.info(f"Starting {num_users} threads for parallel execution")
+
+                # Calculate stagger delays to spread execution across 1.5 seconds
+                # User 0: 0s delay, User 1: 0.5s, User 2: 1.0s, User 3: 1.5s, etc.
+                max_stagger = min(1.5, num_users - 1)  # Cap at 1.5s total spread
+                stagger_increment = max_stagger / max(1, num_users - 1) if num_users > 1 else 0
+
+                logger.info(f"Staggering execution: {stagger_increment:.3f}s between users (max spread: {max_stagger:.1f}s)")
 
                 threads = []
                 exceptions = []
 
-                def thread_wrapper(user_config):
+                def thread_wrapper(user_config, delay):
                     try:
                         execute_order_for_user(
                             user_config=user_config,
                             order_params=order_params,
-                            scheduled_time=args.time
+                            scheduled_time=args.time,
+                            stagger_delay=delay
                         )
                     except Exception as e:
                         exceptions.append((user_config.user_id, e))
 
-                # Create and start threads
-                for user_config in user_configs:
+                # Create and start threads with staggered delays
+                for idx, user_config in enumerate(user_configs):
+                    stagger_delay = idx * stagger_increment
                     thread = threading.Thread(
                         target=thread_wrapper,
-                        args=(user_config,),
+                        args=(user_config, stagger_delay),
                         name=f"User-{user_config.user_id}"
                     )
                     threads.append(thread)

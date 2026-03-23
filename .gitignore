@@ -60,3 +60,5 @@ logs/
 # Backup files
 *.bak
 main_old.py
+
+headers.txt

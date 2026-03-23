@@ -123,80 +123,34 @@ class OrderService:
 
     def _get_client_data(self, client_data_file: Optional[str]) -> Dict[str, Any]:
         """
-        Get client data from file or use default structure.
+        Get client data from file, user config, or raise error.
 
         Args:
-            client_data_file: Path to client data JSON file
+            client_data_file: Path to client data JSON file (optional override)
 
         Returns:
             Client data dictionary
+
+        Raises:
+            ValueError: If no client data is available
         """
+        # Priority 1: Explicit file path provided
         if client_data_file:
             logger.debug(f"[{self.user_id}] Loading client data from {client_data_file}")
             return load_client_data(client_data_file)
 
-        logger.debug(f"[{self.user_id}] Using default client data structure")
-        # Default minimal client data structure
-        return {
-            "activeStatus": "A",
-            "id": 2156970,
-            "accountType": "CLI",
-            "allowedToTrade": "Y",
-            "clientMemberCode": "20210704927",
-            "clientOrDealer": "C",
-            "contactNumber": "9846083971",
-            "emailId": None,
-            "notsUniqueClientCode": "202107162406318",
-            "clientDealerType": None,
-            "clientGroup": {
-                "activeStatus": "A",
-                "id": 101,
-                "clientGroupCode": None,
-                "clientGroupName": None
-            },
-            "memberBranch": {
-                "activeStatus": "A",
-                "id": 2,
-                "branchLocation": None,
-                "branchName": None,
-                "hidden": None,
-                "branchProvince": None,
-                "branchDistrict": None,
-                "branchMunicipality": None,
-                "branchHead": None,
-                "branchPhoneNumber": None
-            },
-            "clientDealerAddressDetails": None,
-            "clientDealerBankDetail": None,
-            "clientDealerIndividual": None,
-            "clientDealerPerTradeLimits": None,
-            "clientDealerProductMappings": None,
-            "clientDealerOrderTypeMappings": None,
-            "clientDealerTradingLimits": None,
-            "clientDepositoryDetail": None,
-            "corporateDetail": None,
-            "corporateOwnershipDetails": None,
-            "displayName": "SMITA ADHIKARI",
-            "blockedDate": None,
-            "remarks": None,
-            "parentId": None,
-            "recordType": None,
-            "collateralByEntities": None,
-            "shortSellMode": 0,
-            "onlineOrOffline": 1,
-            "panNumber": "106117095",
-            "onlineFundTransfer": None,
-            "collateralCalculationMode": 1,
-            "isMarginLendingClient": None,
-            "clientRiskType": None,
-            "userAgreementChecked": None,
-            "referredBy": None,
-            "responseStatus": None,
-            "isCkycAccount": None,
-            "kycUpload": False,
-            "userAgreementDp": False,
-            "marginLendingClient": None
-        }
+        # Priority 2: Client data from user config
+        if self.client.user_config.client_data:
+            logger.debug(f"[{self.user_id}] Using client data from user configuration")
+            return self.client.user_config.client_data
+
+        # No client data available - raise error with helpful message
+        raise ValueError(
+            f"[{self.user_id}] No client data available. Please either:\n"
+            f"  1. Add 'client_data' to your user configuration JSON file, OR\n"
+            f"  2. Use --client-data argument to specify a client data file\n"
+            f"  See client_data.example.json for the required format"
+        )
 
     def _execute_ipo_snipe(
         self,
@@ -385,7 +339,7 @@ class OrderService:
                             f"[{self.user_id}] Error placing order level {level_num}: {error_msg}"
                         )
                         try:
-                            time.sleep(2)
+                            time.sleep(1)
                         except KeyboardInterrupt:
                             logger.info(f"[{self.user_id}] IPO sniping interrupted by user")
                             raise

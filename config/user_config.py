@@ -21,6 +21,9 @@ class UserConfig:
     request_owner: str
     member_code: str
 
+    # Client data (user's broker account information)
+    client_data: Optional[Dict[str, Any]] = None
+
     # Order defaults
     default_order_type: str = 'LMT'
     default_order_validity: str = 'DAY'
@@ -60,6 +63,7 @@ class UserConfig:
             'access_token': self.access_token,
             'request_owner': self.request_owner,
             'member_code': self.member_code,
+            'client_data': self.client_data,
             'default_order_type': self.default_order_type,
             'default_order_validity': self.default_order_validity,
             'default_product_code': self.default_product_code,
