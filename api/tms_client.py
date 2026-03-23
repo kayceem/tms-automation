@@ -4,7 +4,7 @@ import requests
 import json
 import threading
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from config.user_config import UserConfig
 from utils.logger import get_logger
 
@@ -26,6 +26,7 @@ class TMSClient:
         self.base_url = user_config.tms_base_url
         self.order_endpoint = f"{self.base_url}{user_config.tms_order_endpoint}"
         self.refresh_endpoint = f"{self.base_url}/tmsapi/authApi/authenticate/refresh"
+        self.quote_endpoint = f"{self.base_url}{user_config.tms_quote_endpoint}"
 
         # Thread-safe session
         self.session = requests.Session()
@@ -251,6 +252,73 @@ class TMSClient:
             logger.warning(
                 f"[{self.user_id}] Could not save cookies: {str(e)}"
             )
+
+    def get_ltp(self, security_id: int) -> Optional[float]:
+        """
+        Fetch the Last Traded Price (LTP) for a security (thread-safe).
+
+        Args:
+            security_id: Security ID to fetch LTP for
+
+        Returns:
+            LTP as float, or None if fetch fails
+
+        Raises:
+            requests.HTTPError: If API request fails with non-401 error
+        """
+        logger.debug(f"[{self.user_id}] Fetching LTP for security_id={security_id}")
+
+        endpoint = f"{self.quote_endpoint}{security_id}"
+
+        # Make thread-safe API request
+        with self._request_lock:
+            response = self.session.get(endpoint)
+            response.encoding = 'utf-8'
+
+            logger.debug(
+                f"[{self.user_id}] LTP fetch response status: {response.status_code}"
+            )
+
+            # If we get 401, try to refresh tokens and retry once
+            if response.status_code == 401:
+                logger.debug(f"[{self.user_id}] Session expired, attempting token refresh")
+
+                if self._refresh_tokens():
+                    logger.debug(f"[{self.user_id}] Tokens refreshed, retrying LTP fetch")
+
+                    # Retry the request with new tokens
+                    response = self.session.get(endpoint)
+                    response.encoding = 'utf-8'
+
+                    logger.debug(
+                        f"[{self.user_id}] Retry LTP response status: {response.status_code}"
+                    )
+                else:
+                    logger.error(f"[{self.user_id}] Token refresh failed for LTP fetch")
+                    return None
+
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    security = data.get('payload', {}).get('data', [None])[0]
+                    ltp = security.get('ltp') if security else None
+                    if ltp is not None:
+                        logger.debug(f"[{self.user_id}] LTP={ltp}")
+                        return float(ltp)
+                    else:
+                        logger.warning(f"[{self.user_id}] No LTP in response: {data}")
+                        return None
+                except Exception as e:
+                    logger.error(
+                        f"[{self.user_id}] Error parsing LTP response: {str(e)}"
+                    )
+                    return None
+            else:
+                logger.warning(
+                    f"[{self.user_id}] LTP fetch failed: "
+                    f"{response.status_code} {response.reason}"
+                )
+                return None
 
     def _build_order_payload(
         self,

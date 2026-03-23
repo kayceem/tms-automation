@@ -6,11 +6,12 @@
     "ticker": "Ticker symbol from ticker_store.json",
     "price": "Order price per unit",
     "quantity": "Number of units to buy",
-    "mode": "Execution mode: 'normal', 'ipo', or 'ipo-sniper'",
-    "limit": "(Optional) Upper limit price for IPO mode",
+    "mode": "Execution mode: 'normal', 'ipo', 'ipo-sniper', or 'ipo-trigger'",
+    "limit": "(Optional) Upper limit price for IPO and IPO-trigger modes",
     "time": "(Optional) Scheduled execution time in HH:MM or HH:MM:SS format",
     "refresh_before": "(Optional) Seconds before execution to refresh tokens (default: 20)",
-    "sell": "(Optional) Set to true for sell order, false/omit for buy order"
+    "sell": "(Optional) Set to true for sell order, false/omit for buy order",
+    "skip_first": "(Optional) For IPO-trigger mode: skip first ladder level (default: false)"
   },
   "orders": [
     {
@@ -18,17 +19,18 @@
       "execute": true,
       "success": false,
       "ticker": "RSML",
-      "mode": "ipo",
+      "mode": "ipo-trigger",
       "quantity": 100,
-      "price": 1520,
-      "limit": 1512.6
+      "price": 1482.3,
+      "limit": 1512.6,
+      "skip_first": true
     },
     {
       "id": "hfin_ipo",
       "execute": false,
       "success": false,
       "ticker": "HFIN",
-      "mode": "ipo",
+      "mode": "ipo-trigger",
       "quantity": 500,
       "price": 179.7,
       "limit": 179.7

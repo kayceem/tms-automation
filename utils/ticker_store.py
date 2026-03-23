@@ -72,6 +72,40 @@ class TickerStore:
 
         return security_id, exchange_security_id
 
+    def get_fetch_id(self, ticker: str) -> int:
+        """
+        Get the fetch_id for a ticker symbol (used for LTP fetching).
+        Falls back to security_id if fetch_id is not specified.
+
+        Args:
+            ticker: Ticker symbol (case-insensitive)
+
+        Returns:
+            fetch_id if available, otherwise security_id
+
+        Raises:
+            ValueError: If ticker not found in store
+        """
+        ticker_upper = ticker.upper()
+
+        if ticker_upper not in self._data:
+            available_tickers = [k for k in self._data.keys() if not k.startswith('_')]
+            raise ValueError(
+                f"Ticker '{ticker}' not found in store.\n"
+                f"Available tickers: {', '.join(sorted(available_tickers))}"
+            )
+
+        ticker_data = self._data[ticker_upper]
+
+        # Return fetch_id if available, otherwise fall back to security_id
+        if 'fetch_id' in ticker_data and ticker_data['fetch_id'] is not None:
+            return int(ticker_data['fetch_id'])
+
+        if 'security_id' not in ticker_data:
+            raise ValueError(f"Ticker '{ticker}' is missing 'security_id' field")
+
+        return int(ticker_data['security_id'])
+
     def get_name(self, ticker: str) -> Optional[str]:
         """
         Get the full name for a ticker symbol.
@@ -98,7 +132,8 @@ class TickerStore:
         """
         return {k: v for k, v in self._data.items() if not k.startswith('_')}
 
-    def add_ticker(self, ticker: str, security_id: int, exchange_security_id: int, name: str = None):
+    def add_ticker(self, ticker: str, security_id: int, exchange_security_id: int,
+                   fetch_id: int = None, name: str = None):
         """
         Add or update a ticker in the store.
 
@@ -106,6 +141,7 @@ class TickerStore:
             ticker: Ticker symbol
             security_id: Security ID
             exchange_security_id: Exchange security ID
+            fetch_id: Optional security ID for fetching LTP (defaults to security_id)
             name: Optional company name
         """
         ticker_upper = ticker.upper()
@@ -114,6 +150,9 @@ class TickerStore:
             'security_id': security_id,
             'exchange_security_id': exchange_security_id
         }
+
+        if fetch_id is not None:
+            self._data[ticker_upper]['fetch_id'] = fetch_id
 
         if name:
             self._data[ticker_upper]['name'] = name

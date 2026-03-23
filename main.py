@@ -48,6 +48,12 @@ Examples:
 
   # IPO sniping mode (manual)
   python main.py --user-configs users/ --ticker EXAMPLE --price 1000 --quantity 10 --ipo --limit 1050
+
+  # IPO trigger mode (manual)
+  python main.py --user-config users/user1.json --fetch-user users/fetch_user.json --ticker EXAMPLE --price 1000 --quantity 10 --ipo-trigger --limit 1050
+
+  # IPO trigger mode with skip-first
+  python main.py --user-config users/user1.json --fetch-user users/fetch_user.json --ticker EXAMPLE --price 1000 --quantity 10 --ipo-trigger --skip-first --limit 1050
         '''
     )
 
@@ -130,17 +136,32 @@ Examples:
     parser.add_argument(
         '--ipo',
         action='store_true',
-        help='IPO sniping mode: automatically place orders at +2%, +4%, +6%, +8%, +10%'
+        help='IPO sniping mode: automatically place orders at +2, +4, +6, +8, +10 percent'
     )
     parser.add_argument(
         '--ipo-sniper',
         action='store_true',
-        help='IPO sniper mode: aggressively place orders at +10% for 2 minutes'
+        help='IPO sniper mode: aggressively place orders at +10 percent for 2 minutes'
+    )
+    parser.add_argument(
+        '--ipo-trigger',
+        action='store_true',
+        help='IPO trigger mode: monitor LTP and place ladder orders based on price levels. When LTP >= ladder[i], places order at ladder[i+1].'
+    )
+    parser.add_argument(
+        '--fetch-user',
+        type=str,
+        help='Path to fetch user JSON file (required for --ipo-trigger). This user will be used to fetch LTP.'
+    )
+    parser.add_argument(
+        '--skip-first',
+        action='store_true',
+        help='Skip the first ladder level in IPO trigger mode. Places first order when LTP reaches ladder[0], starting from ladder[1].'
     )
     parser.add_argument(
         '--limit',
         type=float,
-        help='Upper limit price for IPO mode. Orders above +10%% of this limit will be removed, and +10%% of limit will be the final order'
+        help='Upper limit price for IPO mode. Orders above +10 percent of this limit will be removed, and +10 percent of limit will be the final order'
     )
     parser.add_argument(
         '--log-level',
@@ -171,10 +192,16 @@ def validate_args(args: argparse.Namespace):
     # Handle ticker lookup
     if args.ticker:
         try:
-            security_id, exchange_security_id = lookup_ticker(args.ticker)
+            from utils import get_ticker_store
+            ticker_store = get_ticker_store()
+            security_id, exchange_security_id = ticker_store.lookup(args.ticker)
+            fetch_id = ticker_store.get_fetch_id(args.ticker)
+
             args.security_id = security_id
             args.exchange_security_id = exchange_security_id
-            logger.info(f"Ticker '{args.ticker}' resolved to security_id={security_id}, exchange_security_id={exchange_security_id}")
+            args.fetch_id = fetch_id
+
+            logger.info(f"Ticker '{args.ticker}' resolved to security_id={security_id}, exchange_security_id={exchange_security_id}, fetch_id={fetch_id}")
         except (FileNotFoundError, ValueError) as e:
             raise ValueError(f"Ticker lookup failed: {e}")
     else:
@@ -193,11 +220,28 @@ def validate_args(args: argparse.Namespace):
     validate_positive_number(args.price, 'price')
     validate_positive_integer(args.quantity, 'quantity')
 
-    if args.ipo and args.ipo_sniper:
-        raise ValueError("Cannot use both --ipo and --ipo-sniper flags together. Choose one.")
+    # Validate mutually exclusive IPO modes
+    ipo_mode_flags = [args.ipo, args.ipo_sniper, args.ipo_trigger]
+    ipo_mode_count = sum(1 for flag in ipo_mode_flags if flag)
 
-    if args.limit and not args.ipo:
-        logger.warning("--limit flag is only used with --ipo mode. It will be ignored.")
+    if ipo_mode_count > 1:
+        raise ValueError(
+            "Cannot use multiple IPO mode flags together. "
+            "Choose one: --ipo, --ipo-sniper, or --ipo-trigger"
+        )
+
+    # Validate fetch-user requirement for trigger mode
+    if args.ipo_trigger and not args.fetch_user:
+        raise ValueError("--fetch-user is required when using --ipo-trigger mode")
+
+    if args.fetch_user and not args.ipo_trigger:
+        logger.warning("--fetch-user flag is only used with --ipo-trigger mode. It will be ignored.")
+
+    if args.skip_first and not args.ipo_trigger:
+        logger.warning("--skip-first flag is only used with --ipo-trigger mode. It will be ignored.")
+
+    if args.limit and not (args.ipo or args.ipo_trigger):
+        logger.warning("--limit flag is only used with --ipo or --ipo-trigger modes. It will be ignored.")
 
     if args.limit:
         validate_positive_number(args.limit, 'limit')
@@ -256,7 +300,8 @@ def execute_order_for_user(
     user_config: UserConfig,
     order_params: Dict[str, Any],
     scheduled_time: str = None,
-    stagger_delay: float = 0.0
+    stagger_delay: float = 0.0,
+    fetch_user_config: UserConfig = None
 ) -> Dict[str, Any]:
     """
     Execute an order for a single user (thread-safe).
@@ -266,6 +311,7 @@ def execute_order_for_user(
         order_params: Order parameters dictionary
         scheduled_time: Optional scheduled time string
         stagger_delay: Delay in seconds to stagger multi-user execution
+        fetch_user_config: Optional fetch user configuration for trigger mode
 
     Returns:
         API response dictionary
@@ -283,6 +329,16 @@ def execute_order_for_user(
 
         # Create user-specific TMS client
         tms_client = TMSClient(user_config)
+
+        # Create fetch client if provided
+        fetch_client = None
+        if fetch_user_config:
+            fetch_client = TMSClient(fetch_user_config)
+            logger.info(f"[{user_id}] Fetch client initialized: {fetch_user_config.user_id}")
+
+        # Add fetch_client to order_params if it's not already there
+        if fetch_client and 'fetch_client' not in order_params:
+            order_params = {**order_params, 'fetch_client': fetch_client}
 
         # Create order service
         order_service = OrderService(tms_client)
@@ -311,7 +367,8 @@ def execute_order_for_user(
 
 def execute_from_order_store(
     user_configs: List[UserConfig],
-    order_store_path: str
+    order_store_path: str,
+    fetch_user_config: UserConfig = None
 ) -> Dict[str, Any]:
     """
     Execute an order from the order store.
@@ -319,6 +376,7 @@ def execute_from_order_store(
     Args:
         user_configs: List of UserConfig instances
         order_store_path: Path to order store JSON file
+        fetch_user_config: Optional fetch user configuration for trigger mode
 
     Returns:
         API response dictionary
@@ -349,10 +407,14 @@ def execute_from_order_store(
 
     # Resolve ticker to IDs
     try:
-        security_id, exchange_security_id = lookup_ticker(order['ticker'])
+        from utils import get_ticker_store
+        ticker_store = get_ticker_store()
+        security_id, exchange_security_id = ticker_store.lookup(order['ticker'])
+        fetch_id = ticker_store.get_fetch_id(order['ticker'])
+
         logger.info(
             f"Ticker '{order['ticker']}' resolved to "
-            f"security_id={security_id}, exchange_security_id={exchange_security_id}"
+            f"security_id={security_id}, exchange_security_id={exchange_security_id}, fetch_id={fetch_id}"
         )
     except (FileNotFoundError, ValueError) as e:
         order_store.mark_failed(order_id)
@@ -361,7 +423,16 @@ def execute_from_order_store(
     # Determine mode flags
     ipo_mode = order['mode'] == 'ipo'
     ipo_sniper_mode = order['mode'] == 'ipo-sniper'
+    ipo_trigger_mode = order['mode'] == 'ipo-trigger'
     buy_or_sell = 2 if order['sell'] else 1
+
+    # Validate fetch_user requirement for trigger mode
+    if ipo_trigger_mode and fetch_user_config is None:
+        order_store.mark_failed(order_id)
+        raise ValueError(
+            "Fetch user configuration is required for 'ipo-trigger' mode. "
+            "Use --fetch-user argument to specify fetch user JSON file."
+        )
 
     # Prepare order parameters
     order_params = {
@@ -375,7 +446,10 @@ def execute_from_order_store(
         'client_data_file': None,
         'ipo_mode': ipo_mode,
         'ipo_sniper_mode': ipo_sniper_mode,
-        'limit_price': order['limit']
+        'ipo_trigger_mode': ipo_trigger_mode,
+        'limit_price': order['limit'],
+        'skip_first': order['skip_first'],
+        'fetch_id': fetch_id
     }
 
     # Log execution details
@@ -401,7 +475,8 @@ def execute_from_order_store(
             result = execute_order_for_user(
                 user_config=user_configs[0],
                 order_params=order_params,
-                scheduled_time=order['time']
+                scheduled_time=order['time'],
+                fetch_user_config=fetch_user_config
             )
         else:
             # Multi-user - execute in parallel threads with staggering
@@ -423,7 +498,8 @@ def execute_from_order_store(
                         user_config=user_config,
                         order_params=order_params,
                         scheduled_time=order['time'],
-                        stagger_delay=delay
+                        stagger_delay=delay,
+                        fetch_user_config=fetch_user_config
                     )
                 except Exception as e:
                     exceptions.append((user_config.user_id, e))
@@ -496,10 +572,17 @@ def main():
         # Load user configurations
         user_configs = load_user_configs(args)
 
+        # Load fetch user configuration if provided
+        fetch_user_config = None
+        if args.fetch_user:
+            logger.info(f"Loading fetch user configuration from {args.fetch_user}")
+            fetch_user_config = UserConfig.from_file(args.fetch_user)
+            logger.info(f"Loaded fetch user: {fetch_user_config.user_id}")
+
         # Check if using order store mode
         if args.order_store:
             # Order store mode
-            execute_from_order_store(user_configs, args.order_store)
+            execute_from_order_store(user_configs, args.order_store, fetch_user_config)
         else:
             # Manual order mode
             # Determine buy or sell
@@ -517,7 +600,10 @@ def main():
                 'client_data_file': args.client_data,
                 'ipo_mode': args.ipo,
                 'ipo_sniper_mode': args.ipo_sniper,
-                'limit_price': args.limit
+                'ipo_trigger_mode': args.ipo_trigger,
+                'limit_price': args.limit,
+                'skip_first': args.skip_first if hasattr(args, 'skip_first') else False,
+                'fetch_id': args.fetch_id if hasattr(args, 'fetch_id') else None
             }
 
             # Log execution mode
@@ -526,6 +612,8 @@ def main():
                 mode += " (IPO SNIPING)"
             elif args.ipo_sniper:
                 mode += " (IPO SNIPER)"
+            elif args.ipo_trigger:
+                mode += " (IPO TRIGGER)"
 
             logger.info(f"Execution Mode: {mode}")
             logger.info(f"Number of Users: {len(user_configs)}")
@@ -554,7 +642,8 @@ def main():
                 execute_order_for_user(
                     user_config=user_configs[0],
                     order_params=order_params,
-                    scheduled_time=args.time
+                    scheduled_time=args.time,
+                    fetch_user_config=fetch_user_config
                 )
             else:
                 # Multi-user - execute in parallel threads with staggering
@@ -577,7 +666,8 @@ def main():
                             user_config=user_config,
                             order_params=order_params,
                             scheduled_time=args.time,
-                            stagger_delay=delay
+                            stagger_delay=delay,
+                            fetch_user_config=fetch_user_config
                         )
                     except Exception as e:
                         exceptions.append((user_config.user_id, e))

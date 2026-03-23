@@ -42,7 +42,11 @@ class OrderService:
         order_validity: str = None,
         ipo_mode: bool = False,
         ipo_sniper_mode: bool = False,
-        limit_price: Optional[float] = None
+        ipo_trigger_mode: bool = False,
+        limit_price: Optional[float] = None,
+        fetch_client: Optional[Any] = None,
+        skip_first: bool = False,
+        fetch_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Execute an order immediately.
@@ -58,13 +62,40 @@ class OrderService:
             order_validity: Order validity (DAY, IOC, etc.)
             ipo_mode: Enable IPO sniping mode (auto-place at +2%, +4%, +6%, +8%, +10%)
             ipo_sniper_mode: Enable IPO sniper mode (aggressive +10% placement)
+            ipo_trigger_mode: Enable IPO trigger mode (price-based ladder triggering)
             limit_price: Optional upper limit price for IPO sniping mode
+            fetch_client: TMSClient instance for fetching prices (required for trigger mode)
+            skip_first: Skip the first ladder level (trigger mode only)
+            fetch_id: Security ID for fetching LTP (defaults to security_id if not provided)
 
         Returns:
             API response dictionary
         """
         # Load client data
         client_data = self._get_client_data(client_data_file)
+
+        # IPO Trigger Mode: Price-based ladder triggering
+        if ipo_trigger_mode:
+            if fetch_client is None:
+                raise ValueError("fetch_client is required for IPO trigger mode")
+
+            # Use fetch_id if provided, otherwise fall back to security_id
+            fetch_security_id = fetch_id if fetch_id is not None else security_id
+
+            return self._execute_ipo_trigger(
+                security_id=security_id,
+                exchange_security_id=exchange_security_id,
+                base_price=order_price,
+                order_quantity=order_quantity,
+                client_data=client_data,
+                buy_or_sell=buy_or_sell,
+                order_type=order_type,
+                order_validity=order_validity,
+                limit_price=limit_price,
+                fetch_client=fetch_client,
+                skip_first=skip_first,
+                fetch_security_id=fetch_security_id
+            )
 
         # IPO Sniper Mode: Aggressive placement at +10%
         if ipo_sniper_mode:
@@ -321,7 +352,7 @@ class OrderService:
                     if "401" in error_msg or "Unauthorized" in error_msg:
                         logger.debug(f"[{self.user_id}] Token issue, retrying")
                         try:
-                            time.sleep(0.5)
+                            time.sleep(1)
                         except KeyboardInterrupt:
                             logger.info(f"[{self.user_id}] IPO sniping interrupted by user")
                             raise
@@ -330,7 +361,7 @@ class OrderService:
                             f"[{self.user_id}] Error placing order level {level_num}: {error_msg}"
                         )
                         try:
-                            time.sleep(2.5)
+                            time.sleep(3)
                         except KeyboardInterrupt:
                             logger.info(f"[{self.user_id}] IPO sniping interrupted by user")
                             raise
@@ -445,3 +476,337 @@ class OrderService:
             f"({duration_minutes} minutes elapsed)"
         )
         raise Exception(f"IPO Sniper timeout: Could not place order within {duration_minutes} minutes")
+
+    def _execute_ipo_trigger(
+        self,
+        security_id: int,
+        exchange_security_id: int,
+        base_price: float,
+        order_quantity: int,
+        client_data: Dict[str, Any],
+        buy_or_sell: int,
+        order_type: str,
+        order_validity: str,
+        fetch_client: Any,
+        limit_price: Optional[float] = None,
+        skip_first: bool = False,
+        fetch_security_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute IPO trigger mode: Monitor LTP and place orders when LTP reaches ladder levels.
+
+        New trigger logic:
+        - When LTP >= ladder[i], place order at ladder[i+1]
+        - If skip_first=True, skip ladder[0] and start from ladder[1]
+        - Skip missed levels if LTP jumps ahead
+
+        Args:
+            security_id: Security ID
+            exchange_security_id: Exchange security ID
+            base_price: Starting price
+            order_quantity: Number of units
+            client_data: Client information dictionary
+            buy_or_sell: 1 for buy, 2 for sell
+            order_type: Order type (LMT, MKT, etc.)
+            order_validity: Order validity (DAY, IOC, etc.)
+            fetch_client: TMSClient instance for fetching LTP
+            limit_price: Optional upper limit price for calculations
+            skip_first: Skip the first ladder level
+            fetch_security_id: Security ID for fetching LTP (defaults to security_id if not provided)
+
+        Returns:
+            Last API response dictionary
+        """
+        from services.price_fetcher import PriceFetcher, TokenRefreshManager
+
+        # Use fetch_security_id if provided, otherwise fall back to security_id
+        if fetch_security_id is None:
+            fetch_security_id = security_id
+
+        # Pre-calculate all price levels (same as ipo_mode)
+        price_increments = [0, 2, 2, 2, 2, 2]
+        price_levels: List[float] = []
+        actual_increments: List[int] = []
+
+        # Calculate standard ladder prices
+        current_price = base_price
+        for increment in price_increments:
+            new_price = current_price * (1 + increment / 100)
+            floored_price = math.floor(new_price * 10) / 10
+            current_price = floored_price
+            price_levels.append(floored_price)
+            actual_increments.append(increment)
+
+        # If limit_price is provided, calculate +10% of limit and adjust ladder
+        if limit_price is not None:
+            max_limit_price = limit_price * 1.10
+            max_limit_price = math.floor(max_limit_price * 10) / 10
+
+            logger.info(
+                f"[{self.user_id}] Limit price provided: Rs. {limit_price:.1f}, "
+                f"+10% = Rs. {max_limit_price:.1f}"
+            )
+
+            # Filter out price levels that exceed the limit
+            filtered_levels: List[float] = []
+            filtered_increments: List[int] = []
+
+            for price, increment in zip(price_levels, actual_increments):
+                if price <= max_limit_price:
+                    filtered_levels.append(price)
+                    filtered_increments.append(increment)
+                else:
+                    logger.debug(
+                        f"[{self.user_id}] Removing level +{increment}% "
+                        f"(Rs. {price:.1f}) - exceeds limit"
+                    )
+
+            # Check if max_limit_price should be added as final order
+            if max_limit_price > price_levels[-1]:
+                filtered_levels.append(max_limit_price)
+                filtered_increments.append(-1)
+                logger.info(
+                    f"[{self.user_id}] Adding limit-based price Rs. {max_limit_price:.1f} "
+                    f"as final order (11th level)"
+                )
+            elif filtered_levels and filtered_levels[-1] != max_limit_price:
+                filtered_levels.append(max_limit_price)
+                filtered_increments.append(-1)
+                logger.info(
+                    f"[{self.user_id}] Adding limit-based price Rs. {max_limit_price:.1f} "
+                    f"as final order"
+                )
+
+            logger.info(
+                f"[{self.user_id}] Final price levels after applying limit: {filtered_levels}"
+            )
+            price_levels = filtered_levels
+            actual_increments = filtered_increments
+
+        logger.info(
+            f"[{self.user_id}] IPO TRIGGER MODE: {len(price_levels)} levels, "
+            f"Security={security_id}, Qty={order_quantity}, "
+            f"Price range: Rs. {price_levels[0]:.1f} - Rs. {price_levels[-1]:.1f}, "
+            f"Skip first: {skip_first}"
+        )
+
+        for i, price in enumerate(price_levels):
+            increment = actual_increments[i]
+            skip_marker = " [SKIP]" if i == 0 and skip_first else ""
+            if increment == -1:
+                logger.debug(
+                    f"[{self.user_id}] Level {i+1}: Rs. {price:.1f} (Limit +10%){skip_marker}"
+                )
+            else:
+                logger.debug(
+                    f"[{self.user_id}] Level {i+1}: Rs. {price:.1f} (+{increment}%){skip_marker}"
+                )
+
+        # Start price fetcher for monitoring LTP
+        poll_interval_ms = self.client.user_config.trigger_mode_poll_interval_ms
+        logger.info(
+            f"[{self.user_id}] Using fetch_security_id={fetch_security_id} for LTP monitoring"
+        )
+        price_fetcher = PriceFetcher(
+            fetch_client=fetch_client,
+            security_id=fetch_security_id,
+            poll_interval_ms=poll_interval_ms
+        )
+        price_fetcher.start()
+
+        # Start token refresh manager to keep main user ready
+        refresh_interval = self.client.user_config.trigger_mode_refresh_interval_seconds
+        token_manager = TokenRefreshManager(
+            tms_client=self.client,
+            refresh_interval_seconds=refresh_interval
+        )
+        token_manager.start()
+
+        last_response = None
+
+        try:
+            # Determine starting index based on skip_first
+            current_level_index = 0
+
+            # Wait for initial trigger if skip_first
+            if skip_first:
+                logger.info(
+                    f"[{self.user_id}] Skip-first enabled: waiting for LTP >= Rs. {price_levels[0]:.1f}"
+                )
+
+                triggered = False
+                while not triggered:
+                    ltp = price_fetcher.get_latest_ltp()
+
+                    if ltp is not None and ltp >= price_levels[0]:
+                        logger.info(
+                            f"[{self.user_id}] Initial trigger reached! LTP={ltp:.1f} >= "
+                            f"Rs. {price_levels[0]:.1f}. Starting from level 2."
+                        )
+                        triggered = True
+                        current_level_index = 1  # Start placing from ladder[1]
+                    else:
+                        try:
+                            time.sleep(0.05)
+                        except KeyboardInterrupt:
+                            logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                            raise
+
+            # Execute orders based on LTP triggers
+            # We place orders starting from current_level_index
+            # For each level, we wait until LTP >= price_levels[level_index - 1]
+
+            while current_level_index < len(price_levels):
+                target_price = price_levels[current_level_index]
+                increment_pct = actual_increments[current_level_index]
+
+                # Determine trigger price (the ladder level before this one)
+                if current_level_index == 0:
+                    # First order - place immediately without waiting
+                    trigger_price = 0
+                    logger.info(
+                        f"[{self.user_id}] Placing first order at Rs. {target_price:.1f}"
+                    )
+                else:
+                    # Wait for LTP >= previous ladder price
+                    trigger_price = price_levels[current_level_index - 1]
+
+                    if increment_pct == -1:
+                        logger.info(
+                            f"[{self.user_id}] Waiting for LTP >= Rs. {trigger_price:.1f} "
+                            f"to place order at Rs. {target_price:.1f} (Limit +10%)"
+                        )
+                    else:
+                        logger.info(
+                            f"[{self.user_id}] Waiting for LTP >= Rs. {trigger_price:.1f} "
+                            f"to place order at Rs. {target_price:.1f} (+{increment_pct}%)"
+                        )
+
+                    # Wait for trigger
+                    triggered = False
+                    while not triggered:
+                        ltp = price_fetcher.get_latest_ltp()
+
+                        if ltp is not None and ltp >= trigger_price:
+                            # Check for edge case: LTP jumped past multiple levels
+                            # Find the next level to place based on current LTP
+                            while current_level_index < len(price_levels) - 1 and ltp >= price_levels[current_level_index]:
+                                logger.warning(
+                                    f"[{self.user_id}] LTP={ltp:.1f} >= Rs. {price_levels[current_level_index]:.1f}, "
+                                    f"skipping missed level {current_level_index + 1}"
+                                )
+                                current_level_index += 1
+
+                            # Update target price after potential skips
+                            target_price = price_levels[current_level_index]
+                            increment_pct = actual_increments[current_level_index]
+
+                            logger.info(
+                                f"[{self.user_id}] TRIGGERED! LTP={ltp:.1f} >= "
+                                f"Rs. {trigger_price:.1f}. Placing order at Rs. {target_price:.1f}"
+                            )
+                            triggered = True
+                        else:
+                            # Small sleep to avoid busy waiting
+                            try:
+                                time.sleep(0.05)
+                            except KeyboardInterrupt:
+                                logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                                raise
+
+                # Place order at target price, retry up to 3 times then skip
+                level_display = current_level_index + 1
+                logger.info(
+                    f"[{self.user_id}] Placing order level {level_display}/{len(price_levels)} "
+                    f"at Rs. {target_price:.1f}"
+                )
+
+                order_placed = False
+                attempt = 0
+                max_attempts = 3
+
+                while not order_placed and attempt < max_attempts:
+                    attempt += 1
+                    if attempt > 1:
+                        logger.debug(f"[{self.user_id}] Attempt #{attempt}/{max_attempts}")
+
+                    try:
+                        response = self.client.place_order(
+                            security_id=security_id,
+                            exchange_security_id=exchange_security_id,
+                            order_price=target_price,
+                            order_quantity=order_quantity,
+                            client_data=client_data,
+                            buy_or_sell=buy_or_sell,
+                            order_type=order_type,
+                            order_validity=order_validity
+                        )
+
+                        if response:
+                            logger.info(
+                                f"[{self.user_id}] Order level {level_display} placed successfully"
+                            )
+                            order_placed = True
+                            last_response = response
+
+                            # Move to next level
+                            current_level_index += 1
+
+                            # Small delay between orders
+                            if current_level_index < len(price_levels):
+                                try:
+                                    time.sleep(0.1)
+                                except KeyboardInterrupt:
+                                    logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                                    raise
+
+                    except KeyboardInterrupt:
+                        logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                        raise
+                    except Exception as e:
+                        error_msg = str(e)
+                        # Handle different error types with appropriate delays
+                        if "401" in error_msg or "Unauthorized" in error_msg:
+                            logger.debug(f"[{self.user_id}] Token issue, retrying")
+                            try:
+                                time.sleep(1)
+                            except KeyboardInterrupt:
+                                logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                                raise
+                        elif "400" in error_msg or "Bad Request" in error_msg:
+                            logger.warning(
+                                f"[{self.user_id}] Error placing order level {level_display}: {error_msg}"
+                            )
+                            try:
+                                time.sleep(3)
+                            except KeyboardInterrupt:
+                                logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                                raise
+                        else:
+                            logger.error(
+                                f"[{self.user_id}] Error placing order level {level_display}: {error_msg}"
+                            )
+                            try:
+                                time.sleep(1)
+                            except KeyboardInterrupt:
+                                logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                                raise
+
+                # If order failed after max attempts, skip to next level
+                if not order_placed:
+                    logger.warning(
+                        f"[{self.user_id}] Failed to place order at Rs. {target_price:.1f} "
+                        f"after {max_attempts} attempts. Skipping to next level."
+                    )
+                    current_level_index += 1
+
+        finally:
+            # Stop background services
+            price_fetcher.stop()
+            token_manager.stop()
+
+        total_placed = current_level_index
+        logger.info(
+            f"[{self.user_id}] IPO TRIGGER COMPLETE: {total_placed} orders placed"
+        )
+        return last_response

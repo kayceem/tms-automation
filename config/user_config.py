@@ -34,9 +34,14 @@ class UserConfig:
     # IPO Sniper settings
     ipo_sniper_duration_minutes: int = 2
 
+    # Trigger mode settings
+    trigger_mode_poll_interval_ms: int = 100  # Polling interval in milliseconds for fetching LTP
+    trigger_mode_refresh_interval_seconds: int = 60  # Token refresh interval to keep main user ready
+
     # API endpoints
     tms_order_endpoint: str = '/tmsapi/orderApi/order/'
     tms_refresh_endpoint: str = '/tmsapi/security/'
+    tms_quote_endpoint: str = '/tmsapi/rtApi/ws/stockQuote/'  # LTP fetch endpoint
 
     def __post_init__(self):
         """Validate required fields."""
@@ -69,7 +74,9 @@ class UserConfig:
             'default_product_code': self.default_product_code,
             'default_instrument_type': self.default_instrument_type,
             'default_buy_or_sell': self.default_buy_or_sell,
-            'ipo_sniper_duration_minutes': self.ipo_sniper_duration_minutes
+            'ipo_sniper_duration_minutes': self.ipo_sniper_duration_minutes,
+            'trigger_mode_poll_interval_ms': self.trigger_mode_poll_interval_ms,
+            'trigger_mode_refresh_interval_seconds': self.trigger_mode_refresh_interval_seconds
         }
 
     @classmethod

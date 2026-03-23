@@ -51,11 +51,16 @@ cookies.json
 
 # User configuration files (contain credentials)
 users/*.json
+users/*.txt
 !users/*.example.json
 
 # Log files directory
 logs/
 *.log
+
+# Test results
+tests/results/*.json
+tests/test_config.json
 
 # Backup files
 *.bak

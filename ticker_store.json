@@ -4,8 +4,15 @@
     "TICKER": {
       "security_id": 123,
       "exchange_security_id": 456,
+      "fetch_id": 123,
       "name": "Company Name (Optional)"
     }
+  },
+  "_instructions": {
+    "security_id": "Security ID used for placing orders",
+    "exchange_security_id": "Exchange security ID used for placing orders",
+    "fetch_id": "(Optional) Security ID used for fetching LTP. If not provided, uses security_id",
+    "name": "(Optional) Company name for reference"
   },
   "SABBL": {
     "security_id": 3098,
@@ -15,7 +22,8 @@
   "RSML": {
     "security_id": 3099,
     "exchange_security_id": 9306,
-    "name": "Reliance Spinning Mills Limited"
+    "name": "Reliance Spinning Mills Limited",
+    "fetch_id": 3100
   },
   "HFIN": {
       "security_id": 3101,

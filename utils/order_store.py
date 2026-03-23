@@ -119,7 +119,7 @@ class OrderStore:
             )
 
         # Validate mode
-        valid_modes = ['normal', 'ipo', 'ipo-sniper']
+        valid_modes = ['normal', 'ipo', 'ipo-sniper', 'ipo-trigger']
         mode = order['mode']
         if mode not in valid_modes:
             raise ValueError(
@@ -142,8 +142,8 @@ class OrderStore:
         except (TypeError, ValueError) as e:
             raise ValueError(f"Order '{order_id}' has invalid quantity: {order['quantity']}")
 
-        # Validate limit for IPO mode
-        if mode == 'ipo' and 'limit' in order and order['limit'] is not None:
+        # Validate limit for IPO modes
+        if mode in ['ipo', 'ipo-trigger'] and 'limit' in order and order['limit'] is not None:
             try:
                 limit = float(order['limit'])
                 if limit <= 0:
@@ -174,7 +174,8 @@ class OrderStore:
             'limit': float(order['limit']) if 'limit' in order and order['limit'] is not None else None,
             'time': order.get('time'),
             'refresh_before': int(order.get('refresh_before', 20)),
-            'sell': bool(order.get('sell', False))
+            'sell': bool(order.get('sell', False)),
+            'skip_first': bool(order.get('skip_first', False))
         }
 
         logger.debug(f"Order '{order_id}' validated successfully")
