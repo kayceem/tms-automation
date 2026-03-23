@@ -164,12 +164,23 @@ class OrderStore:
                     f"Order '{order_id}' has invalid refresh_before: {order['refresh_before']}"
                 )
 
+        # Validate base_quantity if provided
+        base_quantity = 10  # Default
+        if 'base_quantity' in order and order['base_quantity'] is not None:
+            try:
+                base_quantity = int(order['base_quantity'])
+                if base_quantity <= 0:
+                    raise ValueError(f"Order '{order_id}' has invalid base_quantity: {base_quantity}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid base_quantity: {order['base_quantity']}")
+
         # Normalize optional fields
         normalized = {
             'id': order_id,
             'ticker': str(order['ticker']).upper(),
             'price': float(order['price']),
             'quantity': int(order['quantity']),
+            'base_quantity': base_quantity,
             'mode': mode,
             'limit': float(order['limit']) if 'limit' in order and order['limit'] is not None else None,
             'time': order.get('time'),

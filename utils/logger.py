@@ -5,6 +5,22 @@ import sys
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from typing import Optional
+from datetime import datetime
+
+
+class MillisecondFormatter(logging.Formatter):
+    """Custom formatter that includes milliseconds in timestamps."""
+
+    def formatTime(self, record, datefmt=None):
+        """Override to include milliseconds."""
+        ct = datetime.fromtimestamp(record.created)
+        if datefmt:
+            s = ct.strftime(datefmt)
+        else:
+            s = ct.strftime("%Y-%m-%d %H:%M:%S")
+        # Add milliseconds
+        s = f"{s}.{int(record.msecs):03d}"
+        return s
 
 
 class ColoredFormatter(logging.Formatter):
@@ -19,6 +35,17 @@ class ColoredFormatter(logging.Formatter):
         'CRITICAL': '\033[35m',   # Magenta
         'RESET': '\033[0m'        # Reset
     }
+
+    def formatTime(self, record, datefmt=None):
+        """Override to include milliseconds."""
+        ct = datetime.fromtimestamp(record.created)
+        if datefmt:
+            s = ct.strftime(datefmt)
+        else:
+            s = ct.strftime("%H:%M:%S")
+        # Add milliseconds
+        s = f"{s}.{int(record.msecs):03d}"
+        return s
 
     def format(self, record):
         """Format log record with colors."""
@@ -66,7 +93,7 @@ def setup_logger(
     logger.propagate = False
 
     # Create formatters
-    file_formatter = logging.Formatter(
+    file_formatter = MillisecondFormatter(
         '%(asctime)s | %(name)s | %(levelname)s | %(threadName)s | %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )

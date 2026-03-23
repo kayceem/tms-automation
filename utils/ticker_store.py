@@ -17,7 +17,7 @@ class TickerStore:
         """
         if store_path is None:
             # Default to ticker_store.json in project root
-            store_path = Path(__file__).parent.parent / 'ticker_store.json'
+            store_path = Path(__file__).parent.parent / 'stores/ticker_store.json'
 
         self.store_path = Path(store_path)
         self._data: Dict = {}

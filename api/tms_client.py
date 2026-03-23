@@ -227,11 +227,10 @@ class TMSClient:
             # Extract cookies from session
             rid_cookie = ''
             aid_cookie = ''
-
             for cookie in self.session.cookies:
-                if cookie.name == '_rid':
+                if cookie.name == '_rid' and cookie.domain == '.' + self.user_config.tms_base_url.split('//')[1]:
                     rid_cookie = cookie.value
-                elif cookie.name == '_aid':
+                elif cookie.name == '_aid' and cookie.domain == '.' + self.user_config.tms_base_url.split('//')[1]:
                     aid_cookie = cookie.value
 
             # Update user config

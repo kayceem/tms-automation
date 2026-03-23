@@ -43,6 +43,9 @@ class UserConfig:
     tms_refresh_endpoint: str = '/tmsapi/security/'
     tms_quote_endpoint: str = '/tmsapi/rtApi/ws/stockQuote/'  # LTP fetch endpoint
 
+    # Internal: file path for auto-saving (not serialized to JSON)
+    _config_file_path: Optional[str] = None
+
     def __post_init__(self):
         """Validate required fields."""
         required = [
@@ -82,7 +85,9 @@ class UserConfig:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'UserConfig':
         """Create UserConfig from dictionary."""
-        return cls(**data)
+        # Filter out internal fields (starting with _)
+        filtered_data = {k: v for k, v in data.items() if not k.startswith('_')}
+        return cls(**filtered_data)
 
     @classmethod
     def from_file(cls, file_path: str) -> 'UserConfig':
@@ -94,7 +99,10 @@ class UserConfig:
         with open(path, 'r') as f:
             data = json.load(f)
 
-        return cls.from_dict(data)
+        config = cls.from_dict(data)
+        # Store the file path for auto-saving refreshed cookies
+        config._config_file_path = str(path.resolve())
+        return config
 
     def save_to_file(self, file_path: str):
         """Save user configuration to JSON file."""
@@ -105,8 +113,18 @@ class UserConfig:
             json.dump(self.to_dict(), f, indent=2)
 
     def update_cookies(self, xsrf_token: str = None, rid_cookie: str = None,
-                      host_session_id: str = None, access_token: str = None):
-        """Update authentication cookies."""
+                      host_session_id: str = None, access_token: str = None,
+                      auto_save: bool = True):
+        """
+        Update authentication cookies.
+
+        Args:
+            xsrf_token: New XSRF token
+            rid_cookie: New RID cookie
+            host_session_id: New host session ID
+            access_token: New access token
+            auto_save: If True and config was loaded from file, automatically save to disk
+        """
         if xsrf_token:
             self.xsrf_token = xsrf_token
         if rid_cookie:
@@ -115,6 +133,16 @@ class UserConfig:
             self.host_session_id = host_session_id
         if access_token:
             self.access_token = access_token
+
+        # Auto-save to file if path is available
+        if auto_save and self._config_file_path:
+            try:
+                self.save_to_file(self._config_file_path)
+            except Exception as e:
+                # Log error but don't raise - cookie update succeeded even if save failed
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to auto-save updated cookies to {self._config_file_path}: {e}")
 
 
 class UserConfigManager:

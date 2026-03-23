@@ -449,7 +449,8 @@ def execute_from_order_store(
         'ipo_trigger_mode': ipo_trigger_mode,
         'limit_price': order['limit'],
         'skip_first': order['skip_first'],
-        'fetch_id': fetch_id
+        'fetch_id': fetch_id,
+        'base_quantity': order['base_quantity']
     }
 
     # Log execution details

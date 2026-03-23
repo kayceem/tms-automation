@@ -46,7 +46,8 @@ class OrderService:
         limit_price: Optional[float] = None,
         fetch_client: Optional[Any] = None,
         skip_first: bool = False,
-        fetch_id: Optional[int] = None
+        fetch_id: Optional[int] = None,
+        base_quantity: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Execute an order immediately.
@@ -67,6 +68,7 @@ class OrderService:
             fetch_client: TMSClient instance for fetching prices (required for trigger mode)
             skip_first: Skip the first ladder level (trigger mode only)
             fetch_id: Security ID for fetching LTP (defaults to security_id if not provided)
+            base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
 
         Returns:
             API response dictionary
@@ -94,7 +96,8 @@ class OrderService:
                 limit_price=limit_price,
                 fetch_client=fetch_client,
                 skip_first=skip_first,
-                fetch_security_id=fetch_security_id
+                fetch_security_id=fetch_security_id,
+                base_quantity=base_quantity
             )
 
         # IPO Sniper Mode: Aggressive placement at +10%
@@ -121,7 +124,8 @@ class OrderService:
                 buy_or_sell=buy_or_sell,
                 order_type=order_type,
                 order_validity=order_validity,
-                limit_price=limit_price
+                limit_price=limit_price,
+                base_quantity=base_quantity
             )
 
         # Normal single order execution
@@ -193,11 +197,13 @@ class OrderService:
         buy_or_sell: int,
         order_type: str,
         order_validity: str,
-        limit_price: Optional[float] = None
+        limit_price: Optional[float] = None,
+        base_quantity: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Execute IPO sniping: place orders at base price, then +2%, +4%, +6%, +8%, +10%.
         If limit_price is provided, calculates +10% of limit and adjusts the ladder.
+        Uses base_quantity for all levels except final, which uses order_quantity.
 
         Args:
             security_id: Security ID
@@ -296,15 +302,25 @@ class OrderService:
         for level_num, price in enumerate(price_levels, 1):
             increment_pct = actual_increments[level_num - 1]
 
+            # Determine quantity for this level
+            # Use base_quantity for all levels except final level
+            is_final_level = (level_num == len(price_levels))
+            if is_final_level:
+                qty_for_level = order_quantity
+            elif base_quantity is not None:
+                qty_for_level = base_quantity
+            else:
+                qty_for_level = order_quantity
+
             if increment_pct == -1:
                 logger.info(
                     f"[{self.user_id}] Placing order level {level_num}/{len(price_levels)} "
-                    f"(Limit +10%) at Rs. {price:.1f}"
+                    f"(Limit +10%) at Rs. {price:.1f}, Qty={qty_for_level}"
                 )
             else:
                 logger.info(
                     f"[{self.user_id}] Placing order level {level_num}/{len(price_levels)} "
-                    f"(+{increment_pct}%) at Rs. {price:.1f}"
+                    f"(+{increment_pct}%) at Rs. {price:.1f}, Qty={qty_for_level}"
                 )
 
             # Keep trying until order is placed successfully
@@ -321,7 +337,7 @@ class OrderService:
                         security_id=security_id,
                         exchange_security_id=exchange_security_id,
                         order_price=price,
-                        order_quantity=order_quantity,
+                        order_quantity=qty_for_level,
                         client_data=client_data,
                         buy_or_sell=buy_or_sell,
                         order_type=order_type,
@@ -490,7 +506,8 @@ class OrderService:
         fetch_client: Any,
         limit_price: Optional[float] = None,
         skip_first: bool = False,
-        fetch_security_id: Optional[int] = None
+        fetch_security_id: Optional[int] = None,
+        base_quantity: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Execute IPO trigger mode: Monitor LTP and place orders when LTP reaches ladder levels.
@@ -499,12 +516,13 @@ class OrderService:
         - When LTP >= ladder[i], place order at ladder[i+1]
         - If skip_first=True, skip ladder[0] and start from ladder[1]
         - Skip missed levels if LTP jumps ahead
+        - Uses base_quantity for all levels except final, which uses order_quantity
 
         Args:
             security_id: Security ID
             exchange_security_id: Exchange security ID
             base_price: Starting price
-            order_quantity: Number of units
+            order_quantity: Number of units for final level
             client_data: Client information dictionary
             buy_or_sell: 1 for buy, 2 for sell
             order_type: Order type (LMT, MKT, etc.)
@@ -513,6 +531,7 @@ class OrderService:
             limit_price: Optional upper limit price for calculations
             skip_first: Skip the first ladder level
             fetch_security_id: Security ID for fetching LTP (defaults to security_id if not provided)
+            base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
 
         Returns:
             Last API response dictionary
@@ -716,9 +735,20 @@ class OrderService:
 
                 # Place order at target price, retry up to 3 times then skip
                 level_display = current_level_index + 1
+
+                # Determine quantity for this level
+                # Use base_quantity for all levels except final level
+                is_final_level = (current_level_index == len(price_levels) - 1)
+                if is_final_level:
+                    qty_for_level = order_quantity
+                elif base_quantity is not None:
+                    qty_for_level = base_quantity
+                else:
+                    qty_for_level = order_quantity
+
                 logger.info(
                     f"[{self.user_id}] Placing order level {level_display}/{len(price_levels)} "
-                    f"at Rs. {target_price:.1f}"
+                    f"at Rs. {target_price:.1f}, Qty={qty_for_level}"
                 )
 
                 order_placed = False
@@ -735,7 +765,7 @@ class OrderService:
                             security_id=security_id,
                             exchange_security_id=exchange_security_id,
                             order_price=target_price,
-                            order_quantity=order_quantity,
+                            order_quantity=qty_for_level,
                             client_data=client_data,
                             buy_or_sell=buy_or_sell,
                             order_type=order_type,

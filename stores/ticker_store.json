@@ -38,6 +38,7 @@
     "BJHL": {
         "security_id": 3103,
         "exchange_security_id": 9322,
-        "name": "Bhujung Hydropower Limited"
+        "name": "Bhujung Hydropower Limited",
+        "fetch_id": 3104
     }
 }
