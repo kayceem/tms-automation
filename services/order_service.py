@@ -47,6 +47,7 @@ class OrderService:
         fetch_client: Optional[Any] = None,
         skip_first: bool = False,
         skip_second_last: bool = False,
+        no_ladder: bool = False,
         fetch_id: Optional[int] = None,
         base_quantity: Optional[int] = None
     ) -> Dict[str, Any]:
@@ -69,6 +70,7 @@ class OrderService:
             fetch_client: TMSClient instance for fetching prices (required for trigger mode)
             skip_first: Skip the first ladder level (trigger mode only)
             skip_second_last: Skip the second-to-last ladder level (trigger mode only)
+            no_ladder: Skip ALL ladder levels, only place final order when LTP reaches second-to-last (trigger mode only)
             fetch_id: Security ID for fetching LTP (defaults to security_id if not provided)
             base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
 
@@ -99,6 +101,7 @@ class OrderService:
                 fetch_client=fetch_client,
                 skip_first=skip_first,
                 skip_second_last=skip_second_last,
+                no_ladder=no_ladder,
                 fetch_security_id=fetch_security_id,
                 base_quantity=base_quantity
             )
@@ -510,6 +513,7 @@ class OrderService:
         limit_price: Optional[float] = None,
         skip_first: bool = False,
         skip_second_last: bool = False,
+        no_ladder: bool = False,
         fetch_security_id: Optional[int] = None,
         base_quantity: Optional[int] = None
     ) -> Dict[str, Any]:
@@ -520,6 +524,7 @@ class OrderService:
         - When LTP >= ladder[i], place order at ladder[i+1]
         - If skip_first=True, skip ladder[0] and start from ladder[1]
         - If skip_second_last=True, skip the second-to-last ladder level
+        - If no_ladder=True, skip ALL ladder levels and only place final order when LTP >= second-to-last
         - Skip missed levels if LTP jumps ahead
         - Uses base_quantity for all levels except final, which uses order_quantity
 
@@ -536,6 +541,7 @@ class OrderService:
             limit_price: Optional upper limit price for calculations
             skip_first: Skip the first ladder level
             skip_second_last: Skip the second-to-last ladder level
+            no_ladder: Skip ALL ladder levels, only place final order at limit+10%
             fetch_security_id: Security ID for fetching LTP (defaults to security_id if not provided)
             base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
 
@@ -612,7 +618,7 @@ class OrderService:
             f"[{self.user_id}] IPO TRIGGER MODE: {len(price_levels)} levels, "
             f"Security={security_id}, Qty={order_quantity}, "
             f"Price range: Rs. {price_levels[0]:.1f} - Rs. {price_levels[-1]:.1f}, "
-            f"Skip first: {skip_first}, Skip second-last: {skip_second_last}"
+            f"Skip first: {skip_first}, Skip second-last: {skip_second_last}, No ladder: {no_ladder}"
         )
 
         # Determine which level is second-to-last (index before final level)
@@ -658,11 +664,49 @@ class OrderService:
         last_response = None
 
         try:
-            # Determine starting index based on skip_first
+            # Determine starting index based on skip_first and no_ladder
             current_level_index = 0
 
-            # Wait for initial trigger if skip_first
-            if skip_first:
+            # Handle no_ladder mode: Skip all levels except final
+            if no_ladder:
+                # Calculate second-to-last level index for trigger
+                second_last_index = len(price_levels) - 2 if len(price_levels) >= 2 else -1
+
+                if second_last_index >= 0:
+                    trigger_price = price_levels[second_last_index]
+                    final_price = price_levels[-1]
+
+                    logger.info(
+                        f"[{self.user_id}] NO LADDER MODE: Waiting for LTP >= Rs. {trigger_price:.1f} "
+                        f"to place FINAL order at Rs. {final_price:.1f}"
+                    )
+
+                    triggered = False
+                    while not triggered:
+                        ltp = price_fetcher.get_latest_ltp()
+
+                        if ltp is not None and ltp >= trigger_price:
+                            logger.info(
+                                f"[{self.user_id}] TRIGGERED! LTP={ltp:.1f} >= Rs. {trigger_price:.1f}. "
+                                f"Placing final order at Rs. {final_price:.1f}"
+                            )
+                            triggered = True
+                        else:
+                            try:
+                                time.sleep(0.05)
+                            except KeyboardInterrupt:
+                                logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                                raise
+
+                    # Place only the final order
+                    current_level_index = len(price_levels) - 1
+                else:
+                    # Edge case: Less than 2 levels, just place the only order
+                    logger.warning(f"[{self.user_id}] Only one level available, placing immediately")
+                    current_level_index = 0
+
+            # Wait for initial trigger if skip_first (and not no_ladder)
+            elif skip_first:
                 logger.info(
                     f"[{self.user_id}] Skip-first enabled: waiting for LTP >= Rs. {price_levels[0]:.1f}"
                 )

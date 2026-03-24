@@ -14,13 +14,14 @@
     "refresh_before": "(Optional) Seconds before execution to refresh tokens (default: 20)",
     "sell": "(Optional) Set to true for sell order, false/omit for buy order",
     "skip_first": "(Optional) For IPO-trigger mode: skip first ladder level (default: false)",
-    "skip_second_last": "(Optional) For IPO-trigger mode: skip second-to-last ladder level (the level before final limit order) (default: false)"
+    "skip_second_last": "(Optional) For IPO-trigger mode: skip second-to-last ladder level (the level before final limit order) (default: false)",
+    "no_ladder": "(Optional) For IPO-trigger mode: skip ALL ladder levels, only place final order at limit+10% when LTP reaches second-to-last level. Overrides skip_first and skip_second_last (default: false)"
   },
   "orders": [
     {
       "id": "sohl_ipo",
-      "execute": false,
-      "success": true,
+      "execute": true,
+      "success": false,
       "queue_id": 1,
       "ticker": "SOHL",
       "mode": "ipo-trigger",
@@ -28,13 +29,13 @@
       "base_quantity": 10,
       "price": 542,
       "limit": 584.5,
-      "skip_first": true,
-      "skip_second_last": true
+      "no_ladder": true,
+      "time": "11:00:00"
     },
     {
       "id": "rsml_ipo",
-      "execute": false,
-      "success": true,
+      "execute": true,
+      "success": false,
       "queue_id": 2,
       "ticker": "RSML",
       "mode": "ipo-trigger",
@@ -47,8 +48,8 @@
     },
     {
       "id": "hfin_ipo",
-      "execute": false,
-      "success": true,
+      "execute": true,
+      "success": false,
       "queue_id": 3,
       "ticker": "HFIN",
       "mode": "ipo-trigger",
@@ -56,12 +57,11 @@
       "base_quantity": 10,
       "price": 195.7,
       "limit": 217.3,
-      "skip_first": true,
-      "skip_second_last": true
+      "no_ladder": true
     },
     {
       "id": "bjhl_ipo",
-      "execute": false,
+      "execute": true,
       "success": false,
       "queue_id": 4,
       "ticker": "BJHL",
@@ -70,8 +70,7 @@
       "base_quantity": 10,
       "price": 238,
       "limit": 359.4,
-      "skip_first": true,
-      "skip_second_last": true
+      "no_ladder": true
     }
   ]
 }

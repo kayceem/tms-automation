@@ -208,7 +208,8 @@ class OrderStore:
             'refresh_before': int(order.get('refresh_before', 20)),
             'sell': bool(order.get('sell', False)),
             'skip_first': bool(order.get('skip_first', False)),
-            'skip_second_last': bool(order.get('skip_second_last', False))
+            'skip_second_last': bool(order.get('skip_second_last', False)),
+            'no_ladder': bool(order.get('no_ladder', False))
         }
 
         logger.debug(f"Order '{order_id}' validated successfully")

@@ -463,6 +463,7 @@ def execute_from_order_store(
             'limit_price': order['limit'],
             'skip_first': order['skip_first'],
             'skip_second_last': order['skip_second_last'],
+            'no_ladder': order['no_ladder'],
             'fetch_id': fetch_id,
             'base_quantity': order['base_quantity']
         }
