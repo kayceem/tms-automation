@@ -180,9 +180,9 @@ class RateLimitTester:
                 # Delay between requests if specified
                 if delay_between_requests > 0:
                     time.sleep(delay_between_requests)
-                if request_count % 10 == 0:
-                    print(f"Sleeping for {delay_between_requests}s between requests...")
-                    time.sleep(2)
+                # if request_count % 10 == 0:
+                #     print(f"Sleeping for {delay_between_requests}s between requests...")
+                #     time.sleep(2)
 
         except KeyboardInterrupt:
             print("\n\nTest interrupted by user")

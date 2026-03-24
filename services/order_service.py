@@ -46,6 +46,7 @@ class OrderService:
         limit_price: Optional[float] = None,
         fetch_client: Optional[Any] = None,
         skip_first: bool = False,
+        skip_second_last: bool = False,
         fetch_id: Optional[int] = None,
         base_quantity: Optional[int] = None
     ) -> Dict[str, Any]:
@@ -67,6 +68,7 @@ class OrderService:
             limit_price: Optional upper limit price for IPO sniping mode
             fetch_client: TMSClient instance for fetching prices (required for trigger mode)
             skip_first: Skip the first ladder level (trigger mode only)
+            skip_second_last: Skip the second-to-last ladder level (trigger mode only)
             fetch_id: Security ID for fetching LTP (defaults to security_id if not provided)
             base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
 
@@ -96,6 +98,7 @@ class OrderService:
                 limit_price=limit_price,
                 fetch_client=fetch_client,
                 skip_first=skip_first,
+                skip_second_last=skip_second_last,
                 fetch_security_id=fetch_security_id,
                 base_quantity=base_quantity
             )
@@ -506,6 +509,7 @@ class OrderService:
         fetch_client: Any,
         limit_price: Optional[float] = None,
         skip_first: bool = False,
+        skip_second_last: bool = False,
         fetch_security_id: Optional[int] = None,
         base_quantity: Optional[int] = None
     ) -> Dict[str, Any]:
@@ -515,6 +519,7 @@ class OrderService:
         New trigger logic:
         - When LTP >= ladder[i], place order at ladder[i+1]
         - If skip_first=True, skip ladder[0] and start from ladder[1]
+        - If skip_second_last=True, skip the second-to-last ladder level
         - Skip missed levels if LTP jumps ahead
         - Uses base_quantity for all levels except final, which uses order_quantity
 
@@ -530,6 +535,7 @@ class OrderService:
             fetch_client: TMSClient instance for fetching LTP
             limit_price: Optional upper limit price for calculations
             skip_first: Skip the first ladder level
+            skip_second_last: Skip the second-to-last ladder level
             fetch_security_id: Security ID for fetching LTP (defaults to security_id if not provided)
             base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
 
@@ -606,12 +612,20 @@ class OrderService:
             f"[{self.user_id}] IPO TRIGGER MODE: {len(price_levels)} levels, "
             f"Security={security_id}, Qty={order_quantity}, "
             f"Price range: Rs. {price_levels[0]:.1f} - Rs. {price_levels[-1]:.1f}, "
-            f"Skip first: {skip_first}"
+            f"Skip first: {skip_first}, Skip second-last: {skip_second_last}"
         )
+
+        # Determine which level is second-to-last (index before final level)
+        second_last_index = len(price_levels) - 2 if len(price_levels) >= 2 else -1
 
         for i, price in enumerate(price_levels):
             increment = actual_increments[i]
-            skip_marker = " [SKIP]" if i == 0 and skip_first else ""
+            skip_marker = ""
+            if i == 0 and skip_first:
+                skip_marker = " [SKIP]"
+            elif i == second_last_index and skip_second_last:
+                skip_marker = " [SKIP]"
+
             if increment == -1:
                 logger.debug(
                     f"[{self.user_id}] Level {i+1}: Rs. {price:.1f} (Limit +10%){skip_marker}"
@@ -675,7 +689,19 @@ class OrderService:
             # We place orders starting from current_level_index
             # For each level, we wait until LTP >= price_levels[level_index - 1]
 
+            # Determine which level is second-to-last
+            second_last_level_index = len(price_levels) - 2 if len(price_levels) >= 2 else -1
+
             while current_level_index < len(price_levels):
+                # Check if we should skip this level
+                if current_level_index == second_last_level_index and skip_second_last:
+                    logger.info(
+                        f"[{self.user_id}] Skipping second-to-last level {current_level_index + 1} "
+                        f"(Rs. {price_levels[current_level_index]:.1f}) as requested"
+                    )
+                    current_level_index += 1
+                    continue
+
                 target_price = price_levels[current_level_index]
                 increment_pct = actual_increments[current_level_index]
 
@@ -713,6 +739,14 @@ class OrderService:
                                 logger.warning(
                                     f"[{self.user_id}] LTP={ltp:.1f} >= Rs. {price_levels[current_level_index]:.1f}, "
                                     f"skipping missed level {current_level_index + 1}"
+                                )
+                                current_level_index += 1
+
+                            # If we ended up at second-to-last level and should skip it, move to final level
+                            if current_level_index == second_last_level_index and skip_second_last:
+                                logger.info(
+                                    f"[{self.user_id}] Skipping second-to-last level {current_level_index + 1} "
+                                    f"(Rs. {price_levels[current_level_index]:.1f}) as requested"
                                 )
                                 current_level_index += 1
 
@@ -799,7 +833,7 @@ class OrderService:
                         if "401" in error_msg or "Unauthorized" in error_msg:
                             logger.debug(f"[{self.user_id}] Token issue, retrying")
                             try:
-                                time.sleep(1)
+                                time.sleep(0.5)
                             except KeyboardInterrupt:
                                 logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                                 raise
@@ -808,7 +842,7 @@ class OrderService:
                                 f"[{self.user_id}] Error placing order level {level_display}: {error_msg}"
                             )
                             try:
-                                time.sleep(3)
+                                time.sleep(2)
                             except KeyboardInterrupt:
                                 logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                                 raise
@@ -817,7 +851,7 @@ class OrderService:
                                 f"[{self.user_id}] Error placing order level {level_display}: {error_msg}"
                             )
                             try:
-                                time.sleep(1)
+                                time.sleep(0.5)
                             except KeyboardInterrupt:
                                 logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                                 raise

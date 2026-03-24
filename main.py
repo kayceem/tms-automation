@@ -370,7 +370,8 @@ def execute_from_order_store(
     fetch_user_config: UserConfig = None
 ) -> Dict[str, Any]:
     """
-    Execute an order from the order store.
+    Execute orders from the order store queue.
+    Multiple orders with execute=true are executed sequentially based on queue_id.
 
     Args:
         user_configs: List of UserConfig instances
@@ -378,7 +379,7 @@ def execute_from_order_store(
         fetch_user_config: Optional fetch user configuration for trigger mode
 
     Returns:
-        API response dictionary
+        API response dictionary from the last executed order
 
     Raises:
         ValueError: If no order to execute or validation fails
@@ -390,162 +391,186 @@ def execute_from_order_store(
     # Display order summary
     logger.info("\n" + order_store.get_order_summary())
 
-    # Get executable order
-    order = order_store.get_executable_order()
+    # Get all executable orders (sorted by queue_id)
+    orders = order_store.get_executable_orders()
 
-    if order is None:
-        raise ValueError("No order marked for execution in order store")
+    if not orders:
+        raise ValueError("No orders marked for execution in order store")
 
-    # Validate order
-    order = order_store.validate_order(order)
-    order_id = order['id']
+    logger.info(f"Found {len(orders)} order(s) in execution queue")
+    logger.info("="*70)
 
-    logger.info("="*60)
-    logger.info(f"Executing order: {order_id}")
-    logger.info("="*60)
+    last_result = None
 
-    # Resolve ticker to IDs
-    try:
-        from utils import get_ticker_store
-        ticker_store = get_ticker_store()
-        security_id, exchange_security_id = ticker_store.lookup(order['ticker'])
+    # Execute each order in queue order
+    for idx, order in enumerate(orders, 1):
+        # Validate order
+        order = order_store.validate_order(order)
+        order_id = order['id']
+        queue_id = order['queue_id']
 
-        # Get fetch_id with host-specific lookup if fetch_user is available
-        fetch_host = fetch_user_config.tms_host if fetch_user_config else None
-        fetch_id = ticker_store.get_fetch_id(order['ticker'], host=fetch_host)
+        logger.info(f"Executing order {idx}/{len(orders)} (Queue ID: {queue_id}): {order_id}")
+        logger.info("="*70)
 
-        logger.info(
-            f"Ticker '{order['ticker']}' resolved to "
-            f"security_id={security_id}, exchange_security_id={exchange_security_id}, fetch_id={fetch_id}"
-        )
-        if fetch_host:
-            logger.debug(f"Fetch ID resolved for host: {fetch_host}")
+        # Resolve ticker to IDs
+        try:
+            from utils import get_ticker_store
+            ticker_store = get_ticker_store()
+            security_id, exchange_security_id = ticker_store.lookup(order['ticker'])
 
-    except (FileNotFoundError, ValueError) as e:
-        order_store.mark_failed(order_id)
-        raise ValueError(f"Ticker lookup failed for '{order['ticker']}': {e}")
+            # Get fetch_id with host-specific lookup if fetch_user is available
+            fetch_host = fetch_user_config.tms_host if fetch_user_config else None
+            fetch_id = ticker_store.get_fetch_id(order['ticker'], host=fetch_host)
 
-    # Determine mode flags
-    ipo_mode = order['mode'] == 'ipo'
-    ipo_sniper_mode = order['mode'] == 'ipo-sniper'
-    ipo_trigger_mode = order['mode'] == 'ipo-trigger'
-    buy_or_sell = 2 if order['sell'] else 1
-
-    # Validate fetch_user requirement for trigger mode
-    if ipo_trigger_mode and fetch_user_config is None:
-        order_store.mark_failed(order_id)
-        raise ValueError(
-            "Fetch user configuration is required for 'ipo-trigger' mode. "
-            "Use --fetch-user argument to specify fetch user JSON file."
-        )
-
-    # Prepare order parameters
-    order_params = {
-        'security_id': security_id,
-        'exchange_security_id': exchange_security_id,
-        'order_price': order['price'],
-        'order_quantity': order['quantity'],
-        'buy_or_sell': buy_or_sell,
-        'order_type': None,  # Use defaults from user config
-        'order_validity': None,
-        'client_data_file': None,
-        'ipo_mode': ipo_mode,
-        'ipo_sniper_mode': ipo_sniper_mode,
-        'ipo_trigger_mode': ipo_trigger_mode,
-        'limit_price': order['limit'],
-        'skip_first': order['skip_first'],
-        'fetch_id': fetch_id,
-        'base_quantity': order['base_quantity']
-    }
-
-    # Log execution details
-    mode_str = order['mode'].upper()
-    logger.info(f"Execution Mode: {mode_str}")
-    logger.info(f"Number of Users: {len(user_configs)}")
-    logger.info(f"Order: {'SELL' if order['sell'] else 'BUY'}")
-    logger.info(f"Ticker: {order['ticker']}")
-    logger.info(f"Security ID: {security_id}")
-    logger.info(f"Exchange Security ID: {exchange_security_id}")
-    logger.info(f"Price: {order['price']}, Quantity: {order['quantity']}")
-    if order['limit']:
-        logger.info(f"Limit: {order['limit']}")
-    if order['time']:
-        logger.info(f"Scheduled Time: {order['time']}")
-    logger.info(f"Token Refresh: {order['refresh_before']}s before execution")
-    logger.info("="*60)
-
-    try:
-        # Execute order
-        if len(user_configs) == 1:
-            # Single user - execute directly
-            result = execute_order_for_user(
-                user_config=user_configs[0],
-                order_params=order_params,
-                scheduled_time=order['time'],
-                fetch_user_config=fetch_user_config
+            logger.info(
+                f"Ticker '{order['ticker']}' resolved to "
+                f"security_id={security_id}, exchange_security_id={exchange_security_id}, fetch_id={fetch_id}"
             )
-        else:
-            # Multi-user - execute in parallel threads with staggering
-            num_users = len(user_configs)
-            logger.info(f"Starting {num_users} threads for parallel execution")
+            if fetch_host:
+                logger.debug(f"Fetch ID resolved for host: {fetch_host}")
 
-            # Calculate stagger delays to spread execution across 1.5 seconds
-            max_stagger = min(1.5, num_users - 1)
-            stagger_increment = max_stagger / max(1, num_users - 1) if num_users > 1 else 0
+        except (FileNotFoundError, ValueError) as e:
+            order_store.mark_failed(order_id)
+            raise ValueError(f"Ticker lookup failed for '{order['ticker']}': {e}")
 
-            logger.info(f"Staggering execution: {stagger_increment:.3f}s between users (max spread: {max_stagger:.1f}s)")
+        # Determine mode flags
+        ipo_mode = order['mode'] == 'ipo'
+        ipo_sniper_mode = order['mode'] == 'ipo-sniper'
+        ipo_trigger_mode = order['mode'] == 'ipo-trigger'
+        buy_or_sell = 2 if order['sell'] else 1
 
-            threads = []
-            exceptions = []
+        # Validate fetch_user requirement for trigger mode
+        if ipo_trigger_mode and fetch_user_config is None:
+            order_store.mark_failed(order_id)
+            raise ValueError(
+                "Fetch user configuration is required for 'ipo-trigger' mode. "
+                "Use --fetch-user argument to specify fetch user JSON file."
+            )
 
-            def thread_wrapper(user_config, delay):
-                try:
-                    execute_order_for_user(
-                        user_config=user_config,
-                        order_params=order_params,
-                        scheduled_time=order['time'],
-                        stagger_delay=delay,
-                        fetch_user_config=fetch_user_config
-                    )
-                except Exception as e:
-                    exceptions.append((user_config.user_id, e))
+        # Prepare order parameters
+        order_params = {
+            'security_id': security_id,
+            'exchange_security_id': exchange_security_id,
+            'order_price': order['price'],
+            'order_quantity': order['quantity'],
+            'buy_or_sell': buy_or_sell,
+            'order_type': None,  # Use defaults from user config
+            'order_validity': None,
+            'client_data_file': None,
+            'ipo_mode': ipo_mode,
+            'ipo_sniper_mode': ipo_sniper_mode,
+            'ipo_trigger_mode': ipo_trigger_mode,
+            'limit_price': order['limit'],
+            'skip_first': order['skip_first'],
+            'skip_second_last': order['skip_second_last'],
+            'fetch_id': fetch_id,
+            'base_quantity': order['base_quantity']
+        }
 
-            # Create and start threads with staggered delays
-            for idx, user_config in enumerate(user_configs):
-                stagger_delay = idx * stagger_increment
-                thread = threading.Thread(
-                    target=thread_wrapper,
-                    args=(user_config, stagger_delay),
-                    name=f"User-{user_config.user_id}"
+        # Log execution details
+        mode_str = order['mode'].upper()
+        logger.info(f"Execution Mode: {mode_str}")
+        logger.info(f"Number of Users: {len(user_configs)}")
+        logger.info(f"Order: {'SELL' if order['sell'] else 'BUY'}")
+        logger.info(f"Ticker: {order['ticker']}")
+        logger.info(f"Security ID: {security_id}")
+        logger.info(f"Exchange Security ID: {exchange_security_id}")
+        logger.info(f"Price: {order['price']}, Quantity: {order['quantity']}")
+        if order['limit']:
+            logger.info(f"Limit: {order['limit']}")
+        if order['time']:
+            logger.info(f"Scheduled Time: {order['time']}")
+        logger.info(f"Token Refresh: {order['refresh_before']}s before execution")
+        logger.info("="*70)
+
+        try:
+            # Execute order
+            if len(user_configs) == 1:
+                # Single user - execute directly
+                result = execute_order_for_user(
+                    user_config=user_configs[0],
+                    order_params=order_params,
+                    scheduled_time=order['time'],
+                    fetch_user_config=fetch_user_config
                 )
-                threads.append(thread)
-                thread.start()
+            else:
+                # Multi-user - execute in parallel threads with staggering
+                num_users = len(user_configs)
+                logger.info(f"Starting {num_users} threads for parallel execution")
 
-            # Wait for all threads to complete
-            for thread in threads:
-                thread.join()
+                # Calculate stagger delays to spread execution across 1.5 seconds
+                max_stagger = min(1.5, num_users - 1)
+                stagger_increment = max_stagger / max(1, num_users - 1) if num_users > 1 else 0
 
-            # Check for exceptions
-            if exceptions:
-                logger.error(f"{"="*60}")
-                logger.error(f"Execution completed with errors for {len(exceptions)} user(s)")
-                for user_id, exc in exceptions:
-                    logger.error(f"  [{user_id}] {str(exc)}")
-                logger.error(f"{"="*60}")
-                order_store.mark_failed(order_id)
-                sys.exit(1)
+                logger.info(f"Staggering execution: {stagger_increment:.3f}s between users (max spread: {max_stagger:.1f}s)")
 
-            result = {"status": "success", "users": len(user_configs)}
+                threads = []
+                exceptions = []
 
-        # Mark order as successful
-        order_store.mark_success(order_id)
-        logger.info(f"Order '{order_id}' marked as successful in store")
+                def thread_wrapper(user_config, delay):
+                    try:
+                        execute_order_for_user(
+                            user_config=user_config,
+                            order_params=order_params,
+                            scheduled_time=order['time'],
+                            stagger_delay=delay,
+                            fetch_user_config=fetch_user_config
+                        )
+                    except Exception as e:
+                        exceptions.append((user_config.user_id, e))
 
-        return result
+                # Create and start threads with staggered delays
+                for order_idx, user_config in enumerate(user_configs):
+                    stagger_delay = order_idx * stagger_increment
+                    thread = threading.Thread(
+                        target=thread_wrapper,
+                        args=(user_config, stagger_delay),
+                        name=f"User-{user_config.user_id}"
+                    )
+                    threads.append(thread)
+                    thread.start()
 
-    except Exception as e:
-        order_store.mark_failed(order_id)
-        raise
+                # Wait for all threads to complete
+                for thread in threads:
+                    thread.join()
+
+                # Check for exceptions
+                if exceptions:
+                    logger.error(f"{"="*70}")
+                    logger.error(f"Execution completed with errors for {len(exceptions)} user(s)")
+                    for user_id, exc in exceptions:
+                        logger.error(f"  [{user_id}] {str(exc)}")
+                    logger.error(f"{"="*70}")
+                    order_store.mark_failed(order_id)
+                    sys.exit(1)
+
+                result = {"status": "success", "users": len(user_configs)}
+
+            # Mark order as successful
+            order_store.mark_success(order_id)
+            logger.info(f"Order '{order_id}' marked as successful in store")
+            last_result = result
+
+            # If there are more orders in queue, add a small delay before next order
+            if idx < len(orders):
+                logger.info(f"Order {idx}/{len(orders)} completed. Proceeding to next order in queue...")
+                logger.info("")
+
+        except Exception as e:
+            order_store.mark_failed(order_id)
+            logger.error(f"Order '{order_id}' failed: {str(e)}")
+            # Continue with next order in queue instead of stopping
+            if idx < len(orders):
+                logger.warning(f"Continuing to next order in queue despite failure...")
+                logger.info("")
+            else:
+                raise
+
+    # All orders in queue completed
+    logger.info("="*70)
+    logger.info(f"Queue execution completed: {len(orders)} order(s) processed")
+    logger.info("="*70)
+    return last_result
 
 
 def main():
