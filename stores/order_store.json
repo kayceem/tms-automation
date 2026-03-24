@@ -22,20 +22,22 @@
       "ticker": "RSML",
       "mode": "ipo-trigger",
       "quantity": 300,
-      "base_quantity": 50,
-      "price": 1482.3,
+      "base_quantity": 40,
+      "price": 1600,
       "limit": 1512.6,
       "skip_first": true
     },
     {
-      "id": "hfin_ipo",
-      "execute": false,
-      "success": false,
-      "ticker": "HFIN",
-      "mode": "ipo-trigger",
-      "quantity": 500,
-      "price": 179.7,
-      "limit": 179.7
+        "id": "hfin_ipo",
+        "execute": false,
+        "success": false,
+        "ticker": "HFIN",
+        "mode": "ipo-trigger",
+        "quantity": 1000,
+        "base_quantity": 50,
+        "price": 179.7,
+        "limit": 197.6,
+        "skip_first": true
     }
   ]
 }

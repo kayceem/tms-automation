@@ -75,15 +75,15 @@ class OrderScheduler:
             f"wait={int(wait_seconds)}s"
         )
 
-        # Calculate when to refresh tokens (30 seconds before execution)
-        refresh_time = target_time - timedelta(seconds=30)
+        # Calculate when to refresh tokens (10 seconds before execution)
+        refresh_time = target_time - timedelta(seconds=10)
         refresh_seconds = (refresh_time - datetime.now()).total_seconds()
 
         # If we have enough time, wait until refresh time
         if refresh_seconds > 0 and tms_client:
             logger.info(
                 f"[{user_id}] Token refresh scheduled for "
-                f"{refresh_time.strftime('%H:%M:%S')} (30s before execution)"
+                f"{refresh_time.strftime('%H:%M:%S')} (10s before execution)"
             )
             try:
                 time.sleep(refresh_seconds)

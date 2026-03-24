@@ -26,14 +26,16 @@
     "fetch_id": 3100
   },
   "HFIN": {
-      "security_id": 3101,
+      "security_id": 3100,
       "exchange_security_id": 9308,
-      "name": "Hotel Forest Inn Limited"
+      "name": "Hotel Forest Inn Limited",
+      "fetch_id": 3101
   },
   "SOHL": {
       "security_id": 3101,
       "exchange_security_id": 9311,
-      "name": "Solu Hydro Power Limited"
+      "name": "Solu Hydro Power Limited",
+      "fetch_id": 3102
     },
     "BJHL": {
         "security_id": 3103,
