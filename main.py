@@ -17,7 +17,7 @@ from services import OrderService, OrderScheduler
 from utils import validate_positive_number, validate_positive_integer, setup_logger, lookup_ticker, OrderStore
 
 logger = setup_logger(
-    name='tms_automation',
+    name='main',
     log_file='logs/tms_automation.log',
     level=20,
     console_output=True

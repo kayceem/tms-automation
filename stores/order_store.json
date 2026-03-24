@@ -25,12 +25,11 @@
       "queue_id": 1,
       "ticker": "SOHL",
       "mode": "ipo-trigger",
-      "quantity": 500,
+      "quantity": 600,
       "base_quantity": 10,
-      "price": 542,
+      "price": 584.5,
       "limit": 584.5,
-      "no_ladder": true,
-      "time": "11:00:00"
+      "no_ladder": true
     },
     {
       "id": "rsml_ipo",

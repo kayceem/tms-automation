@@ -66,7 +66,7 @@ class ColoredFormatter(logging.Formatter):
 
 
 def setup_logger(
-    name: str = 'tms_automation',
+    name: str = 'main',
     log_file: Optional[str] = None,
     level: int = logging.INFO,
     console_output: bool = True
@@ -112,6 +112,7 @@ def setup_logger(
 
     # File handler (if log file specified)
     if log_file:
+        log_file = log_file.replace('.log', f'_{datetime.now().strftime("%Y%m%d%H%M%S")}.log')
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -128,12 +129,12 @@ def setup_logger(
     return logger
 
 
-def get_logger(name: str = 'tms_automation') -> logging.Logger:
+def get_logger(name: str = 'main') -> logging.Logger:
     """
     Get an existing logger or create a new one.
 
     This function ensures all loggers write to file by either:
-    1. Setting up the root 'tms_automation' logger with file handler
+    1. Setting up the root 'main' logger with file handler
     2. Using hierarchical naming so child loggers propagate to root
 
     Args:
@@ -143,7 +144,7 @@ def get_logger(name: str = 'tms_automation') -> logging.Logger:
         Logger instance
     """
     # Ensure the root logger is set up with file handler
-    root_logger = logging.getLogger('tms_automation')
+    root_logger = logging.getLogger('main')
 
     # Check if root logger has a file handler
     has_file_handler = any(
@@ -153,18 +154,18 @@ def get_logger(name: str = 'tms_automation') -> logging.Logger:
     if not has_file_handler:
         # Clear any existing handlers and set up properly with file handler
         root_logger.handlers.clear()
-        setup_logger('tms_automation', log_file='logs/tms_automation.log')
+        setup_logger('main', log_file='logs/tms_automation.log')
 
     # Create hierarchical logger name if not already prefixed
-    if name != 'tms_automation' and not name.startswith('tms_automation.'):
-        hierarchical_name = f'tms_automation.{name}'
+    if name != 'main' and not name.startswith('main.'):
+        hierarchical_name = f'main.{name}'
     else:
         hierarchical_name = name
 
     logger = logging.getLogger(hierarchical_name)
 
     # For child loggers, ensure propagation is enabled and no duplicate handlers
-    if hierarchical_name != 'tms_automation':
+    if hierarchical_name != 'main':
         logger.propagate = True
         if not logger.level:
             logger.setLevel(logging.DEBUG)  # Let root handle filtering
@@ -183,7 +184,7 @@ def get_user_logger(user_id: str, log_dir: str = 'logs') -> logging.Logger:
     Returns:
         User-specific logger instance
     """
-    logger_name = f'tms_automation.user.{user_id}'
+    logger_name = f'main.user.{user_id}'
     log_file = Path(log_dir) / f'{user_id}.log'
 
     return setup_logger(
