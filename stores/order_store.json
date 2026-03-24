@@ -1,8 +1,9 @@
 {
-  "_comment": "Order store for managing multiple orders. Only ONE order with 'execute: true' and 'success: false' will be executed.",
+  "_comment": "Order store for managing multiple orders. Multiple orders can have 'execute: true' and will be queued based on queue_id.",
   "_instructions": {
     "execute": "Set to true to mark this order for execution",
     "success": "Automatically set to true after successful execution",
+    "queue_id": "(Optional) Queue position for execution (1, 2, 3, etc.). Orders with execute=true are executed in ascending queue_id order. If not specified, defaults to 999.",
     "ticker": "Ticker symbol from ticker_store.json",
     "price": "Order price per unit",
     "quantity": "Number of units for the FINAL ladder level (or all levels if base_quantity not specified)",
@@ -12,32 +13,64 @@
     "time": "(Optional) Scheduled execution time in HH:MM or HH:MM:SS format",
     "refresh_before": "(Optional) Seconds before execution to refresh tokens (default: 20)",
     "sell": "(Optional) Set to true for sell order, false/omit for buy order",
-    "skip_first": "(Optional) For IPO-trigger mode: skip first ladder level (default: false)"
+    "skip_first": "(Optional) For IPO-trigger mode: skip first ladder level (default: false)",
+    "skip_second_last": "(Optional) For IPO-trigger mode: skip second-to-last ladder level (the level before final limit order) (default: false)",
+    "no_ladder": "(Optional) For IPO-trigger mode: skip ALL ladder levels, only place final order at limit+10% when LTP reaches second-to-last level. Overrides skip_first and skip_second_last (default: false)"
   },
   "orders": [
+    {
+      "id": "sohl_ipo",
+      "execute": true,
+      "success": false,
+      "queue_id": 1,
+      "ticker": "SOHL",
+      "mode": "ipo-trigger",
+      "quantity": 500,
+      "base_quantity": 10,
+      "price": 542,
+      "limit": 584.5,
+      "no_ladder": true,
+      "time": "11:00:00"
+    },
     {
       "id": "rsml_ipo",
       "execute": true,
       "success": false,
+      "queue_id": 2,
       "ticker": "RSML",
       "mode": "ipo-trigger",
-      "quantity": 300,
+      "quantity": 250,
       "base_quantity": 40,
-      "price": 1600,
-      "limit": 1512.6,
-      "skip_first": true
+      "price": 1494.4,
+      "limit": 1663.8,
+      "skip_first": true,
+      "skip_second_last": true
     },
     {
-        "id": "hfin_ipo",
-        "execute": false,
-        "success": false,
-        "ticker": "HFIN",
-        "mode": "ipo-trigger",
-        "quantity": 1000,
-        "base_quantity": 50,
-        "price": 179.7,
-        "limit": 197.6,
-        "skip_first": true
+      "id": "hfin_ipo",
+      "execute": true,
+      "success": false,
+      "queue_id": 3,
+      "ticker": "HFIN",
+      "mode": "ipo-trigger",
+      "quantity": 500,
+      "base_quantity": 10,
+      "price": 195.7,
+      "limit": 217.3,
+      "no_ladder": true
+    },
+    {
+      "id": "bjhl_ipo",
+      "execute": true,
+      "success": false,
+      "queue_id": 4,
+      "ticker": "BJHL",
+      "mode": "ipo-trigger",
+      "quantity": 200,
+      "base_quantity": 10,
+      "price": 238,
+      "limit": 359.4,
+      "no_ladder": true
     }
   ]
 }

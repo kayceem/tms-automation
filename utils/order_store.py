@@ -43,21 +43,21 @@ class OrderStore:
         if not isinstance(self._data['orders'], list):
             raise ValueError("'orders' must be an array/list")
 
-    def get_executable_order(self) -> Optional[Dict[str, Any]]:
+    def get_executable_orders(self) -> List[Dict[str, Any]]:
         """
-        Get the order marked for execution.
+        Get all orders marked for execution, sorted by queue_id.
 
         Returns:
-            Order dictionary if found, None otherwise
+            List of order dictionaries sorted by queue_id (ascending)
 
         Raises:
-            ValueError: If validation fails (multiple orders marked, already successful, etc.)
+            ValueError: If validation fails (successful orders marked for execution)
         """
         orders = self._data.get('orders', [])
 
         if not orders:
             logger.warning("No orders found in order store")
-            return None
+            return []
 
         # Find orders marked for execution
         executable_orders = [
@@ -78,21 +78,31 @@ class OrderStore:
                 f"Please set 'execute: false' for successful orders or create a new order."
             )
 
-        # Validate only one order is marked for execution
         if len(executable_orders) == 0:
             logger.info("No orders marked for execution (execute=true, success=false)")
-            return None
+            return []
 
-        if len(executable_orders) > 1:
-            order_ids = [o.get('id', 'unknown') for o in executable_orders]
-            raise ValueError(
-                f"Multiple orders marked for execution: {', '.join(order_ids)}\n"
-                f"Only ONE order can have 'execute: true' and 'success: false' at a time."
-            )
+        # Sort by queue_id (default to 999 if not specified)
+        executable_orders.sort(key=lambda o: o.get('queue_id', 999))
 
-        order = executable_orders[0]
-        logger.info(f"Found executable order: {order.get('id', 'unknown')}")
-        return order
+        queue_ids = [f"{o.get('id', 'unknown')} (queue:{o.get('queue_id', 999)})" for o in executable_orders]
+        logger.info(f"Found {len(executable_orders)} executable order(s): {', '.join(queue_ids)}")
+
+        return executable_orders
+
+    def get_executable_order(self) -> Optional[Dict[str, Any]]:
+        """
+        Get the first order marked for execution (backward compatibility).
+        Returns the order with the lowest queue_id.
+
+        Returns:
+            Order dictionary if found, None otherwise
+
+        Raises:
+            ValueError: If validation fails
+        """
+        orders = self.get_executable_orders()
+        return orders[0] if orders else None
 
     def validate_order(self, order: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -174,6 +184,16 @@ class OrderStore:
             except (TypeError, ValueError) as e:
                 raise ValueError(f"Order '{order_id}' has invalid base_quantity: {order['base_quantity']}")
 
+        # Validate queue_id if provided
+        queue_id = 999  # Default
+        if 'queue_id' in order and order['queue_id'] is not None:
+            try:
+                queue_id = int(order['queue_id'])
+                if queue_id <= 0:
+                    raise ValueError(f"Order '{order_id}' has invalid queue_id: {queue_id}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid queue_id: {order['queue_id']}")
+
         # Normalize optional fields
         normalized = {
             'id': order_id,
@@ -181,12 +201,15 @@ class OrderStore:
             'price': float(order['price']),
             'quantity': int(order['quantity']),
             'base_quantity': base_quantity,
+            'queue_id': queue_id,
             'mode': mode,
             'limit': float(order['limit']) if 'limit' in order and order['limit'] is not None else None,
             'time': order.get('time'),
             'refresh_before': int(order.get('refresh_before', 20)),
             'sell': bool(order.get('sell', False)),
-            'skip_first': bool(order.get('skip_first', False))
+            'skip_first': bool(order.get('skip_first', False)),
+            'skip_second_last': bool(order.get('skip_second_last', False)),
+            'no_ladder': bool(order.get('no_ladder', False))
         }
 
         logger.debug(f"Order '{order_id}' validated successfully")
@@ -252,7 +275,7 @@ class OrderStore:
         if not orders:
             return "No orders in store"
 
-        lines = ["Order Store Summary:", "=" * 60]
+        lines = ["Order Store Summary:", "=" * 70]
 
         for order in orders:
             order_id = order.get('id', 'unknown')
@@ -262,13 +285,15 @@ class OrderStore:
             price = order.get('price', 0)
             qty = order.get('quantity', 0)
             mode = order.get('mode', 'normal')
+            queue_id = order.get('queue_id', 999)
 
             status = "✓ SUCCESS" if success else ("→ EXECUTE" if execute else "  PENDING")
+            queue_str = f"Q{queue_id:02d}" if execute and not success else "   "
 
             lines.append(
-                f"{status} | {order_id:15} | {ticker:8} | "
+                f"{status} | {queue_str} | {order_id:15} | {ticker:8} | "
                 f"₨{price:8.1f} x {qty:4} | {mode:10}"
             )
 
-        lines.append("=" * 60)
+        lines.append("=" * 70)
         return "\n".join(lines)
