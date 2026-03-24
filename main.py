@@ -14,7 +14,7 @@ from typing import List, Dict, Any
 from config import UserConfig
 from api import TMSClient
 from services import OrderService, OrderScheduler
-from utils import validate_positive_number, validate_positive_integer, setup_logger, lookup_ticker, get_ticker_store, OrderStore
+from utils import validate_positive_number, validate_positive_integer, setup_logger, lookup_ticker, OrderStore
 
 logger = setup_logger(
     name='tms_automation',
@@ -195,13 +195,12 @@ def validate_args(args: argparse.Namespace):
             from utils import get_ticker_store
             ticker_store = get_ticker_store()
             security_id, exchange_security_id = ticker_store.lookup(args.ticker)
-            fetch_id = ticker_store.get_fetch_id(args.ticker)
 
             args.security_id = security_id
             args.exchange_security_id = exchange_security_id
-            args.fetch_id = fetch_id
+            # Note: fetch_id will be resolved later after fetch_user is loaded
 
-            logger.info(f"Ticker '{args.ticker}' resolved to security_id={security_id}, exchange_security_id={exchange_security_id}, fetch_id={fetch_id}")
+            logger.info(f"Ticker '{args.ticker}' resolved to security_id={security_id}, exchange_security_id={exchange_security_id}")
         except (FileNotFoundError, ValueError) as e:
             raise ValueError(f"Ticker lookup failed: {e}")
     else:
@@ -410,12 +409,18 @@ def execute_from_order_store(
         from utils import get_ticker_store
         ticker_store = get_ticker_store()
         security_id, exchange_security_id = ticker_store.lookup(order['ticker'])
-        fetch_id = ticker_store.get_fetch_id(order['ticker'])
+
+        # Get fetch_id with host-specific lookup if fetch_user is available
+        fetch_host = fetch_user_config.tms_host if fetch_user_config else None
+        fetch_id = ticker_store.get_fetch_id(order['ticker'], host=fetch_host)
 
         logger.info(
             f"Ticker '{order['ticker']}' resolved to "
             f"security_id={security_id}, exchange_security_id={exchange_security_id}, fetch_id={fetch_id}"
         )
+        if fetch_host:
+            logger.debug(f"Fetch ID resolved for host: {fetch_host}")
+
     except (FileNotFoundError, ValueError) as e:
         order_store.mark_failed(order_id)
         raise ValueError(f"Ticker lookup failed for '{order['ticker']}': {e}")
@@ -589,6 +594,20 @@ def main():
             # Determine buy or sell
             buy_or_sell = 2 if args.sell else 1
 
+            # Resolve fetch_id with host-specific lookup if ticker was used
+            fetch_id = None
+            if args.ticker:
+                try:
+                    from utils import get_ticker_store
+                    ticker_store = get_ticker_store()
+                    fetch_host = fetch_user_config.tms_host if fetch_user_config else None
+                    fetch_id = ticker_store.get_fetch_id(args.ticker, host=fetch_host)
+                    logger.info(f"Fetch ID for '{args.ticker}': {fetch_id}")
+                    if fetch_host:
+                        logger.debug(f"Fetch ID resolved for host: {fetch_host}")
+                except Exception as e:
+                    logger.warning(f"Could not resolve fetch_id for ticker '{args.ticker}': {e}")
+
             # Prepare order parameters (shared across all users)
             order_params = {
                 'security_id': args.security_id,
@@ -604,7 +623,7 @@ def main():
                 'ipo_trigger_mode': args.ipo_trigger,
                 'limit_price': args.limit,
                 'skip_first': args.skip_first if hasattr(args, 'skip_first') else False,
-                'fetch_id': args.fetch_id if hasattr(args, 'fetch_id') else None
+                'fetch_id': fetch_id
             }
 
             # Log execution mode
