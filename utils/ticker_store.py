@@ -72,13 +72,16 @@ class TickerStore:
 
         return security_id, exchange_security_id
 
-    def get_fetch_id(self, ticker: str) -> int:
+    def get_fetch_id(self, ticker: str, host: Optional[str] = None) -> int:
         """
         Get the fetch_id for a ticker symbol (used for LTP fetching).
         Falls back to security_id if fetch_id is not specified.
 
         Args:
             ticker: Ticker symbol (case-insensitive)
+            host: Optional TMS host (e.g., 'tms76.nepsetms.com.np'). If fetch_id is a dict,
+                  looks up the ID for this host. If not provided and fetch_id is a dict,
+                  returns the first value.
 
         Returns:
             fetch_id if available, otherwise security_id
@@ -99,7 +102,27 @@ class TickerStore:
 
         # Return fetch_id if available, otherwise fall back to security_id
         if 'fetch_id' in ticker_data and ticker_data['fetch_id'] is not None:
-            return int(ticker_data['fetch_id'])
+            fetch_id_value = ticker_data['fetch_id']
+
+            # Check if fetch_id is a dictionary (host-specific mapping)
+            if isinstance(fetch_id_value, dict):
+                if host and host in fetch_id_value:
+                    # Return the fetch_id for the specified host
+                    return int(fetch_id_value[host])
+                elif host:
+                    # Host specified but not found in mapping, fall back to first value
+                    if fetch_id_value:
+                        first_id = next(iter(fetch_id_value.values()))
+                        return int(first_id)
+                    # If dict is empty, fall back to security_id
+                else:
+                    # No host specified, return first value from dict
+                    if fetch_id_value:
+                        first_id = next(iter(fetch_id_value.values()))
+                        return int(first_id)
+            else:
+                # fetch_id is a simple integer
+                return int(fetch_id_value)
 
         if 'security_id' not in ticker_data:
             raise ValueError(f"Ticker '{ticker}' is missing 'security_id' field")
@@ -133,7 +156,7 @@ class TickerStore:
         return {k: v for k, v in self._data.items() if not k.startswith('_')}
 
     def add_ticker(self, ticker: str, security_id: int, exchange_security_id: int,
-                   fetch_id: int = None, name: str = None):
+                   fetch_id = None, name: str = None):
         """
         Add or update a ticker in the store.
 
@@ -141,7 +164,9 @@ class TickerStore:
             ticker: Ticker symbol
             security_id: Security ID
             exchange_security_id: Exchange security ID
-            fetch_id: Optional security ID for fetching LTP (defaults to security_id)
+            fetch_id: Optional security ID for fetching LTP. Can be either:
+                     - int: single fetch_id for all hosts
+                     - dict: mapping of host to fetch_id (e.g., {"tms76.nepsetms.com.np": 123})
             name: Optional company name
         """
         ticker_upper = ticker.upper()

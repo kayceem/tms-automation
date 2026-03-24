@@ -1,46 +1,69 @@
 {
-  "_comment": "Ticker store for NEPSE securities. Maps ticker symbols to their security_id and exchange_security_id",
-  "_format": {
-    "TICKER": {
-      "security_id": 123,
-      "exchange_security_id": 456,
-      "fetch_id": 123,
-      "name": "Company Name (Optional)"
-    }
-  },
-  "_instructions": {
-    "security_id": "Security ID used for placing orders",
-    "exchange_security_id": "Exchange security ID used for placing orders",
-    "fetch_id": "(Optional) Security ID used for fetching LTP. If not provided, uses security_id",
-    "name": "(Optional) Company name for reference"
-  },
-  "SABBL": {
-    "security_id": 3098,
-    "exchange_security_id": 9305,
-    "name": "Salapa Bikash Bank Limited"
-  },
-  "RSML": {
-    "security_id": 3099,
-    "exchange_security_id": 9306,
-    "name": "Reliance Spinning Mills Limited",
-    "fetch_id": 3100
-  },
-  "HFIN": {
-      "security_id": 3100,
-      "exchange_security_id": 9308,
-      "name": "Hotel Forest Inn Limited",
-      "fetch_id": 3101
-  },
-  "SOHL": {
-      "security_id": 3101,
-      "exchange_security_id": 9311,
-      "name": "Solu Hydro Power Limited",
-      "fetch_id": 3102
+    "_comment": "Ticker store for NEPSE securities. Maps ticker symbols to their security_id and exchange_security_id",
+    "_format": {
+        "TICKER": {
+            "security_id": 123,
+            "exchange_security_id": 456,
+            "fetch_id": 123,
+            "name": "Company Name (Optional)"
+        }
+    },
+    "_format_with_host_mapping": {
+        "TICKER": {
+            "security_id": 123,
+            "exchange_security_id": 456,
+            "fetch_id": {
+                "tms76.nepsetms.com.np": 123,
+                "tms77.nepsetms.com.np": 124
+            },
+            "name": "Company Name (Optional)"
+        }
+    },
+    "_instructions": {
+        "security_id": "Security ID used for placing orders",
+        "exchange_security_id": "Exchange security ID used for placing orders",
+        "fetch_id": "(Optional) Security ID used for fetching LTP. Can be either: (1) a single integer (applies to all hosts), or (2) a dictionary mapping host to fetch_id for host-specific IDs. If not provided, uses security_id",
+        "name": "(Optional) Company name for reference"
+    },
+    "SABBL": {
+        "security_id": 3098,
+        "exchange_security_id": 9305,
+        "name": "Salapa Bikash Bank Limited"
+    },
+    "RSML": {
+        "security_id": 3099,
+        "exchange_security_id": 9306,
+        "name": "Reliance Spinning Mills Limited",
+        "fetch_id": {
+            "tms01.nepsetms.com.np": 3099,
+            "tms35.nepsetms.com.np": 3100
+        }
+    },
+    "HFIN": {
+        "security_id": 3100,
+        "exchange_security_id": 9308,
+        "name": "Hotel Forest Inn Limited",
+        "fetch_id": {
+            "tms01.nepsetms.com.np": 3100,
+            "tms35.nepsetms.com.np": 3101
+        }
+    },
+    "SOHL": {
+        "security_id": 3101,
+        "exchange_security_id": 9311,
+        "name": "Solu Hydro Power Limited",
+        "fetch_id": {
+            "tms01.nepsetms.com.np": 3101,
+            "tms35.nepsetms.com.np": 3102
+        }
     },
     "BJHL": {
         "security_id": 3103,
         "exchange_security_id": 9322,
         "name": "Bhujung Hydropower Limited",
-        "fetch_id": 3104
+        "fetch_id": {
+            "tms01.nepsetms.com.np": 3103,
+            "tms35.nepsetms.com.np": 3104
+        }
     }
 }
