@@ -2,7 +2,7 @@
 
 import time
 from datetime import datetime, timedelta
-from typing import Callable, Dict, Any
+from typing import Callable, Dict, Any, List, Optional
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -52,13 +52,14 @@ class OrderScheduler:
             ) from e
 
     @staticmethod
-    def wait_until(target_time: datetime, tms_client=None, user_id: str = "unknown"):
+    def wait_until(target_time: datetime, tms_client=None, fetch_clients: Optional[List] = None, user_id: str = "unknown"):
         """
-        Wait until the specified time, refreshing tokens 15 seconds before.
+        Wait until the specified time, refreshing tokens 10 seconds before.
 
         Args:
             target_time: Target datetime to wait for
             tms_client: Optional TMSClient instance for token refresh
+            fetch_clients: Optional list of fetch user TMSClient instances for token refresh
             user_id: User identifier for logging
         """
         now = datetime.now()
@@ -75,15 +76,15 @@ class OrderScheduler:
             f"wait={int(wait_seconds)}s"
         )
 
-        # Calculate when to refresh tokens (10 seconds before execution)
-        refresh_time = target_time - timedelta(seconds=10)
+        # Calculate when to refresh tokens
+        refresh_time = target_time - timedelta(seconds=15)
         refresh_seconds = (refresh_time - datetime.now()).total_seconds()
 
         # If we have enough time, wait until refresh time
         if refresh_seconds > 0 and tms_client:
             logger.info(
                 f"[{user_id}] Token refresh scheduled for "
-                f"{refresh_time.strftime('%H:%M:%S')} (10s before execution)"
+                f"{refresh_time.strftime('%H:%M:%S')} (15s before execution)"
             )
             try:
                 time.sleep(refresh_seconds)
@@ -91,7 +92,7 @@ class OrderScheduler:
                 logger.info(f"[{user_id}] Wait interrupted by user")
                 raise
 
-            # Refresh tokens
+            # Refresh tokens for main client
             logger.info(f"[{user_id}] PRE-EXECUTION TOKEN REFRESH")
             logger.debug(
                 f"[{user_id}] Current={datetime.now().strftime('%H:%M:%S')}, "
@@ -100,11 +101,25 @@ class OrderScheduler:
 
             success = tms_client.refresh_tokens()
             if success:
-                logger.info(f"[{user_id}] Tokens refreshed successfully")
+                logger.info(f"[{user_id}] Main user tokens refreshed successfully")
             else:
                 logger.warning(
-                    f"[{user_id}] Token refresh failed, will attempt with current tokens"
+                    f"[{user_id}] Main user token refresh failed, will attempt with current tokens"
                 )
+
+            # Refresh tokens for fetch users
+            if fetch_clients:
+                logger.info(f"[{user_id}] Refreshing tokens for {len(fetch_clients)} fetch user(s)")
+                for i, fetch_client in enumerate(fetch_clients, 1):
+                    fetch_user_id = getattr(fetch_client, 'user_id', f'FetchUser{i}')
+                    try:
+                        fetch_success = fetch_client.refresh_tokens()
+                        if fetch_success:
+                            logger.info(f"[{user_id}] Fetch user {fetch_user_id} tokens refreshed successfully")
+                        else:
+                            logger.warning(f"[{user_id}] Fetch user {fetch_user_id} token refresh failed")
+                    except Exception as e:
+                        logger.warning(f"[{user_id}] Fetch user {fetch_user_id} token refresh error: {str(e)}")
 
             # Update wait_seconds for final countdown
             wait_seconds = (target_time - datetime.now()).total_seconds()
@@ -138,17 +153,19 @@ class OrderScheduler:
         time_str: str,
         order_func: Callable,
         tms_client=None,
+        fetch_clients: Optional[List] = None,
         user_id: str = "unknown",
         **order_params
     ) -> Dict[str, Any]:
         """
         Schedule an order to be executed at a specific time.
-        Automatically refreshes tokens 20 seconds before execution.
+        Automatically refreshes tokens 10 seconds before execution.
 
         Args:
             time_str: Time string in HH:MM or HH:MM:SS format
             order_func: Function to execute (should be OrderService.execute_order)
             tms_client: Optional TMSClient instance for pre-execution token refresh
+            fetch_clients: Optional list of fetch user TMSClient instances for token refresh
             user_id: User identifier for logging
             **order_params: Parameters to pass to order_func
 
@@ -158,5 +175,10 @@ class OrderScheduler:
         target_time = cls.parse_time(time_str)
         logger.info(f"[{user_id}] Order scheduled for {target_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-        cls.wait_until(target_time, tms_client=tms_client, user_id=user_id)
+        cls.wait_until(target_time, tms_client=tms_client, fetch_clients=fetch_clients, user_id=user_id)
+
+        # Add fetch_clients back to order_params if it exists
+        if fetch_clients is not None:
+            order_params = {**order_params, 'fetch_clients': fetch_clients}
+
         return order_func(**order_params)

@@ -211,8 +211,8 @@ class TestIPOTrigger:
         """Create a test user configuration."""
         return UserConfig(
             user_id=user_id,
-            tms_host='tms01.nepsetms.com.np',
-            tms_base_url='https://tms01.nepsetms.com.np',
+            tms_host='tms58.nepsetms.com.np',
+            tms_base_url='https://tms58.nepsetms.com.np',
             xsrf_token='test_token',
             rid_cookie='test_rid',
             host_session_id='test_session',
@@ -291,7 +291,7 @@ class TestIPOTrigger:
             price_thread = threading.Thread(target=advance_prices, daemon=True)
             price_thread.start()
 
-            # Execute trigger mode
+            # Execute trigger mode (fetch_clients is a list now)
             result = order_service._execute_ipo_trigger(
                 security_id=3100,
                 exchange_security_id=9308,
@@ -301,12 +301,14 @@ class TestIPOTrigger:
                 buy_or_sell=1,
                 order_type='LMT',
                 order_validity='DAY',
-                fetch_client=fake_client,
+                fetch_clients=[fake_client],  # Changed to list for multi-user support
                 limit_price=110.0,
                 skip_first=False,
                 skip_second_last=False,
                 fetch_security_id=3100,
-                base_quantity=10
+                base_quantity=10,
+                double_buy=False,
+                double_buy_quantity=None
             )
 
         # Verify results
@@ -360,12 +362,14 @@ class TestIPOTrigger:
                 buy_or_sell=1,
                 order_type='LMT',
                 order_validity='DAY',
-                fetch_client=fake_client,
+                fetch_clients=[fake_client],
                 limit_price=110.0,
                 skip_first=True,  # Skip first level
                 skip_second_last=False,
                 fetch_security_id=3100,
-                base_quantity=10
+                base_quantity=10,
+                double_buy=False,
+                double_buy_quantity=None
             )
 
         # Verify first level was skipped
@@ -411,12 +415,14 @@ class TestIPOTrigger:
                 buy_or_sell=1,
                 order_type='LMT',
                 order_validity='DAY',
-                fetch_client=fake_client,
+                fetch_clients=[fake_client],
                 limit_price=110.0,
                 skip_first=False,
                 skip_second_last=True,  # Skip second-to-last level
                 fetch_security_id=3100,
-                base_quantity=10
+                base_quantity=10,
+                double_buy=False,
+                double_buy_quantity=None
             )
 
         # Calculate expected second-to-last price
@@ -474,12 +480,14 @@ class TestIPOTrigger:
                 buy_or_sell=1,
                 order_type='LMT',
                 order_validity='DAY',
-                fetch_client=fake_client,
+                fetch_clients=[fake_client],
                 limit_price=110.0,
                 skip_first=True,
                 skip_second_last=True,
                 fetch_security_id=3100,
-                base_quantity=10
+                base_quantity=10,
+                double_buy=False,
+                double_buy_quantity=None
             )
 
         # Verify both skips
@@ -526,12 +534,14 @@ class TestIPOTrigger:
                 buy_or_sell=1,
                 order_type='LMT',
                 order_validity='DAY',
-                fetch_client=fake_client,
+                fetch_clients=[fake_client],
                 limit_price=110.0,
                 skip_first=False,
                 skip_second_last=False,
                 fetch_security_id=3100,
-                base_quantity=10
+                base_quantity=10,
+                double_buy=False,
+                double_buy_quantity=None
             )
 
         print(f"\nOrders placed: {len(fake_client.orders_placed)}")
@@ -580,12 +590,14 @@ class TestIPOTrigger:
                 buy_or_sell=1,
                 order_type='LMT',
                 order_validity='DAY',
-                fetch_client=fake_client,
+                fetch_clients=[fake_client],
                 limit_price=110.0,
                 skip_first=False,
                 skip_second_last=False,
                 fetch_security_id=3100,
-                base_quantity=10
+                base_quantity=10,
+                double_buy=False,
+                double_buy_quantity=None
             )
 
         print(f"\nTotal failures: {fake_client.fail_count}")
@@ -630,12 +642,14 @@ class TestIPOTrigger:
                 buy_or_sell=1,
                 order_type='LMT',
                 order_validity='DAY',
-                fetch_client=fake_client,
+                fetch_clients=[fake_client],
                 limit_price=110.0,
                 skip_first=False,
                 skip_second_last=False,
                 fetch_security_id=3100,
-                base_quantity=25  # All other levels
+                base_quantity=25,  # All other levels
+                double_buy=False,
+                double_buy_quantity=None
             )
 
         print(f"\nOrders placed: {len(fake_client.orders_placed)}")
@@ -685,13 +699,15 @@ class TestIPOTrigger:
                 buy_or_sell=1,
                 order_type='LMT',
                 order_validity='DAY',
-                fetch_client=fake_client,
+                fetch_clients=[fake_client],
                 limit_price=110.0,
                 skip_first=False,  # Ignored when no_ladder=True
                 skip_second_last=False,  # Ignored when no_ladder=True
                 no_ladder=True,  # Skip ALL ladder levels
                 fetch_security_id=3100,
-                base_quantity=10
+                base_quantity=10,
+                double_buy=False,
+                double_buy_quantity=None
             )
 
         print(f"\nOrders placed: {len(fake_client.orders_placed)}")

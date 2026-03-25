@@ -184,6 +184,16 @@ class OrderStore:
             except (TypeError, ValueError) as e:
                 raise ValueError(f"Order '{order_id}' has invalid base_quantity: {order['base_quantity']}")
 
+        # Validate double_buy_quantity if provided
+        double_buy_quantity = None
+        if 'double_buy_quantity' in order and order['double_buy_quantity'] is not None:
+            try:
+                double_buy_quantity = int(order['double_buy_quantity'])
+                if double_buy_quantity <= 0:
+                    raise ValueError(f"Order '{order_id}' has invalid double_buy_quantity: {double_buy_quantity}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid double_buy_quantity: {order['double_buy_quantity']}")
+
         # Validate queue_id if provided
         queue_id = 999  # Default
         if 'queue_id' in order and order['queue_id'] is not None:
@@ -209,7 +219,9 @@ class OrderStore:
             'sell': bool(order.get('sell', False)),
             'skip_first': bool(order.get('skip_first', False)),
             'skip_second_last': bool(order.get('skip_second_last', False)),
-            'no_ladder': bool(order.get('no_ladder', False))
+            'no_ladder': bool(order.get('no_ladder', False)),
+            'double_buy': bool(order.get('double_buy', False)),
+            'double_buy_quantity': double_buy_quantity
         }
 
         logger.debug(f"Order '{order_id}' validated successfully")
