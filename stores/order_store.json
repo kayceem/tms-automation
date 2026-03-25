@@ -19,29 +19,16 @@
   },
   "orders": [
     {
-      "id": "sohl_ipo",
-      "execute": true,
-      "success": false,
-      "queue_id": 1,
-      "ticker": "SOHL",
-      "mode": "ipo-trigger",
-      "quantity": 300,
-      "base_quantity": 10,
-      "price": 584.5,
-      "limit": 584.5,
-      "no_ladder": true
-    },
-    {
       "id": "rsml_ipo",
       "execute": false,
       "success": true,
       "queue_id": 2,
       "ticker": "RSML",
       "mode": "ipo-trigger",
-      "quantity": 250,
-      "base_quantity": 40,
-      "price": 16,
-      "limit": 1663.8,
+      "quantity": 235,
+      "base_quantity": 50,
+      "price": 1697,
+      "limit": 1830.1,
       "skip_first": true,
       "skip_second_last": true,
       "double_buy": true,
@@ -54,10 +41,10 @@
       "queue_id": 3,
       "ticker": "HFIN",
       "mode": "ipo-trigger",
-      "quantity": 200,
+      "quantity": 1000,
       "base_quantity": 10,
-      "price": 21,
-      "limit": 217.3,
+      "price": 215,
+      "limit": 239,
       "skip_first": true,
       "skip_second_last": true
     },
@@ -70,9 +57,21 @@
       "mode": "ipo-trigger",
       "quantity": 500,
       "base_quantity": 10,
-      "price": 36,
-      "limit": 359.4,
+      "price": 366.5,
+      "limit": 395.3,
       "no_ladder": true
+    },
+    {
+      "id": "skhl_ipo",
+      "execute": true,
+      "success": false,
+      "queue_id": 5,
+      "ticker": "SKHL",
+      "mode": "ipo-trigger",
+      "quantity": 300,
+      "base_quantity": 10,
+      "price": 596.1,
+      "limit": 330
     }
   ]
 }
