@@ -49,8 +49,11 @@ Examples:
   # IPO sniping mode (manual)
   python main.py --user-configs users/ --ticker EXAMPLE --price 1000 --quantity 10 --ipo --limit 1050
 
-  # IPO trigger mode (manual)
+  # IPO trigger mode (manual) - single fetch user
   python main.py --user-config users/user1.json --fetch-user users/fetch_user.json --ticker EXAMPLE --price 1000 --quantity 10 --ipo-trigger --limit 1050
+
+  # IPO trigger mode with multi-user fetch (reduces rate limiting)
+  python main.py --user-config users/user1.json --fetch-users users/fetch1.json users/fetch2.json --ticker EXAMPLE --price 1000 --quantity 10 --ipo-trigger --limit 1050
 
   # IPO trigger mode with skip-first
   python main.py --user-config users/user1.json --fetch-user users/fetch_user.json --ticker EXAMPLE --price 1000 --quantity 10 --ipo-trigger --skip-first --limit 1050
@@ -148,10 +151,17 @@ Examples:
         action='store_true',
         help='IPO trigger mode: monitor LTP and place ladder orders based on price levels. When LTP >= ladder[i], places order at ladder[i+1].'
     )
-    parser.add_argument(
+    fetch_user_group = parser.add_mutually_exclusive_group()
+    fetch_user_group.add_argument(
         '--fetch-user',
         type=str,
-        help='Path to fetch user JSON file (required for --ipo-trigger). This user will be used to fetch LTP.'
+        help='Path to single fetch user JSON file (required for --ipo-trigger). This user will be used to fetch LTP.'
+    )
+    fetch_user_group.add_argument(
+        '--fetch-users',
+        type=str,
+        nargs='+',
+        help='Paths to multiple fetch user JSON files for multi-user rotation. Reduces rate limiting during LTP monitoring.'
     )
     parser.add_argument(
         '--skip-first',
@@ -230,11 +240,12 @@ def validate_args(args: argparse.Namespace):
         )
 
     # Validate fetch-user requirement for trigger mode
-    if args.ipo_trigger and not args.fetch_user:
-        raise ValueError("--fetch-user is required when using --ipo-trigger mode")
+    has_fetch_user = args.fetch_user or args.fetch_users
+    if args.ipo_trigger and not has_fetch_user:
+        raise ValueError("--fetch-user or --fetch-users is required when using --ipo-trigger mode")
 
-    if args.fetch_user and not args.ipo_trigger:
-        logger.warning("--fetch-user flag is only used with --ipo-trigger mode. It will be ignored.")
+    if has_fetch_user and not args.ipo_trigger:
+        logger.warning("--fetch-user/--fetch-users flag is only used with --ipo-trigger mode. It will be ignored.")
 
     if args.skip_first and not args.ipo_trigger:
         logger.warning("--skip-first flag is only used with --ipo-trigger mode. It will be ignored.")
@@ -295,12 +306,52 @@ def load_user_configs(args: argparse.Namespace) -> List[UserConfig]:
     return user_configs
 
 
+def load_fetch_user_configs(args: argparse.Namespace) -> List[UserConfig]:
+    """
+    Load fetch user configurations based on command-line arguments.
+
+    Args:
+        args: Parsed arguments
+
+    Returns:
+        List of UserConfig instances for fetch users (empty list if none specified)
+    """
+    fetch_user_configs = []
+
+    if args.fetch_user:
+        # Single fetch user mode
+        logger.info(f"Loading single fetch user configuration from {args.fetch_user}")
+        fetch_user_config = UserConfig.from_file(args.fetch_user)
+        fetch_user_configs.append(fetch_user_config)
+        logger.info(f"Loaded fetch user: {fetch_user_config.user_id}")
+
+    elif args.fetch_users:
+        # Multi-fetch user mode
+        logger.info(f"Loading {len(args.fetch_users)} fetch user configurations")
+
+        for idx, fetch_user_file in enumerate(args.fetch_users, 1):
+            try:
+                fetch_user_config = UserConfig.from_file(fetch_user_file)
+                fetch_user_configs.append(fetch_user_config)
+                logger.info(f"Loaded fetch user {idx}: {fetch_user_config.user_id}")
+            except Exception as e:
+                logger.warning(f"Failed to load fetch user from {fetch_user_file}: {e}")
+
+        if not fetch_user_configs:
+            raise ValueError("No valid fetch user configurations loaded")
+
+    if fetch_user_configs:
+        logger.info(f"Total fetch users loaded: {len(fetch_user_configs)}")
+
+    return fetch_user_configs
+
+
 def execute_order_for_user(
     user_config: UserConfig,
     order_params: Dict[str, Any],
     scheduled_time: str = None,
     stagger_delay: float = 0.0,
-    fetch_user_config: UserConfig = None
+    fetch_user_configs: List[UserConfig] = None
 ) -> Dict[str, Any]:
     """
     Execute an order for a single user (thread-safe).
@@ -310,7 +361,7 @@ def execute_order_for_user(
         order_params: Order parameters dictionary
         scheduled_time: Optional scheduled time string
         stagger_delay: Delay in seconds to stagger multi-user execution
-        fetch_user_config: Optional fetch user configuration for trigger mode
+        fetch_user_configs: Optional list of fetch user configurations for trigger mode
 
     Returns:
         API response dictionary
@@ -329,15 +380,19 @@ def execute_order_for_user(
         # Create user-specific TMS client
         tms_client = TMSClient(user_config)
 
-        # Create fetch client if provided
-        fetch_client = None
-        if fetch_user_config:
-            fetch_client = TMSClient(fetch_user_config)
-            logger.info(f"[{user_id}] Fetch client initialized: {fetch_user_config.user_id}")
+        # Create fetch clients if provided
+        fetch_clients = None
+        if fetch_user_configs:
+            fetch_clients = [TMSClient(cfg) for cfg in fetch_user_configs]
+            if len(fetch_clients) == 1:
+                logger.info(f"[{user_id}] Fetch client initialized: {fetch_user_configs[0].user_id}")
+            else:
+                user_ids = ', '.join(cfg.user_id for cfg in fetch_user_configs)
+                logger.info(f"[{user_id}] Multi-user fetch initialized: {len(fetch_clients)} users ({user_ids})")
 
-        # Add fetch_client to order_params if it's not already there
-        if fetch_client and 'fetch_client' not in order_params:
-            order_params = {**order_params, 'fetch_client': fetch_client}
+        # Add fetch_clients to order_params if not already there
+        if fetch_clients and 'fetch_clients' not in order_params:
+            order_params = {**order_params, 'fetch_clients': fetch_clients}
 
         # Create order service
         order_service = OrderService(tms_client)
@@ -367,7 +422,7 @@ def execute_order_for_user(
 def execute_from_order_store(
     user_configs: List[UserConfig],
     order_store_path: str,
-    fetch_user_config: UserConfig = None
+    fetch_user_configs: List[UserConfig] = None
 ) -> Dict[str, Any]:
     """
     Execute orders from the order store queue.
@@ -376,7 +431,7 @@ def execute_from_order_store(
     Args:
         user_configs: List of UserConfig instances
         order_store_path: Path to order store JSON file
-        fetch_user_config: Optional fetch user configuration for trigger mode
+        fetch_user_configs: Optional list of fetch user configurations for trigger mode
 
     Returns:
         API response dictionary from the last executed order
@@ -419,7 +474,7 @@ def execute_from_order_store(
             security_id, exchange_security_id = ticker_store.lookup(order['ticker'])
 
             # Get fetch_id with host-specific lookup if fetch_user is available
-            fetch_host = fetch_user_config.tms_host if fetch_user_config else None
+            fetch_host = fetch_user_configs[0].tms_host if fetch_user_configs else None
             fetch_id = ticker_store.get_fetch_id(order['ticker'], host=fetch_host)
 
             logger.info(
@@ -440,11 +495,11 @@ def execute_from_order_store(
         buy_or_sell = 2 if order['sell'] else 1
 
         # Validate fetch_user requirement for trigger mode
-        if ipo_trigger_mode and fetch_user_config is None:
+        if ipo_trigger_mode and not fetch_user_configs:
             order_store.mark_failed(order_id)
             raise ValueError(
                 "Fetch user configuration is required for 'ipo-trigger' mode. "
-                "Use --fetch-user argument to specify fetch user JSON file."
+                "Use --fetch-user or --fetch-users argument to specify fetch user JSON file(s)."
             )
 
         # Prepare order parameters
@@ -465,7 +520,8 @@ def execute_from_order_store(
             'skip_second_last': order['skip_second_last'],
             'no_ladder': order['no_ladder'],
             'fetch_id': fetch_id,
-            'base_quantity': order['base_quantity']
+            'base_quantity': order['base_quantity'],
+            'ticker': order['ticker']  # Pass ticker for per-user fetch_id resolution
         }
 
         # Log execution details
@@ -492,7 +548,7 @@ def execute_from_order_store(
                     user_config=user_configs[0],
                     order_params=order_params,
                     scheduled_time=order['time'],
-                    fetch_user_config=fetch_user_config
+                    fetch_user_configs=fetch_user_configs
                 )
             else:
                 # Multi-user - execute in parallel threads with staggering
@@ -515,7 +571,7 @@ def execute_from_order_store(
                             order_params=order_params,
                             scheduled_time=order['time'],
                             stagger_delay=delay,
-                            fetch_user_config=fetch_user_config
+                            fetch_user_configs=fetch_user_configs
                         )
                     except Exception as e:
                         exceptions.append((user_config.user_id, e))
@@ -604,25 +660,28 @@ def main():
         # Load user configurations
         user_configs = load_user_configs(args)
 
-        # Load fetch user configuration if provided
-        fetch_user_config = None
-        if args.fetch_user:
-            logger.info(f"Loading fetch user configuration from {args.fetch_user}")
-            fetch_user_config = UserConfig.from_file(args.fetch_user)
-            logger.info(f"Loaded fetch user: {fetch_user_config.user_id}")
+        # Load fetch user configurations if provided
+        fetch_user_configs = load_fetch_user_configs(args)
+
+        # For backward compatibility, keep fetch_user_config as the first fetch user
+        fetch_user_config = fetch_user_configs[0] if fetch_user_configs else None
 
         # Check if using order store mode
         if args.order_store:
             # Order store mode
-            execute_from_order_store(user_configs, args.order_store, fetch_user_config)
+            execute_from_order_store(user_configs, args.order_store, fetch_user_configs)
         else:
             # Manual order mode
             # Determine buy or sell
             buy_or_sell = 2 if args.sell else 1
 
-            # Resolve fetch_id with host-specific lookup if ticker was used
+            # For multi-user fetch, we'll pass the ticker and let order_service resolve fetch_id per user
+            # For backward compatibility with single user, we still resolve it here
             fetch_id = None
+            ticker_symbol = None
             if args.ticker:
+                ticker_symbol = args.ticker
+                # Resolve fetch_id for logging purposes (using first fetch user's host if available)
                 try:
                     from utils import get_ticker_store
                     ticker_store = get_ticker_store()
@@ -649,7 +708,8 @@ def main():
                 'ipo_trigger_mode': args.ipo_trigger,
                 'limit_price': args.limit,
                 'skip_first': args.skip_first if hasattr(args, 'skip_first') else False,
-                'fetch_id': fetch_id
+                'fetch_id': fetch_id,
+                'ticker': ticker_symbol  # Pass ticker for per-user fetch_id resolution
             }
 
             # Log execution mode
@@ -689,7 +749,7 @@ def main():
                     user_config=user_configs[0],
                     order_params=order_params,
                     scheduled_time=args.time,
-                    fetch_user_config=fetch_user_config
+                    fetch_user_configs=fetch_user_configs
                 )
             else:
                 # Multi-user - execute in parallel threads with staggering
@@ -713,7 +773,7 @@ def main():
                             order_params=order_params,
                             scheduled_time=args.time,
                             stagger_delay=delay,
-                            fetch_user_config=fetch_user_config
+                            fetch_user_configs=fetch_user_configs
                         )
                     except Exception as e:
                         exceptions.append((user_config.user_id, e))

@@ -104,6 +104,92 @@ def update_user_json(user_id: str, extracted_data: Dict[str, str], user_json_pat
         return False
 
 
+def process_auto_folder(folder_path: str) -> None:
+    """
+    Automatically process all headers{x}.txt files in a folder and update corresponding user{x}.json files.
+
+    Args:
+        folder_path: Path to the folder containing headers and user JSON files
+    """
+    folder = Path(folder_path)
+
+    if not folder.exists() or not folder.is_dir():
+        print(f"Error: Folder not found or is not a directory: {folder_path}")
+        return
+
+    # Find all headers{x}.txt files
+    headers_files = sorted(folder.glob("headers*.txt"))
+
+    if not headers_files:
+        print(f"No headers*.txt files found in {folder_path}")
+        return
+
+    print(f"Found {len(headers_files)} headers file(s) in {folder_path}\n")
+
+    success_count = 0
+    failure_count = 0
+
+    for headers_file in headers_files:
+        # Extract the number/identifier from headers{x}.txt
+        match = re.match(r'headers(.*)\.txt', headers_file.name)
+        if not match:
+            print(f"⚠ Skipping {headers_file.name}: unexpected filename format")
+            continue
+
+        identifier = match.group(1)
+        user_json_file = folder / f"user{identifier}.json"
+
+        print(f"Processing: {headers_file.name} → {user_json_file.name}")
+
+        # Check if corresponding user JSON exists
+        if not user_json_file.exists():
+            print(f"  ✗ Error: Corresponding user JSON not found: {user_json_file.name}\n")
+            failure_count += 1
+            continue
+
+        try:
+            # Read headers file
+            with open(headers_file, 'r') as f:
+                headers_text = f.read()
+
+            # Extract tokens and IDs
+            extracted_data = extract_from_headers(headers_text)
+
+            if not extracted_data:
+                print(f"  ⚠ Warning: No tokens or IDs found in {headers_file.name}\n")
+                failure_count += 1
+                continue
+
+            # Read user JSON to get user_id
+            with open(user_json_file, 'r') as f:
+                user_data = json.load(f)
+
+            user_id = user_data.get('user_id')
+            if not user_id:
+                print(f"  ✗ Error: No user_id found in {user_json_file.name}\n")
+                failure_count += 1
+                continue
+
+            # Update the user JSON
+            if update_user_json(user_id, extracted_data, str(user_json_file)):
+                success_count += 1
+            else:
+                failure_count += 1
+
+            print()
+
+        except json.JSONDecodeError as e:
+            print(f"  ✗ Error: Invalid JSON in {user_json_file.name}: {e}\n")
+            failure_count += 1
+        except Exception as e:
+            print(f"  ✗ Error processing {headers_file.name}: {e}\n")
+            failure_count += 1
+
+    # Summary
+    print("=" * 60)
+    print(f"Summary: {success_count} successful, {failure_count} failed")
+
+
 def main():
     """Main function to run the script interactively or with file input."""
     import argparse
@@ -112,9 +198,13 @@ def main():
         description='Extract tokens from HTTP headers and update user.json'
     )
     parser.add_argument(
+        '--auto',
+        metavar='FOLDER',
+        help='Automatically process all headers{x}.txt files in the specified folder and update corresponding user{x}.json files'
+    )
+    parser.add_argument(
         '--user-id',
-        required=True,
-        help='User ID to match in user.json'
+        help='User ID to match in user.json (required if not using --auto)'
     )
     parser.add_argument(
         '--headers-file',
@@ -126,6 +216,15 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Handle --auto mode
+    if args.auto:
+        process_auto_folder(args.auto)
+        return
+
+    # Validate required arguments for manual mode
+    if not args.user_id:
+        parser.error("--user-id is required when not using --auto mode")
 
     # Get headers text
     if args.headers_file:

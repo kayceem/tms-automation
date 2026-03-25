@@ -45,11 +45,13 @@ class OrderService:
         ipo_trigger_mode: bool = False,
         limit_price: Optional[float] = None,
         fetch_client: Optional[Any] = None,
+        fetch_clients: Optional[List[Any]] = None,
         skip_first: bool = False,
         skip_second_last: bool = False,
         no_ladder: bool = False,
         fetch_id: Optional[int] = None,
-        base_quantity: Optional[int] = None
+        base_quantity: Optional[int] = None,
+        ticker: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Execute an order immediately.
@@ -67,12 +69,14 @@ class OrderService:
             ipo_sniper_mode: Enable IPO sniper mode (aggressive +10% placement)
             ipo_trigger_mode: Enable IPO trigger mode (price-based ladder triggering)
             limit_price: Optional upper limit price for IPO sniping mode
-            fetch_client: TMSClient instance for fetching prices (required for trigger mode)
+            fetch_client: TMSClient instance for fetching prices (deprecated, use fetch_clients)
+            fetch_clients: List of TMSClient instances for fetching prices (required for trigger mode)
             skip_first: Skip the first ladder level (trigger mode only)
             skip_second_last: Skip the second-to-last ladder level (trigger mode only)
             no_ladder: Skip ALL ladder levels, only place final order when LTP reaches second-to-last (trigger mode only)
             fetch_id: Security ID for fetching LTP (defaults to security_id if not provided)
             base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
+            ticker: Ticker symbol for resolving per-user fetch_id (optional)
 
         Returns:
             API response dictionary
@@ -82,8 +86,13 @@ class OrderService:
 
         # IPO Trigger Mode: Price-based ladder triggering
         if ipo_trigger_mode:
-            if fetch_client is None:
-                raise ValueError("fetch_client is required for IPO trigger mode")
+            # Support both fetch_client and fetch_clients for backward compatibility
+            if fetch_clients:
+                actual_fetch_clients = fetch_clients
+            elif fetch_client:
+                actual_fetch_clients = [fetch_client]
+            else:
+                raise ValueError("fetch_client or fetch_clients is required for IPO trigger mode")
 
             # Use fetch_id if provided, otherwise fall back to security_id
             fetch_security_id = fetch_id if fetch_id is not None else security_id
@@ -98,12 +107,13 @@ class OrderService:
                 order_type=order_type,
                 order_validity=order_validity,
                 limit_price=limit_price,
-                fetch_client=fetch_client,
+                fetch_clients=actual_fetch_clients,
                 skip_first=skip_first,
                 skip_second_last=skip_second_last,
                 no_ladder=no_ladder,
                 fetch_security_id=fetch_security_id,
-                base_quantity=base_quantity
+                base_quantity=base_quantity,
+                ticker=ticker
             )
 
         # IPO Sniper Mode: Aggressive placement at +10%
@@ -509,13 +519,14 @@ class OrderService:
         buy_or_sell: int,
         order_type: str,
         order_validity: str,
-        fetch_client: Any,
+        fetch_clients: List[Any],
         limit_price: Optional[float] = None,
         skip_first: bool = False,
         skip_second_last: bool = False,
         no_ladder: bool = False,
         fetch_security_id: Optional[int] = None,
-        base_quantity: Optional[int] = None
+        base_quantity: Optional[int] = None,
+        ticker: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Execute IPO trigger mode: Monitor LTP and place orders when LTP reaches ladder levels.
@@ -537,18 +548,20 @@ class OrderService:
             buy_or_sell: 1 for buy, 2 for sell
             order_type: Order type (LMT, MKT, etc.)
             order_validity: Order validity (DAY, IOC, etc.)
-            fetch_client: TMSClient instance for fetching LTP
+            fetch_clients: List of TMSClient instances for fetching LTP with rotation
             limit_price: Optional upper limit price for calculations
             skip_first: Skip the first ladder level
             skip_second_last: Skip the second-to-last ladder level
             no_ladder: Skip ALL ladder levels, only place final order at limit+10%
             fetch_security_id: Security ID for fetching LTP (defaults to security_id if not provided)
             base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
+            ticker: Ticker symbol for resolving per-user fetch_id (optional)
 
         Returns:
             Last API response dictionary
         """
-        from services.price_fetcher import PriceFetcher, TokenRefreshManager
+        from services.price_fetcher import PriceFetcher, MultiUserPriceFetcher, TokenRefreshManager, FetchUser
+        from utils import get_ticker_store
 
         # Use fetch_security_id if provided, otherwise fall back to security_id
         if fetch_security_id is None:
@@ -643,14 +656,63 @@ class OrderService:
 
         # Start price fetcher for monitoring LTP
         poll_interval_ms = self.client.user_config.trigger_mode_poll_interval_ms
-        logger.info(
-            f"[{self.user_id}] Using fetch_security_id={fetch_security_id} for LTP monitoring"
-        )
-        price_fetcher = PriceFetcher(
-            fetch_client=fetch_client,
-            security_id=fetch_security_id,
-            poll_interval_ms=poll_interval_ms
-        )
+
+        # Use MultiUserPriceFetcher if multiple fetch clients, otherwise single PriceFetcher
+        if len(fetch_clients) > 1:
+            # Multi-user fetch with rotation
+            # Resolve fetch_security_id for each fetch client based on their host
+            fetch_users = []
+            ticker_store = get_ticker_store() if ticker else None
+
+            for i, client in enumerate(fetch_clients):
+                # Resolve fetch_id per user based on their host
+                if ticker and ticker_store:
+                    try:
+                        user_fetch_id = ticker_store.get_fetch_id(ticker, host=client.user_config.tms_host)
+                        logger.info(
+                            f"[{self.user_id}] FetchUser{i+1} ({client.user_id}) using "
+                            f"fetch_security_id={user_fetch_id} (host={client.user_config.tms_host})"
+                        )
+                    except Exception as e:
+                        # Fallback to provided fetch_security_id or security_id
+                        user_fetch_id = fetch_security_id if fetch_security_id else security_id
+                        logger.warning(
+                            f"[{self.user_id}] Could not resolve fetch_id for FetchUser{i+1}, "
+                            f"using fallback: {user_fetch_id}. Error: {e}"
+                        )
+                else:
+                    # Use provided fetch_security_id or security_id
+                    user_fetch_id = fetch_security_id if fetch_security_id else security_id
+
+                fetch_users.append(
+                    FetchUser(
+                        name=f"FetchUser{i+1}",
+                        client=client,
+                        fetch_security_id=user_fetch_id
+                    )
+                )
+
+            requests_per_user = self.client.user_config.trigger_mode_requests_per_fetch_user if hasattr(
+                self.client.user_config, 'trigger_mode_requests_per_fetch_user'
+            ) else 10  # Default to 10 requests per user
+
+            price_fetcher = MultiUserPriceFetcher(
+                fetch_users=fetch_users,
+                poll_interval_ms=poll_interval_ms,
+                requests_per_user=requests_per_user
+            )
+        else:
+            # Single fetch user - use provided fetch_security_id or security_id
+            single_fetch_id = fetch_security_id if fetch_security_id else security_id
+            logger.info(
+                f"[{self.user_id}] Using fetch_security_id={single_fetch_id} for LTP monitoring"
+            )
+            price_fetcher = PriceFetcher(
+                fetch_client=fetch_clients[0],
+                security_id=single_fetch_id,
+                poll_interval_ms=poll_interval_ms
+            )
+
         price_fetcher.start()
 
         # Start token refresh manager to keep main user ready
@@ -877,7 +939,7 @@ class OrderService:
                         if "401" in error_msg or "Unauthorized" in error_msg:
                             logger.debug(f"[{self.user_id}] Token issue, retrying")
                             try:
-                                time.sleep(0.5)
+                                time.sleep(2)
                             except KeyboardInterrupt:
                                 logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                                 raise
@@ -886,7 +948,7 @@ class OrderService:
                                 f"[{self.user_id}] Error placing order level {level_display}: {error_msg}"
                             )
                             try:
-                                time.sleep(2)
+                                time.sleep(0.5)
                             except KeyboardInterrupt:
                                 logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                                 raise
