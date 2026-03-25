@@ -180,6 +180,16 @@ Examples:
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
         help='Logging level (default: INFO)'
     )
+    parser.add_argument(
+        '--double-buy',
+        action='store_true',
+        help='Enable double buy: place a second order 0.5s after first order succeeds'
+    )
+    parser.add_argument(
+        '--double-buy-quantity',
+        type=int,
+        help='Quantity for the second order in double buy mode (defaults to same as --quantity if not specified)'
+    )
 
     return parser
 
@@ -255,6 +265,13 @@ def validate_args(args: argparse.Namespace):
 
     if args.limit:
         validate_positive_number(args.limit, 'limit')
+
+    # Validate double-buy parameters
+    if args.double_buy_quantity and not args.double_buy:
+        logger.warning("--double-buy-quantity is only used with --double-buy flag. It will be ignored.")
+
+    if args.double_buy_quantity:
+        validate_positive_integer(args.double_buy_quantity, 'double-buy-quantity')
 
 
 def load_user_configs(args: argparse.Namespace) -> List[UserConfig]:
@@ -521,7 +538,9 @@ def execute_from_order_store(
             'no_ladder': order['no_ladder'],
             'fetch_id': fetch_id,
             'base_quantity': order['base_quantity'],
-            'ticker': order['ticker']  # Pass ticker for per-user fetch_id resolution
+            'ticker': order['ticker'],  # Pass ticker for per-user fetch_id resolution
+            'double_buy': order['double_buy'],
+            'double_buy_quantity': order['double_buy_quantity']
         }
 
         # Log execution details
@@ -709,7 +728,9 @@ def main():
                 'limit_price': args.limit,
                 'skip_first': args.skip_first if hasattr(args, 'skip_first') else False,
                 'fetch_id': fetch_id,
-                'ticker': ticker_symbol  # Pass ticker for per-user fetch_id resolution
+                'ticker': ticker_symbol,  # Pass ticker for per-user fetch_id resolution
+                'double_buy': args.double_buy if hasattr(args, 'double_buy') else False,
+                'double_buy_quantity': args.double_buy_quantity if hasattr(args, 'double_buy_quantity') else None
             }
 
             # Log execution mode

@@ -27,7 +27,7 @@
       "mode": "ipo-trigger",
       "quantity": 300,
       "base_quantity": 10,
-      "price": 584.5,
+      "price": 58,
       "limit": 584.5,
       "no_ladder": true
     },
@@ -40,10 +40,12 @@
       "mode": "ipo-trigger",
       "quantity": 250,
       "base_quantity": 40,
-      "price": 1494.4,
+      "price": 16,
       "limit": 1663.8,
       "skip_first": true,
-      "skip_second_last": true
+      "skip_second_last": true,
+      "double_buy": true,
+      "double_buy_quantity": 100
     },
     {
       "id": "hfin_ipo",
@@ -54,7 +56,7 @@
       "mode": "ipo-trigger",
       "quantity": 500,
       "base_quantity": 10,
-      "price": 195.7,
+      "price": 21,
       "limit": 217.3,
       "no_ladder": true
     },
@@ -67,7 +69,7 @@
       "mode": "ipo-trigger",
       "quantity": 200,
       "base_quantity": 10,
-      "price": 238,
+      "price": 36,
       "limit": 359.4,
       "no_ladder": true
     }

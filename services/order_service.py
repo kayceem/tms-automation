@@ -51,7 +51,9 @@ class OrderService:
         no_ladder: bool = False,
         fetch_id: Optional[int] = None,
         base_quantity: Optional[int] = None,
-        ticker: Optional[str] = None
+        ticker: Optional[str] = None,
+        double_buy: bool = False,
+        double_buy_quantity: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Execute an order immediately.
@@ -77,6 +79,8 @@ class OrderService:
             fetch_id: Security ID for fetching LTP (defaults to security_id if not provided)
             base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
             ticker: Ticker symbol for resolving per-user fetch_id (optional)
+            double_buy: Place a second order 0.5s after first order succeeds
+            double_buy_quantity: Quantity for the second order (defaults to order_quantity if not specified)
 
         Returns:
             API response dictionary
@@ -113,7 +117,9 @@ class OrderService:
                 no_ladder=no_ladder,
                 fetch_security_id=fetch_security_id,
                 base_quantity=base_quantity,
-                ticker=ticker
+                ticker=ticker,
+                double_buy=double_buy,
+                double_buy_quantity=double_buy_quantity
             )
 
         # IPO Sniper Mode: Aggressive placement at +10%
@@ -126,7 +132,9 @@ class OrderService:
                 client_data=client_data,
                 buy_or_sell=buy_or_sell,
                 order_type=order_type,
-                order_validity=order_validity
+                order_validity=order_validity,
+                double_buy=double_buy,
+                double_buy_quantity=double_buy_quantity
             )
 
         # IPO Mode: Sequential placement at multiple price levels
@@ -141,7 +149,9 @@ class OrderService:
                 order_type=order_type,
                 order_validity=order_validity,
                 limit_price=limit_price,
-                base_quantity=base_quantity
+                base_quantity=base_quantity,
+                double_buy=double_buy,
+                double_buy_quantity=double_buy_quantity
             )
 
         # Normal single order execution
@@ -166,11 +176,90 @@ class OrderService:
 
             logger.info(f"[{self.user_id}] Order placed successfully")
             logger.debug(f"[{self.user_id}] Response: {json.dumps(response, indent=2)}")
+
+            # Handle double buy if enabled
+            if double_buy:
+                self._execute_double_buy(
+                    security_id=security_id,
+                    exchange_security_id=exchange_security_id,
+                    order_price=order_price,
+                    order_quantity=order_quantity,
+                    double_buy_quantity=double_buy_quantity,
+                    client_data=client_data,
+                    buy_or_sell=buy_or_sell,
+                    order_type=order_type,
+                    order_validity=order_validity
+                )
+
             return response
 
         except Exception as e:
             logger.error(f"[{self.user_id}] Error placing order: {str(e)}", exc_info=True)
             raise
+
+    def _execute_double_buy(
+        self,
+        security_id: int,
+        exchange_security_id: int,
+        order_price: float,
+        order_quantity: int,
+        double_buy_quantity: Optional[int],
+        client_data: Dict[str, Any],
+        buy_or_sell: int,
+        order_type: str,
+        order_validity: str
+    ):
+        """
+        Execute double buy: place a second order 0.5s after first order succeeds.
+
+        Args:
+            security_id: Security ID
+            exchange_security_id: Exchange security ID
+            order_price: Price per unit (same as first order)
+            order_quantity: Quantity from first order (for reference)
+            double_buy_quantity: Quantity for second order (defaults to order_quantity if None)
+            client_data: Client information dictionary
+            buy_or_sell: 1 for buy, 2 for sell
+            order_type: Order type (LMT, MKT, etc.)
+            order_validity: Order validity (DAY, IOC, etc.)
+        """
+        # Determine quantity for second order
+        qty = double_buy_quantity if double_buy_quantity is not None else order_quantity
+        order_side = 'BUY' if buy_or_sell == 1 else 'SELL'
+
+        logger.info(
+            f"[{self.user_id}] Double buy enabled: waiting 0.5s before placing second order "
+            f"(Price={order_price}, Qty={qty})"
+        )
+
+        # Wait 0.5 seconds
+        time.sleep(0.5)
+
+        try:
+            logger.info(
+                f"[{self.user_id}] Placing double buy {order_side} order: "
+                f"Security={security_id}, Price={order_price}, Qty={qty}"
+            )
+
+            response = self.client.place_order(
+                security_id=security_id,
+                exchange_security_id=exchange_security_id,
+                order_price=order_price,
+                order_quantity=qty,
+                client_data=client_data,
+                buy_or_sell=buy_or_sell,
+                order_type=order_type,
+                order_validity=order_validity
+            )
+
+            logger.info(f"[{self.user_id}] Double buy order placed successfully")
+            logger.debug(f"[{self.user_id}] Double buy response: {json.dumps(response, indent=2)}")
+
+        except Exception as e:
+            # Log error but don't raise - double buy failure shouldn't stop execution
+            logger.warning(
+                f"[{self.user_id}] Double buy order failed (continuing anyway): {str(e)}"
+            )
 
     def _get_client_data(self, client_data_file: Optional[str]) -> Dict[str, Any]:
         """
@@ -214,11 +303,14 @@ class OrderService:
         order_type: str,
         order_validity: str,
         limit_price: Optional[float] = None,
-        base_quantity: Optional[int] = None
+        base_quantity: Optional[int] = None,
+        double_buy: bool = False,
+        double_buy_quantity: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Execute IPO sniping: place orders at base price, then +2%, +4%, +6%, +8%, +10%.
         If limit_price is provided, calculates +10% of limit and adjusts the ladder.
+        Double buy applies only to the final order at +10%.
         Uses base_quantity for all levels except final, which uses order_quantity.
 
         Args:
@@ -367,6 +459,20 @@ class OrderService:
                         order_placed = True
                         last_response = response
 
+                        # Handle double buy for final level only
+                        if double_buy and is_final_level:
+                            self._execute_double_buy(
+                                security_id=security_id,
+                                exchange_security_id=exchange_security_id,
+                                order_price=price,
+                                order_quantity=qty_for_level,
+                                double_buy_quantity=double_buy_quantity,
+                                client_data=client_data,
+                                buy_or_sell=buy_or_sell,
+                                order_type=order_type,
+                                order_validity=order_validity
+                            )
+
                         # Small delay between orders
                         if level_num < len(price_levels):
                             try:
@@ -421,10 +527,13 @@ class OrderService:
         client_data: Dict[str, Any],
         buy_or_sell: int,
         order_type: str,
-        order_validity: str
+        order_validity: str,
+        double_buy: bool = False,
+        double_buy_quantity: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Execute IPO sniper: aggressively place orders at +10% for configured duration.
+        Double buy applies to each successfully placed order.
 
         Args:
             security_id: Security ID
@@ -433,6 +542,8 @@ class OrderService:
             order_quantity: Number of units
             client_data: Client information dictionary
             buy_or_sell: 1 for buy, 2 for sell
+            double_buy: Place a second order 0.5s after each order succeeds
+            double_buy_quantity: Quantity for the second order
             order_type: Order type (LMT, MKT, etc.)
             order_validity: Order validity (DAY, IOC, etc.)
 
@@ -479,6 +590,21 @@ class OrderService:
                         f"[{self.user_id}] IPO SNIPER SUCCESS on attempt #{attempt} "
                         f"at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}"
                     )
+
+                    # Handle double buy if enabled
+                    if double_buy:
+                        self._execute_double_buy(
+                            security_id=security_id,
+                            exchange_security_id=exchange_security_id,
+                            order_price=target_price,
+                            order_quantity=order_quantity,
+                            double_buy_quantity=double_buy_quantity,
+                            client_data=client_data,
+                            buy_or_sell=buy_or_sell,
+                            order_type=order_type,
+                            order_validity=order_validity
+                        )
+
                     return response
 
             except KeyboardInterrupt:
@@ -526,7 +652,9 @@ class OrderService:
         no_ladder: bool = False,
         fetch_security_id: Optional[int] = None,
         base_quantity: Optional[int] = None,
-        ticker: Optional[str] = None
+        ticker: Optional[str] = None,
+        double_buy: bool = False,
+        double_buy_quantity: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Execute IPO trigger mode: Monitor LTP and place orders when LTP reaches ladder levels.
@@ -918,6 +1046,20 @@ class OrderService:
                             )
                             order_placed = True
                             last_response = response
+
+                            # Handle double buy for final level only
+                            if double_buy and is_final_level:
+                                self._execute_double_buy(
+                                    security_id=security_id,
+                                    exchange_security_id=exchange_security_id,
+                                    order_price=target_price,
+                                    order_quantity=qty_for_level,
+                                    double_buy_quantity=double_buy_quantity,
+                                    client_data=client_data,
+                                    buy_or_sell=buy_or_sell,
+                                    order_type=order_type,
+                                    order_validity=order_validity
+                                )
 
                             # Move to next level
                             current_level_index += 1
