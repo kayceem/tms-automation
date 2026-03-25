@@ -31,7 +31,8 @@
         "name": "Salapa Bikash Bank Limited",
         "fetch_id": {
             "tms01.nepsetms.com.np": 3098,
-            "tms35.nepsetms.com.np": 3099
+            "tms35.nepsetms.com.np": 3099,
+            "tms56.nepsetms.com.np": 3099
         }
     },
     "RSML": {
@@ -40,7 +41,8 @@
         "name": "Reliance Spinning Mills Limited",
         "fetch_id": {
             "tms01.nepsetms.com.np": 3099,
-            "tms35.nepsetms.com.np": 3100
+            "tms35.nepsetms.com.np": 3100,
+            "tms56.nepsetms.com.np": 3099
         }
     },
     "HFIN": {
@@ -49,7 +51,8 @@
         "name": "Hotel Forest Inn Limited",
         "fetch_id": {
             "tms01.nepsetms.com.np": 3100,
-            "tms35.nepsetms.com.np": 3101
+            "tms35.nepsetms.com.np": 3101,
+            "tms56.nepsetms.com.np": 3101
         }
     },
     "SOHL": {
@@ -58,7 +61,8 @@
         "name": "Solu Hydro Power Limited",
         "fetch_id": {
             "tms01.nepsetms.com.np": 3101,
-            "tms35.nepsetms.com.np": 3102
+            "tms35.nepsetms.com.np": 3102,
+            "tms56.nepsetms.com.np": 3101
         }
     },
     "BJHL": {
@@ -67,7 +71,8 @@
         "name": "Bhujung Hydropower Limited",
         "fetch_id": {
             "tms01.nepsetms.com.np": 3103,
-            "tms35.nepsetms.com.np": 3104
+            "tms35.nepsetms.com.np": 3104,
+            "tms56.nepsetms.com.np": 3104
         }
     },
     "SKHL": {
@@ -76,7 +81,9 @@
         "name": "Super Khudi Hydropower Limited",
         "fetch_id": {
             "tms01.nepsetms.com.np": 3104,
-            "tms35.nepsetms.com.np": 3105
+            "tms35.nepsetms.com.np": 3105,
+            "tms56.nepsetms.com.np": 3105
+
         }
     }
 }

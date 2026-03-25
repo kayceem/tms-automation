@@ -187,11 +187,11 @@ class TokenRefreshManager:
             f"(interval={self.refresh_interval_seconds}s)"
         )
 
+        # First refresh happens 15 seconds earlier
+        time.sleep(max(0, self.refresh_interval_seconds - 15))
+
         while self._running:
             try:
-                # Sleep first, then refresh (don't refresh immediately on start)
-                time.sleep(self.refresh_interval_seconds)
-
                 if not self._running:
                     break
 
@@ -207,6 +207,9 @@ class TokenRefreshManager:
                     logger.warning(
                         f"[{self.tms_client.user_id}] Scheduled token refresh failed"
                     )
+
+                # Sleep for normal interval after refresh
+                time.sleep(self.refresh_interval_seconds)
 
             except KeyboardInterrupt:
                 logger.info(f"[{self.tms_client.user_id}] Refresh loop interrupted by user")
