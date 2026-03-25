@@ -28,7 +28,11 @@
     "SABBL": {
         "security_id": 3098,
         "exchange_security_id": 9305,
-        "name": "Salapa Bikash Bank Limited"
+        "name": "Salapa Bikash Bank Limited",
+        "fetch_id": {
+            "tms01.nepsetms.com.np": 3098,
+            "tms35.nepsetms.com.np": 3099
+        }
     },
     "RSML": {
         "security_id": 3099,
