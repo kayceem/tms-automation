@@ -407,9 +407,6 @@ def execute_order_for_user(
                 user_ids = ', '.join(cfg.user_id for cfg in fetch_user_configs)
                 logger.info(f"[{user_id}] Multi-user fetch initialized: {len(fetch_clients)} users ({user_ids})")
 
-        # Add fetch_clients to order_params if not already there
-        # if fetch_clients and 'fetch_clients' not in order_params:
-            # order_params = {**order_params, 'fetch_clients': fetch_clients}
 
         # Create order service
         order_service = OrderService(tms_client)
@@ -426,6 +423,9 @@ def execute_order_for_user(
                 **order_params
             )
         else:
+            # Add fetch_clients to order_params if not already there
+            if fetch_clients and 'fetch_clients' not in order_params:
+                order_params = {**order_params, 'fetch_clients': fetch_clients}
             # Immediate execution
             result = order_service.execute_order(**order_params)
 
