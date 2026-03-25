@@ -35,8 +35,9 @@ class UserConfig:
     ipo_sniper_duration_minutes: int = 2
 
     # Trigger mode settings
-    trigger_mode_poll_interval_ms: int = 100  # Polling interval in milliseconds for fetching LTP
+    trigger_mode_poll_interval_ms: int = 100  # Polling interval in milliseconds for fetching LTP (buy trigger)
     trigger_mode_refresh_interval_seconds: int = 60  # Token refresh interval to keep main user ready
+    trigger_sell_poll_interval_ms: int = 500  # Polling interval in milliseconds for sell trigger (less aggressive)
 
     # API endpoints
     tms_order_endpoint: str = '/tmsapi/orderApi/order/'
@@ -79,7 +80,8 @@ class UserConfig:
             'default_buy_or_sell': self.default_buy_or_sell,
             'ipo_sniper_duration_minutes': self.ipo_sniper_duration_minutes,
             'trigger_mode_poll_interval_ms': self.trigger_mode_poll_interval_ms,
-            'trigger_mode_refresh_interval_seconds': self.trigger_mode_refresh_interval_seconds
+            'trigger_mode_refresh_interval_seconds': self.trigger_mode_refresh_interval_seconds,
+            'trigger_sell_poll_interval_ms': self.trigger_sell_poll_interval_ms
         }
 
     @classmethod

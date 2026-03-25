@@ -151,6 +151,11 @@ Examples:
         action='store_true',
         help='IPO trigger mode: monitor LTP and place ladder orders based on price levels. When LTP >= ladder[i], places order at ladder[i+1].'
     )
+    parser.add_argument(
+        '--trigger-sell',
+        action='store_true',
+        help='Trigger sell mode: monitor LTP and place sell order when price drops to trigger level. Trigger price calculated as sell_price / 1.02 (floored to 1 decimal).'
+    )
     fetch_user_group = parser.add_mutually_exclusive_group()
     fetch_user_group.add_argument(
         '--fetch-user',
@@ -239,23 +244,26 @@ def validate_args(args: argparse.Namespace):
     validate_positive_number(args.price, 'price')
     validate_positive_integer(args.quantity, 'quantity')
 
-    # Validate mutually exclusive IPO modes
-    ipo_mode_flags = [args.ipo, args.ipo_sniper, args.ipo_trigger]
-    ipo_mode_count = sum(1 for flag in ipo_mode_flags if flag)
+    # Validate mutually exclusive IPO/trigger modes
+    mode_flags = [args.ipo, args.ipo_sniper, args.ipo_trigger, args.trigger_sell]
+    mode_count = sum(1 for flag in mode_flags if flag)
 
-    if ipo_mode_count > 1:
+    if mode_count > 1:
         raise ValueError(
-            "Cannot use multiple IPO mode flags together. "
-            "Choose one: --ipo, --ipo-sniper, or --ipo-trigger"
+            "Cannot use multiple mode flags together. "
+            "Choose one: --ipo, --ipo-sniper, --ipo-trigger, or --trigger-sell"
         )
 
-    # Validate fetch-user requirement for trigger mode
+    # Validate fetch-user requirement for trigger modes
     has_fetch_user = args.fetch_user or args.fetch_users
     if args.ipo_trigger and not has_fetch_user:
         raise ValueError("--fetch-user or --fetch-users is required when using --ipo-trigger mode")
 
-    if has_fetch_user and not args.ipo_trigger:
-        logger.warning("--fetch-user/--fetch-users flag is only used with --ipo-trigger mode. It will be ignored.")
+    if args.trigger_sell and not has_fetch_user:
+        raise ValueError("--fetch-user is required when using --trigger-sell mode (only single fetch user supported)")
+
+    if has_fetch_user and not (args.ipo_trigger or args.trigger_sell):
+        logger.warning("--fetch-user/--fetch-users flag is only used with --ipo-trigger or --trigger-sell mode. It will be ignored.")
 
     if args.skip_first and not args.ipo_trigger:
         logger.warning("--skip-first flag is only used with --ipo-trigger mode. It will be ignored.")
@@ -510,14 +518,22 @@ def execute_from_order_store(
         ipo_mode = order['mode'] == 'ipo'
         ipo_sniper_mode = order['mode'] == 'ipo-sniper'
         ipo_trigger_mode = order['mode'] == 'ipo-trigger'
+        trigger_sell_mode = order['mode'] == 'trigger-sell'
         buy_or_sell = 2 if order['sell'] else 1
 
-        # Validate fetch_user requirement for trigger mode
+        # Validate fetch_user requirement for trigger modes
         if ipo_trigger_mode and not fetch_user_configs:
             order_store.mark_failed(order_id)
             raise ValueError(
                 "Fetch user configuration is required for 'ipo-trigger' mode. "
                 "Use --fetch-user or --fetch-users argument to specify fetch user JSON file(s)."
+            )
+
+        if trigger_sell_mode and not fetch_user_configs:
+            order_store.mark_failed(order_id)
+            raise ValueError(
+                "Fetch user configuration is required for 'trigger-sell' mode. "
+                "Use --fetch-user argument to specify fetch user JSON file."
             )
 
         # Prepare order parameters
@@ -533,6 +549,7 @@ def execute_from_order_store(
             'ipo_mode': ipo_mode,
             'ipo_sniper_mode': ipo_sniper_mode,
             'ipo_trigger_mode': ipo_trigger_mode,
+            'trigger_sell_mode': trigger_sell_mode,
             'limit_price': order['limit'],
             'skip_first': order['skip_first'],
             'skip_second_last': order['skip_second_last'],
@@ -726,6 +743,7 @@ def main():
                 'ipo_mode': args.ipo,
                 'ipo_sniper_mode': args.ipo_sniper,
                 'ipo_trigger_mode': args.ipo_trigger,
+                'trigger_sell_mode': args.trigger_sell,
                 'limit_price': args.limit,
                 'skip_first': args.skip_first if hasattr(args, 'skip_first') else False,
                 'fetch_id': fetch_id,
@@ -742,6 +760,8 @@ def main():
                 mode += " (IPO SNIPER)"
             elif args.ipo_trigger:
                 mode += " (IPO TRIGGER)"
+            elif args.trigger_sell:
+                mode += " (TRIGGER SELL)"
 
             logger.info(f"Execution Mode: {mode}")
             logger.info(f"Number of Users: {len(user_configs)}")

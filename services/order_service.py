@@ -43,6 +43,7 @@ class OrderService:
         ipo_mode: bool = False,
         ipo_sniper_mode: bool = False,
         ipo_trigger_mode: bool = False,
+        trigger_sell_mode: bool = False,
         limit_price: Optional[float] = None,
         fetch_client: Optional[Any] = None,
         fetch_clients: Optional[List[Any]] = None,
@@ -120,6 +121,36 @@ class OrderService:
                 ticker=ticker,
                 double_buy=double_buy,
                 double_buy_quantity=double_buy_quantity
+            )
+
+        # Trigger Sell Mode: Monitor LTP and sell when price drops to trigger level
+        if trigger_sell_mode:
+            # Require fetch_client for monitoring LTP
+            if not fetch_client and not fetch_clients:
+                raise ValueError("fetch_client or fetch_clients is required for trigger sell mode")
+
+            # Use single fetch_client (convert to list if needed for consistency)
+            if fetch_clients:
+                actual_fetch_client = fetch_clients[0]
+            elif fetch_client:
+                actual_fetch_client = fetch_client
+            else:
+                raise ValueError("fetch_client or fetch_clients is required for trigger sell mode")
+
+            # Use fetch_id if provided, otherwise fall back to security_id
+            fetch_security_id = fetch_id if fetch_id is not None else security_id
+
+            return self._execute_trigger_sell(
+                security_id=security_id,
+                exchange_security_id=exchange_security_id,
+                sell_price=order_price,
+                order_quantity=order_quantity,
+                client_data=client_data,
+                order_type=order_type,
+                order_validity=order_validity,
+                fetch_client=actual_fetch_client,
+                fetch_security_id=fetch_security_id,
+                ticker=ticker
             )
 
         # IPO Sniper Mode: Aggressive placement at +10%
@@ -1121,4 +1152,161 @@ class OrderService:
         logger.info(
             f"[{self.user_id}] IPO TRIGGER COMPLETE: {total_placed} orders placed"
         )
+        return last_response
+
+    def _execute_trigger_sell(
+        self,
+        security_id: int,
+        exchange_security_id: int,
+        sell_price: float,
+        order_quantity: int,
+        client_data: Dict[str, Any],
+        order_type: str,
+        order_validity: str,
+        fetch_client: Any,
+        fetch_security_id: Optional[int] = None,
+        ticker: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute trigger sell mode: Monitor LTP and place sell order when price drops to trigger level.
+
+        Logic:
+        - Calculate trigger_price from sell_price: trigger_price = sell_price / 1.02 (floored to 1 decimal)
+        - Monitor LTP continuously with less aggressive polling (default 500ms)
+        - When LTP >= trigger_price, place sell order at sell_price
+        - Ensures no duplicate orders are placed
+
+        Args:
+            security_id: Security ID for placing order
+            exchange_security_id: Exchange security ID
+            sell_price: The price at which to place the sell order
+            order_quantity: Number of units to sell
+            client_data: Client information dictionary
+            order_type: Order type (LMT, MKT, etc.)
+            order_validity: Order validity (DAY, IOC, etc.)
+            fetch_client: TMSClient instance for fetching LTP
+            fetch_security_id: Security ID for fetching LTP (defaults to security_id if not provided)
+            ticker: Ticker symbol for resolving per-user fetch_id (optional)
+
+        Returns:
+            Order placement response dictionary
+        """
+        from services.price_fetcher import PriceFetcher, TokenRefreshManager
+        from utils import get_ticker_store
+
+        # Use fetch_security_id if provided, otherwise fall back to security_id
+        if fetch_security_id is None:
+            fetch_security_id = security_id
+
+        # Calculate trigger price from sell price: trigger_price * 1.02 = sell_price
+        # So: trigger_price = sell_price / 1.02
+        trigger_price = sell_price / 1.02
+        trigger_price = math.floor(trigger_price * 10) / 10
+
+        logger.info(
+            f"[{self.user_id}] TRIGGER SELL MODE: "
+            f"Security={security_id}, Qty={order_quantity}, "
+            f"Sell price: Rs. {sell_price:.1f}, Trigger price: Rs. {trigger_price:.1f}"
+        )
+        logger.info(
+            f"[{self.user_id}] Will place sell order at Rs. {sell_price:.1f} when LTP >= Rs. {trigger_price:.1f}"
+        )
+
+        # Get poll interval from user config
+        poll_interval_ms = getattr(self.client.user_config, 'trigger_sell_poll_interval_ms', 500)
+
+        # Resolve fetch_security_id for this specific fetch client if ticker provided
+        if ticker:
+            ticker_store = get_ticker_store()
+            user_fetch_id = ticker_store.get_fetch_id(ticker, host=fetch_client.user_config.tms_host)
+            if user_fetch_id:
+                fetch_security_id = user_fetch_id
+                logger.info(
+                    f"[{self.user_id}] Using host-specific fetch_id={fetch_security_id} for ticker {ticker}"
+                )
+
+        # Create price fetcher for monitoring
+        price_fetcher = PriceFetcher(
+            fetch_client=fetch_client,
+            security_id=fetch_security_id,
+            poll_interval_ms=poll_interval_ms
+        )
+
+        # Start token refresh manager to keep main user ready for order placement
+        refresh_interval = self.client.user_config.trigger_mode_refresh_interval_seconds
+        token_manager = TokenRefreshManager(
+            tms_client=self.client,
+            refresh_interval_seconds=refresh_interval
+        )
+        token_manager.start()
+        logger.info(
+            f"[{self.user_id}] Token refresh started (interval: {refresh_interval}s)"
+        )
+
+        # Start monitoring
+        price_fetcher.start()
+        order_placed = False
+        last_response = None
+
+        try:
+            logger.info(
+                f"[{self.user_id}] Starting LTP monitoring (poll interval: {poll_interval_ms}ms)"
+            )
+
+            while not order_placed:
+                # Get current LTP
+                ltp = price_fetcher.get_latest_ltp()
+
+                if ltp is None:
+                    logger.debug(f"[{self.user_id}] Waiting for first LTP...")
+                    time.sleep(poll_interval_ms / 1000)
+                    continue
+
+                # Check if trigger condition is met (sell when price rises)
+                if ltp >= trigger_price:
+                    logger.info(
+                        f"[{self.user_id}] TRIGGER ACTIVATED: LTP Rs. {ltp:.1f} >= Trigger Rs. {trigger_price:.1f}"
+                    )
+                    logger.info(
+                        f"[{self.user_id}] Placing sell order at Rs. {sell_price:.1f} x {order_quantity}"
+                    )
+
+                    try:
+                        # Place sell order (buy_or_sell=2 for sell)
+                        # No retry - validation errors (400) won't resolve on retry
+                        response = self.client.place_order(
+                            security_id=security_id,
+                            exchange_security_id=exchange_security_id,
+                            order_price=sell_price,
+                            order_quantity=order_quantity,
+                            client_data=client_data,
+                            buy_or_sell=2,  # 2 = SELL
+                            order_type=order_type,
+                            order_validity=order_validity
+                        )
+
+                        logger.info(f"[{self.user_id}] Sell order placed successfully")
+                        order_placed = True
+                        last_response = response
+
+                    except Exception as e:
+                        logger.error(f"[{self.user_id}] Failed to place sell order: {str(e)}")
+                        # Don't retry - raise immediately (400 errors are validation issues)
+                        raise
+
+                else:
+                    # Not triggered yet
+                    logger.debug(
+                        f"[{self.user_id}] LTP Rs. {ltp:.1f} < Trigger Rs. {trigger_price:.1f} - waiting..."
+                    )
+
+                # Sleep before next check
+                time.sleep(poll_interval_ms / 1000)
+
+        finally:
+            # Stop background services
+            price_fetcher.stop()
+            token_manager.stop()
+
+        logger.info(f"[{self.user_id}] TRIGGER SELL COMPLETE")
         return last_response

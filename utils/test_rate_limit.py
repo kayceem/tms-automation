@@ -185,7 +185,7 @@ class RateLimitTester:
         self.logger.info("=" * 70)
 
         request_count = 0
-
+        batch = 1
         try:
             while time.time() < end_time and request_count < max_requests:
                 request_count += 1
@@ -299,6 +299,7 @@ class RateLimitTester:
 
                     # Print progress every 10 requests
                     if request_count % 10 == 0:
+                        batch += 1
                         elapsed = time.time() - start_time
                         rpm = (request_count / elapsed) * 60 if elapsed > 0 else 0
                         self.logger.info(
@@ -328,9 +329,9 @@ class RateLimitTester:
                 # Delay between requests if specified
                 if delay_between_requests > 0:
                     time.sleep(delay_between_requests)
-                # if request_count % 10 == 0:
-                #     print(f"Sleeping for {delay_between_requests}s between requests...")
-                #     time.sleep(2)
+                    if batch % 5 == 0:
+                        self.logger.debug(f"Sleeping for {delay_between_requests}s between requests...")
+                        time.sleep(0.05)
 
         except KeyboardInterrupt:
             self.logger.warning("Test interrupted by user")
