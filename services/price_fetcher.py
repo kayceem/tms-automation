@@ -230,7 +230,8 @@ class MultiUserPriceFetcher:
     """
 
     def __init__(self, fetch_users: List[FetchUser],
-                 poll_interval_ms: int = 100, requests_per_user: int = 10):
+                 poll_interval_ms: int = 100, requests_per_user: int = 10,
+                 enable_cooldown: bool = True):
         """
         Initialize multi-user price fetcher.
 
@@ -238,6 +239,7 @@ class MultiUserPriceFetcher:
             fetch_users: List of FetchUser instances (each with their own fetch_security_id)
             poll_interval_ms: Polling interval in milliseconds
             requests_per_user: Number of requests per user before rotating
+            enable_cooldown: Whether to enable cooldown delays every 5 rotation cycles (default: True)
         """
         if not fetch_users:
             raise ValueError("At least one fetch user is required")
@@ -246,6 +248,7 @@ class MultiUserPriceFetcher:
         self.poll_interval_ms = poll_interval_ms
         self.poll_interval_seconds = poll_interval_ms / 1000.0
         self.requests_per_user = requests_per_user
+        self.enable_cooldown = enable_cooldown
 
         self._latest_ltp: Optional[float] = None
         self._running = False
@@ -284,7 +287,9 @@ class MultiUserPriceFetcher:
 
     def _should_add_cooldown_delay(self) -> bool:
         """Check if we should add cooldown delay after every 5 rotation cycles."""
-        return self._rotation_cycles_completed > 0 and self._rotation_cycles_completed % 2 == 0
+        if not self.enable_cooldown:
+            return False
+        return self._rotation_cycles_completed > 0 and self._rotation_cycles_completed % 3 == 0
 
     def start(self):
         """Start the price fetching thread."""
@@ -320,6 +325,20 @@ class MultiUserPriceFetcher:
         """
         with self._lock:
             return self._latest_ltp
+
+    def update_poll_settings(self, poll_interval_ms: int, enable_cooldown: bool):
+        """
+        Update polling interval and cooldown setting dynamically (thread-safe).
+        Used for dynamic polling optimization in no_ladder mode.
+
+        Args:
+            poll_interval_ms: New polling interval in milliseconds
+            enable_cooldown: Whether to enable cooldown delays
+        """
+        with self._lock:
+            self.poll_interval_ms = poll_interval_ms
+            self.poll_interval_seconds = poll_interval_ms / 1000.0
+            self.enable_cooldown = enable_cooldown
 
     def _fetch_loop(self):
         """Main loop for fetching LTP at regular intervals with user rotation."""

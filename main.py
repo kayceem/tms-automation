@@ -18,7 +18,7 @@ from utils import validate_positive_number, validate_positive_integer, setup_log
 
 logger = setup_logger(
     name='main',
-    log_file='logs/tms_automation.log',
+    log_file='tms_automation.log',
     level=20,
     console_output=True
 )

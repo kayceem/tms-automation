@@ -112,7 +112,7 @@ def setup_logger(
 
     # File handler (if log file specified)
     if log_file:
-        log_file = log_file.replace('.log', f'_{datetime.now().strftime("%Y%m%d%H%M%S")}.log')
+        log_file = f'logs/{datetime.now().strftime("%Y%m%d")}/' + log_file.replace('.log', f'_{datetime.now().strftime("%H%M%S")}.log')
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -154,7 +154,7 @@ def get_logger(name: str = 'main') -> logging.Logger:
     if not has_file_handler:
         # Clear any existing handlers and set up properly with file handler
         root_logger.handlers.clear()
-        setup_logger('main', log_file='logs/tms_automation.log')
+        setup_logger('main', log_file='tms_automation.log')
 
     # Create hierarchical logger name if not already prefixed
     if name != 'main' and not name.startswith('main.'):

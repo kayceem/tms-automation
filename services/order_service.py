@@ -897,27 +897,75 @@ class OrderService:
                     trigger_price = price_levels[second_last_index]
                     final_price = price_levels[-1]
 
+                    # Calculate third-last level for slow/fast polling switch
+                    third_last_index = len(price_levels) - 3 if len(price_levels) >= 3 else -1
+                    switch_threshold = price_levels[third_last_index] if third_last_index >= 0 else price_levels[0]
+
+                    # Get polling intervals from user config
+                    fast_poll_ms = self.client.user_config.trigger_mode_poll_interval_ms
+                    slow_poll_ms = self.client.user_config.trigger_mode_slow_poll_interval_ms
+
+                    # Dynamic polling state
+                    using_fast_poll = True  # Start with fast polling
+                    switched_to_slow = False  # Track if we ever switched to slow
+                    permanently_fast = False  # Once we switch back to fast, stay fast forever
+
                     logger.info(
                         f"[{self.user_id}] NO LADDER MODE: Waiting for LTP >= Rs. {trigger_price:.1f} "
                         f"to place FINAL order at Rs. {final_price:.1f}"
                     )
+                    logger.info(
+                        f"[{self.user_id}] Dynamic polling: Fast={fast_poll_ms}ms, Slow={slow_poll_ms}ms, "
+                        f"Switch threshold=Rs. {switch_threshold:.1f}"
+                    )
 
                     triggered = False
+                    sleep_duration = (fast_poll_ms) / 1000.0
+
                     while not triggered:
                         ltp = price_fetcher.get_latest_ltp()
 
-                        if ltp is not None and ltp >= trigger_price:
-                            logger.info(
-                                f"[{self.user_id}] TRIGGERED! LTP={ltp:.1f} >= Rs. {trigger_price:.1f}. "
-                                f"Placing final order at Rs. {final_price:.1f}"
-                            )
-                            triggered = True
-                        else:
-                            try:
-                                time.sleep(0.05)
-                            except KeyboardInterrupt:
-                                logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
-                                raise
+                        if ltp is not None:
+                            # Check trigger condition
+                            if ltp >= trigger_price:
+                                logger.info(
+                                    f"[{self.user_id}] TRIGGERED! LTP={ltp:.1f} >= Rs. {trigger_price:.1f}. "
+                                    f"Placing final order at Rs. {final_price:.1f}"
+                                )
+                                triggered = True
+                                continue
+
+                            # Dynamic polling optimization (only if not permanently fast)
+                            if not permanently_fast:
+                                if using_fast_poll and ltp < switch_threshold:
+                                    # Switch to slow polling (disable cooldown)
+                                    using_fast_poll = False
+                                    switched_to_slow = True
+                                    logger.info(
+                                        f"[{self.user_id}] LTP Rs. {ltp:.1f} < Rs. {switch_threshold:.1f} - "
+                                        f"switching to SLOW polling ({slow_poll_ms}ms, cooldown OFF)"
+                                    )
+                                    # Update price fetcher settings if using MultiUserPriceFetcher
+                                    if isinstance(price_fetcher, MultiUserPriceFetcher):
+                                        price_fetcher.update_poll_settings(slow_poll_ms, enable_cooldown=False)
+                                elif not using_fast_poll and ltp >= switch_threshold:
+                                    # Switch back to fast polling permanently (enable cooldown)
+                                    using_fast_poll = True
+                                    permanently_fast = True
+                                    logger.info(
+                                        f"[{self.user_id}] LTP Rs. {ltp:.1f} >= Rs. {switch_threshold:.1f} - "
+                                        f"switching to FAST polling ({fast_poll_ms}ms, cooldown ON) PERMANENTLY"
+                                    )
+                                    # Update price fetcher settings if using MultiUserPriceFetcher
+                                    if isinstance(price_fetcher, MultiUserPriceFetcher):
+                                        price_fetcher.update_poll_settings(fast_poll_ms, enable_cooldown=True)
+
+                        # Sleep based on current polling mode
+                        try:
+                            time.sleep(sleep_duration)
+                        except KeyboardInterrupt:
+                            logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                            raise
 
                     # Place only the final order
                     current_level_index = len(price_levels) - 1

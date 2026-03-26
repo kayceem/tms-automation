@@ -13,4 +13,4 @@ sell:
 	python main.py --user-config users/user1.json --order-store stores/sell_store.json --fetch-user users/user2.json --log-level DEBUG
 
 runmu:
-	python main.py --user-config users/user1.json --order-store stores/order_store.json --fetch-users users/user2.json users/user3.json users/user4.json --log-level DEBUG
+	python main.py --user-config users/user1.json --order-store stores/order_store.json --fetch-users users/user2.json users/user3.json users/user1.json --log-level DEBUG
