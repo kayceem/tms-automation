@@ -39,7 +39,7 @@ class UserConfig:
     trigger_mode_refresh_interval_seconds: int = 60  # Token refresh interval to keep main user ready
     trigger_sell_poll_interval_ms: int = 500  # Polling interval in milliseconds for sell trigger (less aggressive)
     trigger_mode_slow_poll_interval_ms: int = 500  # Slower polling when LTP is far from trigger (no_ladder mode only)
-
+    trigger_mode_requests_per_fetch_user : int = 5  # Number of requests to fetch LTP for multiple users in trigger mode
     # API endpoints
     tms_order_endpoint: str = '/tmsapi/orderApi/order/'
     tms_refresh_endpoint: str = '/tmsapi/security/'
@@ -83,7 +83,8 @@ class UserConfig:
             'trigger_mode_poll_interval_ms': self.trigger_mode_poll_interval_ms,
             'trigger_mode_refresh_interval_seconds': self.trigger_mode_refresh_interval_seconds,
             'trigger_sell_poll_interval_ms': self.trigger_sell_poll_interval_ms,
-            'trigger_mode_slow_poll_interval_ms': self.trigger_mode_slow_poll_interval_ms
+            'trigger_mode_slow_poll_interval_ms': self.trigger_mode_slow_poll_interval_ms,
+            'trigger_mode_requests_per_fetch_user': self.trigger_mode_requests_per_fetch_user
         }
 
     @classmethod

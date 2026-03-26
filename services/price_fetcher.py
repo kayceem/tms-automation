@@ -245,6 +245,7 @@ class MultiUserPriceFetcher:
             raise ValueError("At least one fetch user is required")
 
         self.fetch_users = fetch_users
+        self._len_fetch_users = len(fetch_users)
         self.poll_interval_ms = poll_interval_ms
         self.poll_interval_seconds = poll_interval_ms / 1000.0
         self.requests_per_user = requests_per_user
@@ -275,7 +276,7 @@ class MultiUserPriceFetcher:
         """
         # Check if we should rotate to next user
         if self._requests_with_current_user >= self.requests_per_user:
-            self._current_user_index = (self._current_user_index + 1) % len(self.fetch_users)
+            self._current_user_index = (self._current_user_index + 1) % self._len_fetch_users
             self._requests_with_current_user = 0
 
             # Track when we complete a full rotation cycle (back to first user)
@@ -289,7 +290,7 @@ class MultiUserPriceFetcher:
         """Check if we should add cooldown delay after every 5 rotation cycles."""
         if not self.enable_cooldown:
             return False
-        return self._rotation_cycles_completed > 0 and self._rotation_cycles_completed % 3 == 0
+        return self._rotation_cycles_completed > self._len_fetch_users
 
     def start(self):
         """Start the price fetching thread."""
@@ -387,8 +388,9 @@ class MultiUserPriceFetcher:
                     logger.debug(
                         f"Cooldown delay after {self._rotation_cycles_completed} rotation cycles"
                     )
-                    time.sleep(self.poll_interval_seconds / 2)
-                    self._rotation_cycles_completed = 0  # Reset counter after cooldown
+                    time.sleep(self.poll_interval_seconds + 0.03)
+                    if self._rotation_cycles_completed > (self._len_fetch_users * 2) :
+                        self._rotation_cycles_completed = 0
             except KeyboardInterrupt:
                 logger.info("Multi-user fetch loop interrupted by user")
                 break
