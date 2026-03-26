@@ -67,3 +67,5 @@ tests/test_config.json
 main_old.py
 
 headers.txt
+
+temp/

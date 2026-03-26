@@ -32,7 +32,9 @@
         "fetch_id": {
             "tms01.nepsetms.com.np": 3098,
             "tms35.nepsetms.com.np": 3099,
-            "tms56.nepsetms.com.np": 3099
+            "tms56.nepsetms.com.np": 3098,
+            "tms57.nepsetms.com.np": 3098,
+            "tms89.nepsetms.com.np": 3098
         }
     },
     "RSML": {
@@ -42,7 +44,9 @@
         "fetch_id": {
             "tms01.nepsetms.com.np": 3099,
             "tms35.nepsetms.com.np": 3100,
-            "tms56.nepsetms.com.np": 3099
+            "tms56.nepsetms.com.np": 3099,
+            "tms57.nepsetms.com.np": 3099,
+            "tms89.nepsetms.com.np": 3101
         }
     },
     "HFIN": {
@@ -52,7 +56,9 @@
         "fetch_id": {
             "tms01.nepsetms.com.np": 3100,
             "tms35.nepsetms.com.np": 3101,
-            "tms56.nepsetms.com.np": 3100
+            "tms56.nepsetms.com.np": 3100,
+            "tms57.nepsetms.com.np": 3100,
+            "tms89.nepsetms.com.np": 3102
         }
     },
     "SOHL": {
@@ -62,7 +68,9 @@
         "fetch_id": {
             "tms01.nepsetms.com.np": 3101,
             "tms35.nepsetms.com.np": 3102,
-            "tms56.nepsetms.com.np": 3101
+            "tms56.nepsetms.com.np": 3101,
+            "tms57.nepsetms.com.np": 3101,
+            "tms89.nepsetms.com.np": 3103
         }
     },
     "BJHL": {
@@ -72,7 +80,9 @@
         "fetch_id": {
             "tms01.nepsetms.com.np": 3103,
             "tms35.nepsetms.com.np": 3104,
-            "tms56.nepsetms.com.np": 3103
+            "tms56.nepsetms.com.np": 3103,
+            "tms57.nepsetms.com.np": 3103,
+            "tms89.nepsetms.com.np": 3105
         }
     },
     "SKHL": {
@@ -82,7 +92,9 @@
         "fetch_id": {
             "tms01.nepsetms.com.np": 3104,
             "tms35.nepsetms.com.np": 3105,
-            "tms56.nepsetms.com.np": 3104
+            "tms56.nepsetms.com.np": 3104,
+            "tms57.nepsetms.com.np": 3104,
+            "tms89.nepsetms.com.np": 3106
 
         }
     }
