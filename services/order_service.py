@@ -920,8 +920,8 @@ class OrderService:
                     )
 
                     triggered = False
-                    sleep_duration = (fast_poll_ms) / 1000.0
-
+                    slow_sleep_duration = slow_poll_ms / 5000.0
+                    fast_sleep_duration = fast_poll_ms / 5000.0
                     while not triggered:
                         ltp = price_fetcher.get_latest_ltp()
 
@@ -962,6 +962,7 @@ class OrderService:
 
                         # Sleep based on current polling mode
                         try:
+                            sleep_duration = (slow_sleep_duration if not using_fast_poll else fast_sleep_duration)
                             time.sleep(sleep_duration)
                         except KeyboardInterrupt:
                             logger.info(f"[{self.user_id}] IPO trigger interrupted by user")

@@ -52,7 +52,7 @@
         "fetch_id": {
             "tms01.nepsetms.com.np": 3100,
             "tms35.nepsetms.com.np": 3101,
-            "tms56.nepsetms.com.np": 3101
+            "tms56.nepsetms.com.np": 3100
         }
     },
     "SOHL": {
@@ -72,7 +72,7 @@
         "fetch_id": {
             "tms01.nepsetms.com.np": 3103,
             "tms35.nepsetms.com.np": 3104,
-            "tms56.nepsetms.com.np": 3104
+            "tms56.nepsetms.com.np": 3103
         }
     },
     "SKHL": {
@@ -82,7 +82,7 @@
         "fetch_id": {
             "tms01.nepsetms.com.np": 3104,
             "tms35.nepsetms.com.np": 3105,
-            "tms56.nepsetms.com.np": 3105
+            "tms56.nepsetms.com.np": 3104
 
         }
     }
