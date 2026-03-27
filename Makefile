@@ -14,3 +14,6 @@ sell:
 
 runmu:
 	python main.py --user-config users/user1.json --order-store stores/order_store.json --fetch-users users/user2.json users/user3.json users/user4.json users/user5.json --log-level DEBUG
+
+runa:
+	python main.py --user-config users/atrad_user.json --order-store stores/order_store.json --fetch-users users/user1.json users/user2.json users/user3.json users/user5.json --log-level DEBUG

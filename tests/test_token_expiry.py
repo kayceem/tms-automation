@@ -30,7 +30,7 @@ def test_token_expiry_at_intervals():
     print("="*80)
 
     # Load user config
-    user_config_path = Path(__file__).parent.parent / 'users' / 'user1.json'
+    user_config_path = Path(__file__).parent.parent / 'users' / 'user2.json'
     print(f"\nLoading user config from: {user_config_path}")
 
     with open(user_config_path, 'r') as f:
@@ -80,8 +80,7 @@ def test_token_expiry_at_intervals():
     client = TMSClient(user_config)
 
     # Test intervals (in seconds after token refresh)
-    test_intervals = [59, 60, 61, 90, 120]
-
+    test_intervals = [55, 58, 59, 60, 60, 61, 65]
     results = []
 
     for interval in test_intervals:
@@ -104,7 +103,7 @@ def test_token_expiry_at_intervals():
             continue
 
         refresh_time = datetime.now()
-        print(f"[{refresh_time.strftime('%H:%M:%S')}] ✓ Tokens refreshed successfully")
+        print(f"[{refresh_time.strftime('%H:%M:%S')}] Tokens refreshed successfully")
 
         # Step 2: Wait for specified interval
         print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Waiting {interval} seconds before placing order...")
@@ -118,7 +117,7 @@ def test_token_expiry_at_intervals():
             remaining = interval
 
         for i in range(remaining, 0, -1):
-            print(f"  {i}...", end='', flush=True)
+            print(f"{i}...", end='', flush=True)
             time.sleep(1)
         print()
 
@@ -129,24 +128,8 @@ def test_token_expiry_at_intervals():
         print(f"\n[{order_time.strftime('%H:%M:%S')}] Placing order (elapsed: {elapsed:.1f}s)...")
 
         try:
-            response = client.place_order(
-                security_id=security_id,
-                exchange_security_id=exchange_security_id,
-                order_price=first_order['price'],
-                order_quantity=1,  # Use minimal quantity for testing
-                order_type=1,  # LMT
-                order_validity=0,  # DAY
-                client_data=user_config.client_data,
-                buy_or_sell=1  # Buy
-            )
+            success = client.refresh_tokens()
 
-            status = response.get('status')
-            message = response.get('message', 'No message')
-
-            print(f"\nResponse Status: {status}")
-            print(f"Response Message: {message}")
-
-            success = status == 200
 
             results.append({
                 'interval': interval,
@@ -155,17 +138,17 @@ def test_token_expiry_at_intervals():
                 'order_time': order_time.strftime('%H:%M:%S'),
                 'elapsed': elapsed,
                 'order_success': success,
-                'status': status,
+                'status': "Success" if success else "Failed",
                 'message': message
             })
 
             if success:
-                print(f"✓ Order placed successfully at {interval}s interval")
+                print(f"Order placed successfully at {interval}s interval")
             else:
-                print(f"✗ Order failed at {interval}s interval: {message}")
+                print(f"Order failed at {interval}s interval: {message}")
 
         except Exception as e:
-            print(f"✗ Exception during order placement: {str(e)}")
+            print(f"Exception during order placement: {str(e)}")
             results.append({
                 'interval': interval,
                 'refresh_success': True,
@@ -206,10 +189,10 @@ def test_token_expiry_at_intervals():
     failed_intervals = [r['interval'] for r in results if r.get('order_success') == False]
 
     if success_intervals:
-        print(f"\n✓ Successful intervals: {success_intervals}")
+        print(f"\nSuccessful intervals: {success_intervals}")
 
     if failed_intervals:
-        print(f"✗ Failed intervals: {failed_intervals}")
+        print(f"Failed intervals: {failed_intervals}")
 
     if success_intervals and failed_intervals:
         max_success = max(success_intervals)

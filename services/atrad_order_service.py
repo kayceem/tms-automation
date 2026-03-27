@@ -1,45 +1,39 @@
-"""Order service for placing and managing orders."""
+"""ATRAD Order service for placing and managing orders."""
 
 import json
 import math
 import time
-import threading
-from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
-from api import TMSClient
-from utils.helpers import load_client_data, load_order_params
+from api import ATRADClient
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-class OrderService:
-    """Service for placing orders on NEPSE TMS."""
+class ATRADOrderService:
+    """Service for placing orders on NEPSE ATRAD."""
 
-    def __init__(self, tms_client: TMSClient):
+    def __init__(self, atrad_client: ATRADClient):
         """
-        Initialize order service with a TMS client.
+        Initialize order service with an ATRAD client.
 
         Args:
-            tms_client: TMSClient instance configured for a specific user
+            atrad_client: ATRADClient instance configured for a specific user
         """
-        self.client = tms_client
-        self.user_id = tms_client.user_id
-        self._order_success = threading.Event()
-        self._lock = threading.Lock()
+        self.client = atrad_client
+        self.user_id = atrad_client.user_id
 
-        logger.info(f"[{self.user_id}] OrderService initialized")
+        logger.info(f"[{self.user_id}] ATRADOrderService initialized")
 
     def execute_order(
         self,
-        security_id: int,
-        exchange_security_id: int,
+        symbol: str,
         order_price: float,
         order_quantity: int,
-        client_data_file: Optional[str] = None,
         buy_or_sell: int = 1,
+        asset_select: str = None,
+        board: str = None,
         order_type: str = None,
-        order_validity: str = None,
         ipo_mode: bool = False,
         ipo_sniper_mode: bool = False,
         ipo_trigger_mode: bool = False,
@@ -54,20 +48,20 @@ class OrderService:
         skip_second_last: bool = False,
         no_ladder: bool = False,
         fetch_id: Optional[int] = None,
-        ticker: Optional[str] = None
+        ticker: Optional[str] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
-        Execute an order immediately.
+        Execute an order immediately on ATRAD.
 
         Args:
-            security_id: Security ID
-            exchange_security_id: Exchange security ID
+            symbol: Stock symbol/ticker
             order_price: Price per unit
             order_quantity: Number of units
-            client_data_file: Path to JSON file with client data (optional)
             buy_or_sell: 1 for buy, 2 for sell
-            order_type: Order type (LMT, MKT, etc.)
-            order_validity: Order validity (DAY, IOC, etc.)
+            asset_select: Asset type (default: '1' for EQUITY)
+            board: Board type (default: '1' for Regular)
+            order_type: Order type (default: '16' for Day order)
             ipo_mode: Enable IPO sniping mode (auto-place at +2%, +4%, +6%, +8%, +10%)
             ipo_sniper_mode: Enable IPO sniper mode (aggressive +10% placement)
             ipo_trigger_mode: Enable IPO trigger mode (price-based ladder triggering)
@@ -77,19 +71,22 @@ class OrderService:
             double_buy: Place a second order 0.5s after first order succeeds
             double_buy_quantity: Quantity for the second order
             fetch_client: TMSClient instance for fetching prices (deprecated, use fetch_clients)
-            fetch_clients: List of TMSClient instances for fetching prices (required for trigger mode)
+            fetch_clients: List of TMSClient instances for fetching prices (required for trigger modes)
             skip_first: Skip the first ladder level (trigger mode only)
             skip_second_last: Skip the second-to-last ladder level (trigger mode only)
             no_ladder: Skip ALL ladder levels, only place final order when LTP reaches second-to-last (trigger mode only)
-            fetch_id: Security ID for fetching LTP (defaults to security_id if not provided)
-            base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
+            fetch_id: Security ID for fetching LTP (defaults to symbol lookup)
             ticker: Ticker symbol for resolving per-user fetch_id (optional)
+            **kwargs: Additional ATRAD-specific parameters
 
         Returns:
             API response dictionary
         """
-        # Load client data
-        client_data = self._get_client_data(client_data_file)
+        # Ensure authenticated
+        self.client.ensure_authenticated()
+
+        # Convert side
+        side = 'SELL' if buy_or_sell == 2 else 'BUY'
 
         # IPO Trigger Mode: Price-based ladder triggering
         if ipo_trigger_mode:
@@ -101,28 +98,25 @@ class OrderService:
             else:
                 raise ValueError("fetch_client or fetch_clients is required for IPO trigger mode")
 
-            # Use fetch_id if provided, otherwise fall back to security_id
-            fetch_security_id = fetch_id if fetch_id is not None else security_id
-
             return self._execute_ipo_trigger(
-                security_id=security_id,
-                exchange_security_id=exchange_security_id,
+                symbol=symbol,
                 base_price=order_price,
                 order_quantity=order_quantity,
-                client_data=client_data,
-                buy_or_sell=buy_or_sell,
+                side=side,
+                asset_select=asset_select,
+                board=board,
                 order_type=order_type,
-                order_validity=order_validity,
                 limit_price=limit_price,
                 fetch_clients=actual_fetch_clients,
                 skip_first=skip_first,
                 skip_second_last=skip_second_last,
                 no_ladder=no_ladder,
-                fetch_security_id=fetch_security_id,
+                fetch_security_id=fetch_id,
                 base_quantity=base_quantity,
                 ticker=ticker,
                 double_buy=double_buy,
-                double_buy_quantity=double_buy_quantity
+                double_buy_quantity=double_buy_quantity,
+                **kwargs
             )
 
         # Trigger Sell Mode: Monitor LTP and sell when price drops to trigger level
@@ -139,72 +133,68 @@ class OrderService:
             else:
                 raise ValueError("fetch_client or fetch_clients is required for trigger sell mode")
 
-            # Use fetch_id if provided, otherwise fall back to security_id
-            fetch_security_id = fetch_id if fetch_id is not None else security_id
-
             return self._execute_trigger_sell(
-                security_id=security_id,
-                exchange_security_id=exchange_security_id,
+                symbol=symbol,
                 sell_price=order_price,
                 order_quantity=order_quantity,
-                client_data=client_data,
+                side=side,
+                asset_select=asset_select,
+                board=board,
                 order_type=order_type,
-                order_validity=order_validity,
                 fetch_client=actual_fetch_client,
-                fetch_security_id=fetch_security_id,
-                ticker=ticker
+                fetch_security_id=fetch_id,
+                ticker=ticker,
+                **kwargs
             )
 
         # IPO Sniper Mode: Aggressive placement at +10%
         if ipo_sniper_mode:
             return self._execute_ipo_sniper(
-                security_id=security_id,
-                exchange_security_id=exchange_security_id,
+                symbol=symbol,
                 base_price=order_price,
                 order_quantity=order_quantity,
-                client_data=client_data,
-                buy_or_sell=buy_or_sell,
+                side=side,
+                asset_select=asset_select,
+                board=board,
                 order_type=order_type,
-                order_validity=order_validity,
                 double_buy=double_buy,
-                double_buy_quantity=double_buy_quantity
+                double_buy_quantity=double_buy_quantity,
+                **kwargs
             )
 
         # IPO Mode: Sequential placement at multiple price levels
         if ipo_mode:
             return self._execute_ipo_snipe(
-                security_id=security_id,
-                exchange_security_id=exchange_security_id,
+                symbol=symbol,
                 base_price=order_price,
                 order_quantity=order_quantity,
-                client_data=client_data,
-                buy_or_sell=buy_or_sell,
+                side=side,
+                asset_select=asset_select,
+                board=board,
                 order_type=order_type,
-                order_validity=order_validity,
                 limit_price=limit_price,
                 base_quantity=base_quantity,
                 double_buy=double_buy,
-                double_buy_quantity=double_buy_quantity
+                double_buy_quantity=double_buy_quantity,
+                **kwargs
             )
 
         # Normal single order execution
-        order_side = 'SELL' if buy_or_sell == 2 else 'BUY'
         logger.info(
-            f"[{self.user_id}] Executing {order_side} order: "
-            f"Security={security_id}, Price={order_price}, Qty={order_quantity}, "
-            f"Type={order_type or 'LMT'}, Validity={order_validity or 'DAY'}"
+            f"[{self.user_id}] Executing {side} order: "
+            f"Symbol={symbol}, Price={order_price}, Qty={order_quantity}"
         )
 
         try:
             response = self.client.place_order(
-                security_id=security_id,
-                exchange_security_id=exchange_security_id,
-                order_price=order_price,
-                order_quantity=order_quantity,
-                client_data=client_data,
-                buy_or_sell=buy_or_sell,
+                symbol=symbol,
+                quantity=order_quantity,
+                price=order_price,
+                side=side,
+                asset_select=asset_select,
+                board=board,
                 order_type=order_type,
-                order_validity=order_validity
+                **kwargs
             )
 
             logger.info(f"[{self.user_id}] Order placed successfully")
@@ -213,15 +203,15 @@ class OrderService:
             # Handle double buy if enabled
             if double_buy:
                 self._execute_double_buy(
-                    security_id=security_id,
-                    exchange_security_id=exchange_security_id,
+                    symbol=symbol,
                     order_price=order_price,
                     order_quantity=order_quantity,
                     double_buy_quantity=double_buy_quantity,
-                    client_data=client_data,
-                    buy_or_sell=buy_or_sell,
+                    side=side,
+                    asset_select=asset_select,
+                    board=board,
                     order_type=order_type,
-                    order_validity=order_validity
+                    **kwargs
                 )
 
             return response
@@ -232,113 +222,65 @@ class OrderService:
 
     def _execute_double_buy(
         self,
-        security_id: int,
-        exchange_security_id: int,
+        symbol: str,
         order_price: float,
         order_quantity: int,
         double_buy_quantity: Optional[int],
-        client_data: Dict[str, Any],
-        buy_or_sell: int,
+        side: str,
+        asset_select: str,
+        board: str,
         order_type: str,
-        order_validity: str
+        **kwargs
     ):
-        """
-        Execute double buy: place a second order 0.5s after first order succeeds.
-
-        Args:
-            security_id: Security ID
-            exchange_security_id: Exchange security ID
-            order_price: Price per unit (same as first order)
-            order_quantity: Quantity from first order (for reference)
-            double_buy_quantity: Quantity for second order (defaults to order_quantity if None)
-            client_data: Client information dictionary
-            buy_or_sell: 1 for buy, 2 for sell
-            order_type: Order type (LMT, MKT, etc.)
-            order_validity: Order validity (DAY, IOC, etc.)
-        """
-        # Determine quantity for second order
+        """Execute double buy: place a second order 0.5s after first order succeeds."""
         qty = double_buy_quantity if double_buy_quantity is not None else order_quantity
-        order_side = 'BUY' if buy_or_sell == 1 else 'SELL'
 
         logger.info(
             f"[{self.user_id}] Double buy enabled: waiting 0.5s before placing second order "
             f"(Price={order_price}, Qty={qty})"
         )
 
-        # Wait 0.5 seconds
         time.sleep(0.5)
 
         try:
             logger.info(
-                f"[{self.user_id}] Placing double buy {order_side} order: "
-                f"Security={security_id}, Price={order_price}, Qty={qty}"
+                f"[{self.user_id}] Placing double buy {side} order: "
+                f"Symbol={symbol}, Price={order_price}, Qty={qty}"
             )
 
             response = self.client.place_order(
-                security_id=security_id,
-                exchange_security_id=exchange_security_id,
-                order_price=order_price,
-                order_quantity=qty,
-                client_data=client_data,
-                buy_or_sell=buy_or_sell,
+                symbol=symbol,
+                quantity=qty,
+                price=order_price,
+                side=side,
+                asset_select=asset_select,
+                board=board,
                 order_type=order_type,
-                order_validity=order_validity
+                **kwargs
             )
 
             logger.info(f"[{self.user_id}] Double buy order placed successfully")
             logger.debug(f"[{self.user_id}] Double buy response: {json.dumps(response, indent=2)}")
 
         except Exception as e:
-            # Log error but don't raise - double buy failure shouldn't stop execution
             logger.warning(
                 f"[{self.user_id}] Double buy order failed (continuing anyway): {str(e)}"
             )
 
-    def _get_client_data(self, client_data_file: Optional[str]) -> Dict[str, Any]:
-        """
-        Get client data from file, user config, or raise error.
-
-        Args:
-            client_data_file: Path to client data JSON file (optional override)
-
-        Returns:
-            Client data dictionary
-
-        Raises:
-            ValueError: If no client data is available
-        """
-        # Priority 1: Explicit file path provided
-        if client_data_file:
-            logger.debug(f"[{self.user_id}] Loading client data from {client_data_file}")
-            return load_client_data(client_data_file)
-
-        # Priority 2: Client data from user config
-        if self.client.user_config.client_data:
-            logger.debug(f"[{self.user_id}] Using client data from user configuration")
-            return self.client.user_config.client_data
-
-        # No client data available - raise error with helpful message
-        raise ValueError(
-            f"[{self.user_id}] No client data available. Please either:\n"
-            f"1. Add 'client_data' to your user configuration JSON file, OR\n"
-            f"2. Use --client-data argument to specify a client data file\n"
-            f"See client_data.example.json for the required format"
-        )
-
     def _execute_ipo_snipe(
         self,
-        security_id: int,
-        exchange_security_id: int,
+        symbol: str,
         base_price: float,
         order_quantity: int,
-        client_data: Dict[str, Any],
-        buy_or_sell: int,
+        side: str,
+        asset_select: str,
+        board: str,
         order_type: str,
-        order_validity: str,
         limit_price: Optional[float] = None,
         base_quantity: Optional[int] = None,
         double_buy: bool = False,
-        double_buy_quantity: Optional[int] = None
+        double_buy_quantity: Optional[int] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Execute IPO sniping: place orders at base price, then +2%, +4%, +6%, +8%, +10%.
@@ -347,29 +289,35 @@ class OrderService:
         Uses base_quantity for all levels except final, which uses order_quantity.
 
         Args:
-            security_id: Security ID
-            exchange_security_id: Exchange security ID
+            symbol: Stock symbol/ticker
             base_price: Starting price
-            order_quantity: Number of units
-            client_data: Client information dictionary
-            buy_or_sell: 1 for buy, 2 for sell
-            order_type: Order type (LMT, MKT, etc.)
-            order_validity: Order validity (DAY, IOC, etc.)
+            order_quantity: Number of units for final order
+            side: 'BUY' or 'SELL'
+            asset_select: Asset type
+            board: Board type
+            order_type: Order type
             limit_price: Optional upper limit price for calculations
+            base_quantity: Quantity for all levels except final
+            double_buy: Place second order at final level
+            double_buy_quantity: Quantity for second order
+            **kwargs: Additional ATRAD parameters
 
         Returns:
             Last API response dictionary
         """
+        from typing import List
+
         # Pre-calculate all price levels
         price_increments = [0, 2, 2, 2, 2, 2]
         price_levels: List[float] = []
         actual_increments: List[int] = []
 
         # Calculate standard ladder prices
+        current_price = base_price
         for increment in price_increments:
-            new_price = base_price * (1 + increment / 100)
+            new_price = current_price * (1 + increment / 100)
             floored_price = math.floor(new_price * 10) / 10
-            base_price = floored_price  # Update base price for next level
+            current_price = floored_price
             price_levels.append(floored_price)
             actual_increments.append(increment)
 
@@ -414,6 +362,7 @@ class OrderService:
                     f"[{self.user_id}] Adding limit-based price Rs. {max_limit_price:.1f} "
                     f"as final order"
                 )
+
             logger.info(
                 f"[{self.user_id}] Final price levels after applying limit: {filtered_levels}"
             )
@@ -422,7 +371,7 @@ class OrderService:
 
         logger.info(
             f"[{self.user_id}] IPO SNIPING MODE: {len(price_levels)} levels, "
-            f"Security={security_id}, Qty={order_quantity}, "
+            f"Symbol={symbol}, Qty={order_quantity}, "
             f"Price range: Rs. {price_levels[0]:.1f} - Rs. {price_levels[-1]:.1f}"
         )
 
@@ -475,14 +424,14 @@ class OrderService:
 
                 try:
                     response = self.client.place_order(
-                        security_id=security_id,
-                        exchange_security_id=exchange_security_id,
-                        order_price=price,
-                        order_quantity=qty_for_level,
-                        client_data=client_data,
-                        buy_or_sell=buy_or_sell,
+                        symbol=symbol,
+                        quantity=qty_for_level,
+                        price=price,
+                        side=side,
+                        asset_select=asset_select,
+                        board=board,
                         order_type=order_type,
-                        order_validity=order_validity
+                        **kwargs
                     )
 
                     if response:
@@ -495,15 +444,15 @@ class OrderService:
                         # Handle double buy for final level only
                         if double_buy and is_final_level:
                             self._execute_double_buy(
-                                security_id=security_id,
-                                exchange_security_id=exchange_security_id,
+                                symbol=symbol,
                                 order_price=price,
                                 order_quantity=qty_for_level,
                                 double_buy_quantity=double_buy_quantity,
-                                client_data=client_data,
-                                buy_or_sell=buy_or_sell,
+                                side=side,
+                                asset_select=asset_select,
+                                board=board,
                                 order_type=order_type,
-                                order_validity=order_validity
+                                **kwargs
                             )
 
                         # Small delay between orders
@@ -520,8 +469,8 @@ class OrderService:
                 except Exception as e:
                     error_msg = str(e)
                     # Handle different error types with appropriate delays
-                    if "401" in error_msg or "Unauthorized" in error_msg:
-                        logger.debug(f"[{self.user_id}] Token issue, retrying")
+                    if "session" in error_msg.lower() or "401" in error_msg:
+                        logger.debug(f"[{self.user_id}] Session issue, retrying")
                         try:
                             time.sleep(1)
                         except KeyboardInterrupt:
@@ -553,36 +502,38 @@ class OrderService:
 
     def _execute_ipo_sniper(
         self,
-        security_id: int,
-        exchange_security_id: int,
+        symbol: str,
         base_price: float,
         order_quantity: int,
-        client_data: Dict[str, Any],
-        buy_or_sell: int,
+        side: str,
+        asset_select: str,
+        board: str,
         order_type: str,
-        order_validity: str,
         double_buy: bool = False,
-        double_buy_quantity: Optional[int] = None
+        double_buy_quantity: Optional[int] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Execute IPO sniper: aggressively place orders at +10% for configured duration.
         Double buy applies to each successfully placed order.
 
         Args:
-            security_id: Security ID
-            exchange_security_id: Exchange security ID
+            symbol: Stock symbol/ticker
             base_price: Starting price
             order_quantity: Number of units
-            client_data: Client information dictionary
-            buy_or_sell: 1 for buy, 2 for sell
+            side: 'BUY' or 'SELL'
+            asset_select: Asset type
+            board: Board type
+            order_type: Order type
             double_buy: Place a second order 0.5s after each order succeeds
             double_buy_quantity: Quantity for the second order
-            order_type: Order type (LMT, MKT, etc.)
-            order_validity: Order validity (DAY, IOC, etc.)
+            **kwargs: Additional ATRAD parameters
 
         Returns:
             API response dictionary
         """
+        from datetime import datetime, timedelta
+
         # Calculate +10% price and floor to 1 decimal
         target_price = base_price * 1.10
         target_price = math.floor(target_price * 10) / 10
@@ -590,10 +541,9 @@ class OrderService:
         # Get duration from user config (defaults to 2 minutes)
         duration_minutes = self.client.user_config.ipo_sniper_duration_minutes
         end_time = datetime.now() + timedelta(minutes=duration_minutes)
-        start_time = datetime.now()
 
         logger.info(
-            f"[{self.user_id}] IPO SNIPER MODE: Security={security_id}, "
+            f"[{self.user_id}] IPO SNIPER MODE: Symbol={symbol}, "
             f"Target price=Rs. {target_price:.1f} (+10%), Qty={order_quantity}, "
             f"Duration={duration_minutes}min (until {end_time.strftime('%H:%M:%S')})"
         )
@@ -608,14 +558,14 @@ class OrderService:
 
             try:
                 response = self.client.place_order(
-                    security_id=security_id,
-                    exchange_security_id=exchange_security_id,
-                    order_price=target_price,
-                    order_quantity=order_quantity,
-                    client_data=client_data,
-                    buy_or_sell=buy_or_sell,
+                    symbol=symbol,
+                    quantity=order_quantity,
+                    price=target_price,
+                    side=side,
+                    asset_select=asset_select,
+                    board=board,
                     order_type=order_type,
-                    order_validity=order_validity
+                    **kwargs
                 )
 
                 if response:
@@ -627,15 +577,15 @@ class OrderService:
                     # Handle double buy if enabled
                     if double_buy:
                         self._execute_double_buy(
-                            security_id=security_id,
-                            exchange_security_id=exchange_security_id,
+                            symbol=symbol,
                             order_price=target_price,
                             order_quantity=order_quantity,
                             double_buy_quantity=double_buy_quantity,
-                            client_data=client_data,
-                            buy_or_sell=buy_or_sell,
+                            side=side,
+                            asset_select=asset_select,
+                            board=board,
                             order_type=order_type,
-                            order_validity=order_validity
+                            **kwargs
                         )
 
                     return response
@@ -649,7 +599,7 @@ class OrderService:
 
                 # Handle different error types with appropriate delays
                 try:
-                    if "401" in error_msg or "Unauthorized" in error_msg or "SESSION NOT ACTIVE" in error_msg:
+                    if "session" in error_msg.lower() or "401" in error_msg or "SESSION NOT ACTIVE" in error_msg:
                         time.sleep(1.5)
                     elif "502" in error_msg or "Bad Gateway" in error_msg or "Connection aborted" in error_msg:
                         logger.warning(f"[{self.user_id}] Server overload detected")
@@ -661,7 +611,6 @@ class OrderService:
                     raise
 
         # Timeout
-        duration_minutes = self.client.user_config.ipo_sniper_duration_minutes
         logger.error(
             f"[{self.user_id}] IPO SNIPER TIMEOUT after {attempt} attempts "
             f"({duration_minutes} minutes elapsed)"
@@ -670,14 +619,13 @@ class OrderService:
 
     def _execute_ipo_trigger(
         self,
-        security_id: int,
-        exchange_security_id: int,
+        symbol: str,
         base_price: float,
         order_quantity: int,
-        client_data: Dict[str, Any],
-        buy_or_sell: int,
+        side: str,
+        asset_select: str,
+        board: str,
         order_type: str,
-        order_validity: str,
         fetch_clients: List[Any],
         limit_price: Optional[float] = None,
         skip_first: bool = False,
@@ -687,7 +635,8 @@ class OrderService:
         base_quantity: Optional[int] = None,
         ticker: Optional[str] = None,
         double_buy: bool = False,
-        double_buy_quantity: Optional[int] = None
+        double_buy_quantity: Optional[int] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Execute IPO trigger mode: Monitor LTP and place orders when LTP reaches ladder levels.
@@ -701,32 +650,30 @@ class OrderService:
         - Uses base_quantity for all levels except final, which uses order_quantity
 
         Args:
-            security_id: Security ID
-            exchange_security_id: Exchange security ID
+            symbol: Stock symbol/ticker
             base_price: Starting price
             order_quantity: Number of units for final level
-            client_data: Client information dictionary
-            buy_or_sell: 1 for buy, 2 for sell
-            order_type: Order type (LMT, MKT, etc.)
-            order_validity: Order validity (DAY, IOC, etc.)
+            side: 'BUY' or 'SELL'
+            asset_select: Asset type
+            board: Board type
+            order_type: Order type
             fetch_clients: List of TMSClient instances for fetching LTP with rotation
             limit_price: Optional upper limit price for calculations
             skip_first: Skip the first ladder level
             skip_second_last: Skip the second-to-last ladder level
             no_ladder: Skip ALL ladder levels, only place final order at limit+10%
-            fetch_security_id: Security ID for fetching LTP (defaults to security_id if not provided)
-            base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
-            ticker: Ticker symbol for resolving per-user fetch_id (optional)
+            fetch_security_id: Security ID for fetching LTP
+            base_quantity: Quantity for all ladder levels except final
+            ticker: Ticker symbol for resolving per-user fetch_id
+            double_buy: Place second order at final level
+            double_buy_quantity: Quantity for second order
+            **kwargs: Additional ATRAD parameters
 
         Returns:
             Last API response dictionary
         """
         from services.price_fetcher import PriceFetcher, MultiUserPriceFetcher, TokenRefreshManager, FetchUser
         from utils import get_ticker_store
-
-        # Use fetch_security_id if provided, otherwise fall back to security_id
-        if fetch_security_id is None:
-            fetch_security_id = security_id
 
         # Pre-calculate all price levels (same as ipo_mode)
         price_increments = [0, 2, 2, 2, 2, 2]
@@ -790,7 +737,7 @@ class OrderService:
 
         logger.info(
             f"[{self.user_id}] IPO TRIGGER MODE: {len(price_levels)} levels, "
-            f"Security={security_id}, Qty={order_quantity}, "
+            f"Symbol={symbol}, Qty={order_quantity}, "
             f"Price range: Rs. {price_levels[0]:.1f} - Rs. {price_levels[-1]:.1f}, "
             f"Skip first: {skip_first}, Skip second-last: {skip_second_last}, No ladder: {no_ladder}"
         )
@@ -816,12 +763,13 @@ class OrderService:
                 )
 
         # Start price fetcher for monitoring LTP
+        # Note: For ATRAD, we still use TMS fetch clients for price monitoring
         poll_interval_ms = self.client.user_config.trigger_mode_poll_interval_ms
+
 
         # Use MultiUserPriceFetcher if multiple fetch clients, otherwise single PriceFetcher
         if len(fetch_clients) > 1:
             # Multi-user fetch with rotation
-            # Resolve fetch_security_id for each fetch client based on their host
             fetch_users = []
             ticker_store = get_ticker_store() if ticker else None
 
@@ -835,15 +783,14 @@ class OrderService:
                             f"fetch_security_id={user_fetch_id} (host={client.user_config.tms_host})"
                         )
                     except Exception as e:
-                        # Fallback to provided fetch_security_id or security_id
-                        user_fetch_id = fetch_security_id if fetch_security_id else security_id
+                        # Fallback to provided fetch_security_id
+                        user_fetch_id = fetch_security_id
                         logger.warning(
                             f"[{self.user_id}] Could not resolve fetch_id for FetchUser{i+1}, "
                             f"using fallback: {user_fetch_id}. Error: {e}"
                         )
                 else:
-                    # Use provided fetch_security_id or security_id
-                    user_fetch_id = fetch_security_id if fetch_security_id else security_id
+                    user_fetch_id = fetch_security_id
 
                 fetch_users.append(
                     FetchUser(
@@ -855,14 +802,15 @@ class OrderService:
 
             requests_per_user = self.client.user_config.trigger_mode_requests_per_fetch_user
 
+
             price_fetcher = MultiUserPriceFetcher(
                 fetch_users=fetch_users,
                 poll_interval_ms=poll_interval_ms,
                 requests_per_user=requests_per_user
             )
         else:
-            # Single fetch user - use provided fetch_security_id or security_id
-            single_fetch_id = fetch_security_id if fetch_security_id else security_id
+            # Single fetch user
+            single_fetch_id = fetch_security_id
             logger.info(
                 f"[{self.user_id}] Using fetch_security_id={single_fetch_id} for LTP monitoring"
             )
@@ -874,14 +822,8 @@ class OrderService:
 
         price_fetcher.start()
 
-        # Start token refresh manager to keep main user ready
-        refresh_interval = self.client.user_config.trigger_mode_refresh_interval_seconds
-        token_manager = TokenRefreshManager(
-            tms_client=self.client,
-            refresh_interval_seconds=refresh_interval
-        )
-        token_manager.start()
-
+        # Note: For ATRAD, we don't need token refresh manager
+        # ATRAD client auto-refreshes session on 401
         last_response = None
 
         try:
@@ -1000,11 +942,11 @@ class OrderService:
                             raise
 
             # Execute orders based on LTP triggers
+            second_last_level_index = len(price_levels) - 2 if len(price_levels) >= 2 else -1
             # We place orders starting from current_level_index
             # For each level, we wait until LTP >= price_levels[level_index - 1]
-
+            
             # Determine which level is second-to-last
-            second_last_level_index = len(price_levels) - 2 if len(price_levels) >= 2 else -1
 
             while current_level_index < len(price_levels):
                 # Check if we should skip this level
@@ -1110,14 +1052,14 @@ class OrderService:
 
                     try:
                         response = self.client.place_order(
-                            security_id=security_id,
-                            exchange_security_id=exchange_security_id,
-                            order_price=target_price,
-                            order_quantity=qty_for_level,
-                            client_data=client_data,
-                            buy_or_sell=buy_or_sell,
+                            symbol=symbol,
+                            quantity=qty_for_level,
+                            price=target_price,
+                            side=side,
+                            asset_select=asset_select,
+                            board=board,
                             order_type=order_type,
-                            order_validity=order_validity
+                            **kwargs
                         )
 
                         if response:
@@ -1130,15 +1072,15 @@ class OrderService:
                             # Handle double buy for final level only
                             if double_buy and is_final_level:
                                 self._execute_double_buy(
-                                    security_id=security_id,
-                                    exchange_security_id=exchange_security_id,
+                                    symbol=symbol,
                                     order_price=target_price,
                                     order_quantity=qty_for_level,
                                     double_buy_quantity=double_buy_quantity,
-                                    client_data=client_data,
-                                    buy_or_sell=buy_or_sell,
+                                    side=side,
+                                    asset_select=asset_select,
+                                    board=board,
                                     order_type=order_type,
-                                    order_validity=order_validity
+                                    **kwargs
                                 )
 
                             # Move to next level
@@ -1158,8 +1100,8 @@ class OrderService:
                     except Exception as e:
                         error_msg = str(e)
                         # Handle different error types with appropriate delays
-                        if "401" in error_msg or "Unauthorized" in error_msg:
-                            logger.debug(f"[{self.user_id}] Token issue, retrying")
+                        if "session" in error_msg.lower() or "401" in error_msg:
+                            logger.debug(f"[{self.user_id}] Session issue, retrying")
                             try:
                                 time.sleep(2)
                             except KeyboardInterrupt:
@@ -1195,7 +1137,6 @@ class OrderService:
         finally:
             # Stop background services
             price_fetcher.stop()
-            token_manager.stop()
 
         total_placed = current_level_index
         logger.info(
@@ -1205,19 +1146,20 @@ class OrderService:
 
     def _execute_trigger_sell(
         self,
-        security_id: int,
-        exchange_security_id: int,
+        symbol: str,
         sell_price: float,
         order_quantity: int,
-        client_data: Dict[str, Any],
+        side: str,
+        asset_select: str,
+        board: str,
         order_type: str,
-        order_validity: str,
         fetch_client: Any,
         fetch_security_id: Optional[int] = None,
-        ticker: Optional[str] = None
+        ticker: Optional[str] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
-        Execute trigger sell mode: Monitor LTP and place sell order when price drops to trigger level.
+        Execute trigger sell mode: Monitor LTP and place sell order when price rises to trigger level.
 
         Logic:
         - Calculate trigger_price from sell_price: trigger_price = sell_price / 1.02 (floored to 1 decimal)
@@ -1226,26 +1168,23 @@ class OrderService:
         - Ensures no duplicate orders are placed
 
         Args:
-            security_id: Security ID for placing order
-            exchange_security_id: Exchange security ID
+            symbol: Stock symbol/ticker
             sell_price: The price at which to place the sell order
             order_quantity: Number of units to sell
-            client_data: Client information dictionary
-            order_type: Order type (LMT, MKT, etc.)
-            order_validity: Order validity (DAY, IOC, etc.)
+            side: 'BUY' or 'SELL'
+            asset_select: Asset type
+            board: Board type
+            order_type: Order type
             fetch_client: TMSClient instance for fetching LTP
-            fetch_security_id: Security ID for fetching LTP (defaults to security_id if not provided)
-            ticker: Ticker symbol for resolving per-user fetch_id (optional)
+            fetch_security_id: Security ID for fetching LTP
+            ticker: Ticker symbol for resolving per-user fetch_id
+            **kwargs: Additional ATRAD parameters
 
         Returns:
             Order placement response dictionary
         """
-        from services.price_fetcher import PriceFetcher, TokenRefreshManager
+        from services.price_fetcher import PriceFetcher
         from utils import get_ticker_store
-
-        # Use fetch_security_id if provided, otherwise fall back to security_id
-        if fetch_security_id is None:
-            fetch_security_id = security_id
 
         # Calculate trigger price from sell price: trigger_price * 1.02 = sell_price
         # So: trigger_price = sell_price / 1.02
@@ -1254,15 +1193,15 @@ class OrderService:
 
         logger.info(
             f"[{self.user_id}] TRIGGER SELL MODE: "
-            f"Security={security_id}, Qty={order_quantity}, "
+            f"Symbol={symbol}, Qty={order_quantity}, "
             f"Sell price: Rs. {sell_price:.1f}, Trigger price: Rs. {trigger_price:.1f}"
         )
         logger.info(
             f"[{self.user_id}] Will place sell order at Rs. {sell_price:.1f} when LTP >= Rs. {trigger_price:.1f}"
         )
 
-        # Get poll interval from user config
-        poll_interval_ms = getattr(self.client.user_config, 'trigger_sell_poll_interval_ms', 500)
+        # Get poll interval
+        poll_interval_ms = 500  # Default for sell trigger
 
         # Resolve fetch_security_id for this specific fetch client if ticker provided
         if ticker:
@@ -1279,17 +1218,6 @@ class OrderService:
             fetch_client=fetch_client,
             security_id=fetch_security_id,
             poll_interval_ms=poll_interval_ms
-        )
-
-        # Start token refresh manager to keep main user ready for order placement
-        refresh_interval = self.client.user_config.trigger_mode_refresh_interval_seconds
-        token_manager = TokenRefreshManager(
-            tms_client=self.client,
-            refresh_interval_seconds=refresh_interval
-        )
-        token_manager.start()
-        logger.info(
-            f"[{self.user_id}] Token refresh started (interval: {refresh_interval}s)"
         )
 
         # Start monitoring
@@ -1321,17 +1249,17 @@ class OrderService:
                     )
 
                     try:
-                        # Place sell order (buy_or_sell=2 for sell)
+                        # Place sell order (side='SELL')
                         # No retry - validation errors (400) won't resolve on retry
                         response = self.client.place_order(
-                            security_id=security_id,
-                            exchange_security_id=exchange_security_id,
-                            order_price=sell_price,
-                            order_quantity=order_quantity,
-                            client_data=client_data,
-                            buy_or_sell=2,  # 2 = SELL
+                            symbol=symbol,
+                            quantity=order_quantity,
+                            price=sell_price,
+                            side=side,  # Should be 'SELL'
+                            asset_select=asset_select,
+                            board=board,
                             order_type=order_type,
-                            order_validity=order_validity
+                            **kwargs
                         )
 
                         logger.info(f"[{self.user_id}] Sell order placed successfully")
@@ -1355,7 +1283,6 @@ class OrderService:
         finally:
             # Stop background services
             price_fetcher.stop()
-            token_manager.stop()
 
         logger.info(f"[{self.user_id}] TRIGGER SELL COMPLETE")
         return last_response

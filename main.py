@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 from typing import List, Dict, Any
 
-from config import UserConfig
+from config import UserConfig, ATRADUserConfig
 from api import TMSClient
 from services import OrderService, OrderScheduler
 from utils import validate_positive_number, validate_positive_integer, setup_logger, lookup_ticker, OrderStore
@@ -633,7 +633,7 @@ def execute_from_order_store(
                     logger.error(f"{"="*70}")
                     logger.error(f"Execution completed with errors for {len(exceptions)} user(s)")
                     for user_id, exc in exceptions:
-                        logger.error(f"  [{user_id}] {str(exc)}")
+                        logger.error(f"[{user_id}] {str(exc)}")
                     logger.error(f"{"="*70}")
                     order_store.mark_failed(order_id)
                     sys.exit(1)
@@ -840,7 +840,7 @@ def main():
                     logger.error(f"{"="*60}")
                     logger.error(f"Execution completed with errors for {len(exceptions)} user(s)")
                     for user_id, exc in exceptions:
-                        logger.error(f"  [{user_id}] {str(exc)}")
+                        logger.error(f"[{user_id}] {str(exc)}")
                     logger.error(f"{"="*60}")
                     sys.exit(1)
 

@@ -9,3 +9,8 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "requests>=2.31.0",
 ]
+
+[tool.pytest.ini_options]
+# Only run tests in tests/ directory, exclude tests/manual/
+testpaths = ["tests"]
+norecursedirs = ["manual", ".*", "build", "dist"]
