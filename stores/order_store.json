@@ -27,8 +27,8 @@
       "mode": "ipo-trigger",
       "quantity": 10,
       "base_quantity": 50,
-      "price": 1850,
-      "limit": 1890,
+      "price": 1830,
+      "limit": 1830,
       "no_ladder": true,
       "double_buy": true,
       "double_buy_quantity": 100
