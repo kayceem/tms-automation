@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from config import UserConfig, ATRADUserConfig
-from api import TMSClient
-from services import OrderService, OrderScheduler
-from utils import validate_positive_number, validate_positive_integer, setup_logger, lookup_ticker, OrderStore
+from api import TMSClient, ATRADClient
+from services import OrderService, OrderScheduler, ATRADOrderService
+from utils import validate_positive_number, validate_positive_integer, setup_logger, lookup_ticker, OrderStore, detect_system_from_config
 
 logger = setup_logger(
     name='main',
@@ -273,19 +273,38 @@ def validate_args(args: argparse.Namespace):
         validate_positive_integer(args.double_buy_quantity, 'double-buy-quantity')
 
 
-def load_user_config(args: argparse.Namespace) -> UserConfig:
+def load_user_config(args: argparse.Namespace):
     """
     Load user configuration from JSON file.
+    Auto-detects whether it's a TMS or ATRAD user.
 
     Args:
         args: Parsed arguments
 
     Returns:
-        UserConfig instance
+        UserConfig or ATRADUserConfig instance
     """
+    import json
+    from pathlib import Path
+
     logger.info(f"Loading user configuration from {args.user_config}")
-    user_config = UserConfig.from_file(args.user_config)
-    logger.info(f"Loaded configuration for user: {user_config.user_id}")
+
+    # Read the config file to detect system type
+    config_path = Path(args.user_config)
+    with open(config_path, 'r') as f:
+        config_data = json.load(f)
+
+    # Detect system type
+    system_type = detect_system_from_config(config_data)
+
+    # Load appropriate config class
+    if system_type == 'atrad':
+        user_config = ATRADUserConfig.from_file(args.user_config)
+        logger.info(f"Loaded ATRAD configuration for user: {user_config.user_id}")
+    else:
+        user_config = UserConfig.from_file(args.user_config)
+        logger.info(f"Loaded TMS configuration for user: {user_config.user_id}")
+
     return user_config
 
 
@@ -330,19 +349,19 @@ def load_fetch_user_configs(args: argparse.Namespace) -> List[UserConfig]:
 
 
 def execute_order_for_user(
-    user_config: UserConfig,
+    user_config,  # UserConfig or ATRADUserConfig
     order_params: Dict[str, Any],
     scheduled_time: str = None,
     fetch_user_configs: List[UserConfig] = None
 ) -> Dict[str, Any]:
     """
-    Execute an order for a single user.
+    Execute an order for a single user (supports both TMS and ATRAD).
 
     Args:
-        user_config: User configuration
+        user_config: UserConfig or ATRADUserConfig instance
         order_params: Order parameters dictionary
         scheduled_time: Optional scheduled time string
-        fetch_user_configs: Optional list of fetch user configurations for trigger mode
+        fetch_user_configs: Optional list of fetch user configurations for trigger mode (TMS only)
 
     Returns:
         API response dictionary
@@ -352,28 +371,51 @@ def execute_order_for_user(
     try:
         logger.info(f"[{user_id}] Starting order execution")
 
-        # Create user-specific TMS client
-        tms_client = TMSClient(user_config)
+        # Detect if this is ATRAD or TMS user
+        is_atrad = isinstance(user_config, ATRADUserConfig)
 
-        # Create fetch clients if provided
-        fetch_clients = None
-        if fetch_user_configs:
-            fetch_clients = [TMSClient(cfg) for cfg in fetch_user_configs]
-            if len(fetch_clients) == 1:
-                logger.info(f"[{user_id}] Fetch client initialized: {fetch_user_configs[0].user_id}")
-            else:
-                user_ids = ', '.join(cfg.user_id for cfg in fetch_user_configs)
-                logger.info(f"[{user_id}] Multi-user fetch initialized: {len(fetch_clients)} users ({user_ids})")
+        if is_atrad:
+            # ATRAD user - create ATRAD client and service
+            logger.info(f"[{user_id}] Using ATRAD system")
+            order_client = ATRADClient(user_config)
 
-        # Create order service
-        order_service = OrderService(tms_client)
+            # Create fetch clients for trigger mode (TMS clients for price fetching)
+            fetch_clients = None
+            if fetch_user_configs:
+                fetch_clients = [TMSClient(cfg) for cfg in fetch_user_configs]
+                if len(fetch_clients) == 1:
+                    logger.info(f"[{user_id}] Fetch client initialized: {fetch_user_configs[0].user_id}")
+                else:
+                    user_ids = ', '.join(cfg.user_id for cfg in fetch_user_configs)
+                    logger.info(f"[{user_id}] Multi-user fetch initialized: {len(fetch_clients)} users ({user_ids})")
+
+            # Create ATRAD order service
+            order_service = ATRADOrderService(order_client)
+
+        else:
+            # TMS user - create TMS client and service
+            logger.info(f"[{user_id}] Using TMS system")
+            order_client = TMSClient(user_config)
+
+            # Create fetch clients if provided
+            fetch_clients = None
+            if fetch_user_configs:
+                fetch_clients = [TMSClient(cfg) for cfg in fetch_user_configs]
+                if len(fetch_clients) == 1:
+                    logger.info(f"[{user_id}] Fetch client initialized: {fetch_user_configs[0].user_id}")
+                else:
+                    user_ids = ', '.join(cfg.user_id for cfg in fetch_user_configs)
+                    logger.info(f"[{user_id}] Multi-user fetch initialized: {len(fetch_clients)} users ({user_ids})")
+
+            # Create TMS order service
+            order_service = OrderService(order_client)
 
         # Execute order
         if scheduled_time:
             result = OrderScheduler.schedule_order(
                 time_str=scheduled_time,
                 order_func=order_service.execute_order,
-                tms_client=tms_client,
+                tms_client=order_client,
                 fetch_clients=fetch_clients,
                 user_id=user_id,
                 **order_params
@@ -394,7 +436,7 @@ def execute_order_for_user(
 
 
 def execute_from_order_store(
-    user_config: UserConfig,
+    user_config,  # UserConfig or ATRADUserConfig
     order_store_path: str,
     fetch_user_configs: List[UserConfig] = None
 ) -> Dict[str, Any]:
@@ -403,7 +445,7 @@ def execute_from_order_store(
     Multiple orders with execute=true are executed sequentially based on queue_id.
 
     Args:
-        user_config: UserConfig instance
+        user_config: UserConfig or ATRADUserConfig instance
         order_store_path: Path to order store JSON file
         fetch_user_configs: Optional list of fetch user configurations for trigger mode
 
@@ -506,7 +548,8 @@ def execute_from_order_store(
             'base_quantity': order['base_quantity'],
             'ticker': order['ticker'],  # Pass ticker for per-user fetch_id resolution
             'double_buy': order['double_buy'],
-            'double_buy_quantity': order['double_buy_quantity']
+            'double_buy_quantity': order['double_buy_quantity'],
+            'symbol': order['ticker'].upper()
         }
 
         # Log execution details
@@ -611,7 +654,7 @@ def main():
             fetch_id = None
             ticker_symbol = None
             if args.ticker:
-                ticker_symbol = args.ticker
+                ticker_symbol = args.ticker.upper()
                 # Resolve fetch_id for logging purposes (using first fetch user's host if available)
                 try:
                     from utils import get_ticker_store
@@ -643,7 +686,8 @@ def main():
                 'fetch_id': fetch_id,
                 'ticker': ticker_symbol,  # Pass ticker for per-user fetch_id resolution
                 'double_buy': args.double_buy if hasattr(args, 'double_buy') else False,
-                'double_buy_quantity': args.double_buy_quantity if hasattr(args, 'double_buy_quantity') else None
+                'double_buy_quantity': args.double_buy_quantity if hasattr(args, 'double_buy_quantity') else None,
+                'symbol': ticker_symbol
             }
 
             # Log execution mode

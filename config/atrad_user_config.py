@@ -95,8 +95,8 @@ class ATRADUserConfig:
         # Extract cookies if present
         cookies = data.get('_cookies')
 
-        # Filter out internal fields (starting with _) from constructor args
-        filtered_data = {k: v for k, v in data.items() if not k.startswith('_')}
+        # Filter out internal fields (starting with _) and 'system' field from constructor args
+        filtered_data = {k: v for k, v in data.items() if not k.startswith('_') and k != 'system'}
         config = cls(**filtered_data)
 
         # Restore cookies if available

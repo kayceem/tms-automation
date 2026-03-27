@@ -138,8 +138,8 @@ class ATRADClient:
         """
         if self._is_authenticated and self._validate_session():
             logger.info(f"[{self.user_id}] Already authenticated, skipping login")
-            return True
-        
+            return {"code": "0", "description": "Already authenticated"}
+
         self._is_authenticated = False
 
         with self._login_lock:
@@ -186,7 +186,7 @@ class ATRADClient:
                         f"[{self.user_id}] ATRAD login successful! "
                         f"Role: {result.get('role')}, Broker: {result.get('broker_code')}"
                     )
-                    return True
+                    return result
                 else:
                     logger.error(f"[{self.user_id}] ATRAD login failed: {result.get('description')}")
                     raise Exception(f"Login failed: {result.get('description')}")
