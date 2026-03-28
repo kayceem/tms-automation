@@ -915,7 +915,7 @@ class BaseOrderService(ABC):
                         if "401" in error_msg or "Unauthorized" in error_msg:
                             self.logger.debug(f"[{self.user_id}] Token issue, retrying")
                             try:
-                                time.sleep(2)
+                                time.sleep(1)
                             except KeyboardInterrupt:
                                 self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                                 raise
@@ -924,7 +924,7 @@ class BaseOrderService(ABC):
                                 f"[{self.user_id}] Error placing order level {level_display}: {error_msg}"
                             )
                             try:
-                                time.sleep(0.5)
+                                time.sleep(1)
                             except KeyboardInterrupt:
                                 self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                                 raise
@@ -933,7 +933,7 @@ class BaseOrderService(ABC):
                                 f"[{self.user_id}] Error placing order level {level_display}: {error_msg}"
                             )
                             try:
-                                time.sleep(0.5)
+                                time.sleep(1)
                             except KeyboardInterrupt:
                                 self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                                 raise
