@@ -1,44 +1,39 @@
-"""Order service for placing and managing orders."""
+"""ATRAD Order service for placing and managing orders."""
 
 import json
 import math
 import time
-import threading
-from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
-from api import TMSClient
+from api import ATRADClient
 from services.base_order_service import BaseOrderService
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-class OrderService(BaseOrderService):
-    """Service for placing orders on NEPSE TMS."""
+class ATRADOrderService(BaseOrderService):
+    """Service for placing orders on NEPSE ATRAD."""
 
-    def __init__(self, tms_client: TMSClient):
+    def __init__(self, atrad_client: ATRADClient):
         """
-        Initialize order service with a TMS client.
+        Initialize order service with an ATRAD client.
 
         Args:
-            tms_client: TMSClient instance configured for a specific user
+            atrad_client: ATRADClient instance configured for a specific user
         """
-        super().__init__(tms_client, tms_client.user_id)
-        self._order_success = threading.Event()
-        self._lock = threading.Lock()
+        super().__init__(atrad_client, atrad_client.user_id)
 
-        logger.info(f"[{self.user_id}] OrderService initialized")
+        logger.info(f"[{self.user_id}] ATRADOrderService initialized")
 
     def execute_order(
         self,
         symbol: str,
-        security_id: int,
-        exchange_security_id: int,
         order_price: float,
         order_quantity: int,
         buy_or_sell: int = 1,
+        asset_select: str = None,
+        board: str = None,
         order_type: str = None,
-        order_validity: str = None,
         ipo_trigger_mode: bool = False,
         trigger_sell_mode: bool = False,
         limit_price: Optional[float] = None,
@@ -51,37 +46,43 @@ class OrderService(BaseOrderService):
         skip_second_last: bool = False,
         no_ladder: bool = False,
         fetch_id: Optional[int] = None,
-        ticker: Optional[str] = None
+        ticker: Optional[str] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
-        Execute an order immediately.
+        Execute an order immediately on ATRAD.
 
         Args:
-            security_id: Security ID
-            exchange_security_id: Exchange security ID
+            symbol: Stock symbol/ticker
             order_price: Price per unit
             order_quantity: Number of units
             buy_or_sell: 1 for buy, 2 for sell
-            order_type: Order type (LMT, MKT, etc.)
-            order_validity: Order validity (DAY, IOC, etc.)
+            asset_select: Asset type (default: '1' for EQUITY)
+            board: Board type (default: '1' for Regular)
+            order_type: Order type (default: '16' for Day order)
             ipo_trigger_mode: Enable IPO trigger mode (price-based ladder triggering)
             trigger_sell_mode: Enable trigger sell mode (sell when LTP reaches trigger price)
-            limit_price: Optional upper limit price for IPO sniping mode
+            limit_price: Optional upper limit price for IPO trigger mode
             base_quantity: Quantity for all ladder levels except final
             double_buy: Place a second order 0.5s after first order succeeds
             double_buy_quantity: Quantity for the second order
             fetch_client: TMSClient instance for fetching prices (deprecated, use fetch_clients)
-            fetch_clients: List of TMSClient instances for fetching prices (required for trigger mode)
+            fetch_clients: List of TMSClient instances for fetching prices (required for trigger modes)
             skip_first: Skip the first ladder level (trigger mode only)
             skip_second_last: Skip the second-to-last ladder level (trigger mode only)
             no_ladder: Skip ALL ladder levels, only place final order when LTP reaches second-to-last (trigger mode only)
-            fetch_id: Security ID for fetching LTP (defaults to security_id if not provided)
-            base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
+            fetch_id: Security ID for fetching LTP (defaults to symbol lookup)
             ticker: Ticker symbol for resolving per-user fetch_id (optional)
+            **kwargs: Additional ATRAD-specific parameters
 
         Returns:
             API response dictionary
         """
+        # Ensure authenticated
+        self.client.ensure_authenticated()
+
+        # Convert side
+        side = 'SELL' if buy_or_sell == 2 else 'BUY'
 
         # IPO Trigger Mode: Price-based ladder triggering
         if ipo_trigger_mode:
@@ -93,27 +94,25 @@ class OrderService(BaseOrderService):
             else:
                 raise ValueError("fetch_client or fetch_clients is required for IPO trigger mode")
 
-            # Use fetch_id if provided, otherwise fall back to security_id
-            fetch_security_id = fetch_id if fetch_id is not None else security_id
-
             return self._execute_ipo_trigger(
-                security_id=security_id,
-                exchange_security_id=exchange_security_id,
+                symbol=symbol,
                 base_price=order_price,
                 order_quantity=order_quantity,
-                buy_or_sell=buy_or_sell,
+                side=side,
+                asset_select=asset_select,
+                board=board,
                 order_type=order_type,
-                order_validity=order_validity,
                 limit_price=limit_price,
                 fetch_clients=actual_fetch_clients,
                 skip_first=skip_first,
                 skip_second_last=skip_second_last,
                 no_ladder=no_ladder,
-                fetch_security_id=fetch_security_id,
+                fetch_security_id=fetch_id,
                 base_quantity=base_quantity,
                 ticker=ticker,
                 double_buy=double_buy,
-                double_buy_quantity=double_buy_quantity
+                double_buy_quantity=double_buy_quantity,
+                **kwargs
             )
 
         # Trigger Sell Mode: Monitor LTP and sell when price drops to trigger level
@@ -130,38 +129,36 @@ class OrderService(BaseOrderService):
             else:
                 raise ValueError("fetch_client or fetch_clients is required for trigger sell mode")
 
-            # Use fetch_id if provided, otherwise fall back to security_id
-            fetch_security_id = fetch_id if fetch_id is not None else security_id
-
             return self._execute_trigger_sell(
-                security_id=security_id,
-                exchange_security_id=exchange_security_id,
+                symbol=symbol,
                 sell_price=order_price,
                 order_quantity=order_quantity,
+                side=side,
+                asset_select=asset_select,
+                board=board,
                 order_type=order_type,
-                order_validity=order_validity,
                 fetch_client=actual_fetch_client,
-                fetch_security_id=fetch_security_id,
-                ticker=ticker
+                fetch_security_id=fetch_id,
+                ticker=ticker,
+                **kwargs
             )
 
         # Normal single order execution
-        order_side = 'SELL' if buy_or_sell == 2 else 'BUY'
         logger.info(
-            f"[{self.user_id}] Executing {order_side} order: "
-            f"Security={security_id}, Price={order_price}, Qty={order_quantity}, "
-            f"Type={order_type or 'LMT'}, Validity={order_validity or 'DAY'}"
+            f"[{self.user_id}] Executing {side} order: "
+            f"Symbol={symbol}, Price={order_price}, Qty={order_quantity}"
         )
 
         try:
             response = self.client.place_order(
-                security_id=security_id,
-                exchange_security_id=exchange_security_id,
-                order_price=order_price,
-                order_quantity=order_quantity,
-                buy_or_sell=buy_or_sell,
+                symbol=symbol,
+                quantity=order_quantity,
+                price=order_price,
+                side=side,
+                asset_select=asset_select,
+                board=board,
                 order_type=order_type,
-                order_validity=order_validity
+                **kwargs
             )
 
             logger.info(f"[{self.user_id}] Order placed successfully")
@@ -170,14 +167,15 @@ class OrderService(BaseOrderService):
             # Handle double buy if enabled
             if double_buy:
                 self._execute_double_buy(
-                    security_id=security_id,
-                    exchange_security_id=exchange_security_id,
+                    symbol=symbol,
                     order_price=order_price,
                     order_quantity=order_quantity,
                     double_buy_quantity=double_buy_quantity,
-                    buy_or_sell=buy_or_sell,
+                    side=side,
+                    asset_select=asset_select,
+                    board=board,
                     order_type=order_type,
-                    order_validity=order_validity
+                    **kwargs
                 )
 
             return response
@@ -191,34 +189,25 @@ class OrderService(BaseOrderService):
     # =========================================================================
 
     def _place_single_order(self, price: float, quantity: int, **params) -> Dict[str, Any]:
-        """Place a single order with TMS-specific parameters."""
+        """Place a single order with ATRAD-specific parameters."""
         return self.client.place_order(
-            security_id=params['security_id'],
-            exchange_security_id=params['exchange_security_id'],
-            order_price=price,
-            order_quantity=quantity,
-            buy_or_sell=params['buy_or_sell'],
-            order_type=params.get('order_type'),
-            order_validity=params.get('order_validity')
+            symbol=params.get('symbol'),
+            quantity=quantity,
+            price=price,
+            side=params.get('side'),
+            asset_select=params.get('asset_select'),
+            board=params.get('board'),
+            order_type=params.get('order_type')
         )
-
 
     def _setup_token_manager(self) -> Optional[Any]:
-        """Setup TMS token refresh manager for trigger modes."""
-        from services.price_fetcher import TokenRefreshManager
-        refresh_interval = self.client.user_config.trigger_mode_refresh_interval_seconds
-        manager = TokenRefreshManager(
-            tms_client=self.client,
-            refresh_interval_seconds=refresh_interval
-        )
-        manager.start()
-        return manager
+        """ATRAD auto-refreshes tokens on 401, so no token manager needed."""
+        return None
 
     def _cleanup_token_manager(self, token_manager: Optional[Any]):
-        """Stop TMS token refresh manager."""
-        if token_manager:
-            token_manager.stop()
+        """ATRAD auto-refreshes tokens, nothing to clean up."""
+        pass
 
     def _get_identifier_for_logging(self, **params) -> str:
-        """Get human-readable identifier for logging (TMS uses security_id)."""
-        return f"Security={params['security_id']}"
+        """Get human-readable identifier for logging (ATRAD uses symbol)."""
+        return f"Symbol={params['symbol']}"

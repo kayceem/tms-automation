@@ -6,15 +6,15 @@ Comprehensive test suite for validating IPO Trigger functionality in a simulated
 
 This test suite simulates the complete IPO trigger workflow including:
 
-- ✅ **Price fetching** with 200ms delays (realistic GET request simulation)
-- ✅ **Order placement** with 1s delays (realistic POST request simulation)
-- ✅ **Token refresh** simulation
-- ✅ **Skip first** ladder level functionality
-- ✅ **Skip second-last** ladder level functionality
-- ✅ **Multi-level price jumps** (edge case handling)
-- ✅ **Retry logic** with max 3 attempts per level
-- ✅ **Base quantity** vs final quantity validation
-- ✅ **Market price simulation** (+2% increments from base to limit+10%)
+- **Price fetching** with 200ms delays (realistic GET request simulation)
+- **Order placement** with 1s delays (realistic POST request simulation)
+- **Token refresh** simulation
+- **Skip first** ladder level functionality
+- **Skip second-last** ladder level functionality
+- **Multi-level price jumps** (edge case handling)
+- **Retry logic** with max 3 attempts per level
+- **Base quantity** vs final quantity validation
+- **Market price simulation** (+2% increments from base to limit+10%)
 
 ## Features
 
@@ -98,7 +98,7 @@ Testing basic trigger mode with all ladder levels...
     [user1] Order placed: Rs. 102.0 x 10 (Order #2)
 ...
 
-✓ PASSED in 15.34s
+PASSED in 15.34s
 
 ======================================================================
 TEST SUMMARY
@@ -210,12 +210,12 @@ python3 tests/test_ipo_trigger.py
 
 ## Success Criteria
 
-✅ All 7 tests pass
-✅ No exceptions or errors
-✅ Correct order quantities (base_quantity vs final)
-✅ Skip flags work as expected
-✅ Edge cases handled properly
-✅ Retry logic functions correctly
+All 7 tests pass
+No exceptions or errors
+Correct order quantities (base_quantity vs final)
+Skip flags work as expected
+Edge cases handled properly
+Retry logic functions correctly
 
 ## Future Enhancements
 

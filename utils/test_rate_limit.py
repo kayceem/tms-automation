@@ -275,9 +275,9 @@ class RateLimitTester:
                             first_rate_limit = request_count
                             results['rate_limit_detected_at'] = request_count
                             self.logger.warning(f"RATE LIMIT DETECTED at request #{request_count} [{current_user.name}]")
-                            self.logger.warning(f"   Response: {response.status_code} {response.reason}")
+                            self.logger.warning(f" Response: {response.status_code} {response.reason}")
                             if 'Retry-After' in response.headers:
-                                self.logger.warning(f"   Retry-After: {response.headers['Retry-After']}s")
+                                self.logger.warning(f" Retry-After: {response.headers['Retry-After']}s")
                                 request_log_entry['retry_after'] = response.headers['Retry-After']
 
                     # Check for other error status codes that might indicate rate limiting
@@ -288,7 +288,7 @@ class RateLimitTester:
                         if first_rate_limit is None:
                             # Could be rate limiting with different status code
                             self.logger.warning(f"Possible rate limit at request #{request_count} [{current_user.name}]")
-                            self.logger.warning(f"   Response: {response.status_code} {response.reason}")
+                            self.logger.warning(f" Response: {response.status_code} {response.reason}")
                     elif response.status_code >= 400:
                         results['failed_requests'] += 1
                         results['user_stats'][current_user.name]['failed'] += 1
@@ -365,14 +365,14 @@ class RateLimitTester:
             return False
 
         try:
-            self.logger.debug(f"   [{user.name}] Calling refresh endpoint: {self.refresh_endpoint}")
+            self.logger.debug(f" [{user.name}] Calling refresh endpoint: {self.refresh_endpoint}")
 
             # Make refresh request with user's session
             response = user.session.post(self.refresh_endpoint, timeout=10)
             response.encoding = 'utf-8'
 
             if response.status_code == 200:
-                self.logger.info(f"   [{user.name}] Token refresh successful (status: {response.status_code})")
+                self.logger.info(f" [{user.name}] Token refresh successful (status: {response.status_code})")
 
                 # Update cookies from response
                 new_cookies = {}
@@ -380,15 +380,15 @@ class RateLimitTester:
                     new_cookies[cookie.name] = cookie.value
                     # Update session cookies
                     user.session.cookies.set(cookie.name, cookie.value)
-                    self.logger.debug(f"   [{user.name}] Updated cookie: {cookie.name}={cookie.value[:20]}...")
+                    self.logger.debug(f" [{user.name}] Updated cookie: {cookie.name}={cookie.value[:20]}...")
 
                 return True
             else:
-                self.logger.error(f"   [{user.name}] Token refresh failed: {response.status_code} {response.reason}")
+                self.logger.error(f" [{user.name}] Token refresh failed: {response.status_code} {response.reason}")
                 return False
 
         except Exception as e:
-            self.logger.error(f"   [{user.name}] Error during token refresh: {str(e)}")
+            self.logger.error(f" [{user.name}] Error during token refresh: {str(e)}")
             return False
 
     @staticmethod
@@ -401,40 +401,40 @@ class RateLimitTester:
         print(f"Test Duration: {results['actual_duration']:.2f} seconds")
         print(f"Users: {results['num_users']} (rotation every {results['requests_per_user_rotation']} request(s))")
         print(f"\nRequests:")
-        print(f"  Total Sent:     {results['requests_sent']}")
-        print(f"  Successful:     {results['successful_requests']} "
+        print(f"Total Sent:     {results['requests_sent']}")
+        print(f"Successful:     {results['successful_requests']} "
               f"({results['successful_requests']/results['requests_sent']*100:.1f}%)")
-        print(f"  Failed:         {results['failed_requests']}")
-        print(f"  Rate Limited:   {results['rate_limited_requests']}")
+        print(f"Failed:         {results['failed_requests']}")
+        print(f"Rate Limited:   {results['rate_limited_requests']}")
         print(f"\nPerformance:")
-        print(f"  Requests/Minute: {results['requests_per_minute']:.2f}")
+        print(f"Requests/Minute: {results['requests_per_minute']:.2f}")
 
         if results['response_times']:
-            print(f"  Avg Response:   {results['avg_response_time']:.3f}s")
-            print(f"  Min Response:   {results['min_response_time']:.3f}s")
-            print(f"  Max Response:   {results['max_response_time']:.3f}s")
+            print(f"Avg Response:   {results['avg_response_time']:.3f}s")
+            print(f"Min Response:   {results['min_response_time']:.3f}s")
+            print(f"Max Response:   {results['max_response_time']:.3f}s")
 
         print(f"\nStatus Codes:")
         for code, count in sorted(results['status_codes'].items()):
-            print(f"  {code}: {count} requests")
+            print(f"{code}: {count} requests")
 
         print(f"\nPer-User Statistics:")
         for user_name, stats in results['user_stats'].items():
-            print(f"  {user_name}:")
-            print(f"    Requests:     {stats['requests']}")
-            print(f"    Successful:   {stats['successful']}")
-            print(f"    Failed:       {stats['failed']}")
-            print(f"    Rate Limited: {stats['rate_limited']}")
+            print(f"{user_name}:")
+            print(f"  Requests:     {stats['requests']}")
+            print(f"  Successful:   {stats['successful']}")
+            print(f"  Failed:       {stats['failed']}")
+            print(f"  Rate Limited: {stats['rate_limited']}")
 
         if results['rate_limit_detected_at']:
             print(f"\nRate Limit Info:")
-            print(f"  First detected at request #{results['rate_limit_detected_at']}")
-            print(f"  Approximately {results['rate_limit_detected_at']} requests allowed")
+            print(f"First detected at request #{results['rate_limit_detected_at']}")
+            print(f"Approximately {results['rate_limit_detected_at']} requests allowed")
 
         if results['errors']:
             print(f"\nErrors: {len(results['errors'])} occurred")
             for error in results['errors'][:5]:  # Show first 5
-                print(f"  Request #{error['request_number']}: {error['error']}")
+                print(f"Request #{error['request_number']}: {error['error']}")
 
         print(f"{'='*70}\n")
 
@@ -637,7 +637,7 @@ def main():
             curr = results['request_log'][i]
             next_req = results['request_log'][i + 1]
             gap_ms = next_req['timestamp_start_ms'] - curr['timestamp_end_ms']
-            logger.info(f"  Gap between request #{curr['request_number']} and #{next_req['request_number']}: {gap_ms}ms")
+            logger.info(f"Gap between request #{curr['request_number']} and #{next_req['request_number']}: {gap_ms}ms")
 
 
 if __name__ == '__main__':

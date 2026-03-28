@@ -75,7 +75,6 @@ class TMSClient:
         exchange_security_id: int,
         order_price: float,
         order_quantity: int,
-        client_data: Dict[str, Any],
         buy_or_sell: int = None,
         order_type: str = None,
         order_validity: str = None,
@@ -89,7 +88,6 @@ class TMSClient:
             exchange_security_id: Exchange security ID
             order_price: Price per unit
             order_quantity: Number of units
-            client_data: Client information dictionary
             buy_or_sell: 1 for buy, 2 for sell
             order_type: Order type code (default: LMT)
             order_validity: Order validity code (default: DAY)
@@ -118,7 +116,6 @@ class TMSClient:
             exchange_security_id=exchange_security_id,
             order_price=order_price,
             order_quantity=order_quantity,
-            client_data=client_data,
             buy_or_sell=buy_or_sell,
             order_type=order_type,
             order_validity=order_validity,
@@ -325,7 +322,6 @@ class TMSClient:
         exchange_security_id: int,
         order_price: float,
         order_quantity: int,
-        client_data: Dict[str, Any],
         buy_or_sell: int,
         order_type: str,
         order_validity: str,
@@ -369,7 +365,7 @@ class TMSClient:
                     "id": 1,
                     "code": self.user_config.default_instrument_type
                 },
-                "client": client_data,
+                "client": self.user_config.client_data,
                 "security": {
                     "id": security_id,
                     "exchangeSecurityId": exchange_security_id,

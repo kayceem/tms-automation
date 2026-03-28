@@ -21,6 +21,9 @@ class UserConfig:
     request_owner: str
     member_code: str
 
+    # System identifier: 'tms' or 'atrad' (only for main order user, NOT for fetch users)
+    system: str = 'tms'  # Default to TMS for backward compatibility
+
     # Client data (user's broker account information)
     client_data: Optional[Dict[str, Any]] = None
 
@@ -30,9 +33,6 @@ class UserConfig:
     default_product_code: str = 'CNC'
     default_instrument_type: str = 'EQ'
     default_buy_or_sell: int = 1
-
-    # IPO Sniper settings
-    ipo_sniper_duration_minutes: int = 2
 
     # Trigger mode settings
     trigger_mode_poll_interval_ms: int = 100  # Polling interval in milliseconds for fetching LTP (buy trigger)
@@ -73,13 +73,13 @@ class UserConfig:
             'access_token': self.access_token,
             'request_owner': self.request_owner,
             'member_code': self.member_code,
+            'system': self.system,
             'client_data': self.client_data,
             'default_order_type': self.default_order_type,
             'default_order_validity': self.default_order_validity,
             'default_product_code': self.default_product_code,
             'default_instrument_type': self.default_instrument_type,
             'default_buy_or_sell': self.default_buy_or_sell,
-            'ipo_sniper_duration_minutes': self.ipo_sniper_duration_minutes,
             'trigger_mode_poll_interval_ms': self.trigger_mode_poll_interval_ms,
             'trigger_mode_refresh_interval_seconds': self.trigger_mode_refresh_interval_seconds,
             'trigger_sell_poll_interval_ms': self.trigger_sell_poll_interval_ms,

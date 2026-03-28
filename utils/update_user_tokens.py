@@ -78,7 +78,7 @@ def update_user_json(user_id: str, extracted_data: Dict[str, str], user_json_pat
         # Check if the user_id matches
         if user_data.get('user_id') != user_id:
             print(f"Error: user_id '{user_id}' does not match the user_id in {user_json_path}")
-            print(f"       Found user_id: '{user_data.get('user_id')}'")
+            print(f"Found user_id: '{user_data.get('user_id')}'")
             return False
 
         # Update the fields
@@ -92,8 +92,8 @@ def update_user_json(user_id: str, extracted_data: Dict[str, str], user_json_pat
         with open(user_json_path, 'w') as f:
             json.dump(user_data, f, indent=2)
 
-        print(f"✓ Successfully updated user.json for user_id: {user_id}")
-        print(f"  Updated fields: {', '.join(updated_fields)}")
+        print(f"Successfully updated user.json for user_id: {user_id}")
+        print(f"Updated fields: {', '.join(updated_fields)}")
         return True
 
     except json.JSONDecodeError as e:
@@ -133,7 +133,7 @@ def process_auto_folder(folder_path: str) -> None:
         # Extract the number/identifier from headers{x}.txt
         match = re.match(r'headers(.*)\.txt', headers_file.name)
         if not match:
-            print(f"⚠ Skipping {headers_file.name}: unexpected filename format")
+            print(f"Skipping {headers_file.name}: unexpected filename format")
             continue
 
         identifier = match.group(1)
@@ -143,7 +143,7 @@ def process_auto_folder(folder_path: str) -> None:
 
         # Check if corresponding user JSON exists
         if not user_json_file.exists():
-            print(f"  ✗ Error: Corresponding user JSON not found: {user_json_file.name}\n")
+            print(f"Error: Corresponding user JSON not found: {user_json_file.name}\n")
             failure_count += 1
             continue
 
@@ -156,7 +156,7 @@ def process_auto_folder(folder_path: str) -> None:
             extracted_data = extract_from_headers(headers_text)
 
             if not extracted_data:
-                print(f"  ⚠ Warning: No tokens or IDs found in {headers_file.name}\n")
+                print(f"Warning: No tokens or IDs found in {headers_file.name}\n")
                 failure_count += 1
                 continue
 
@@ -166,7 +166,7 @@ def process_auto_folder(folder_path: str) -> None:
 
             user_id = user_data.get('user_id')
             if not user_id:
-                print(f"  ✗ Error: No user_id found in {user_json_file.name}\n")
+                print(f"Error: No user_id found in {user_json_file.name}\n")
                 failure_count += 1
                 continue
 
@@ -179,10 +179,10 @@ def process_auto_folder(folder_path: str) -> None:
             print()
 
         except json.JSONDecodeError as e:
-            print(f"  ✗ Error: Invalid JSON in {user_json_file.name}: {e}\n")
+            print(f"Error: Invalid JSON in {user_json_file.name}: {e}\n")
             failure_count += 1
         except Exception as e:
-            print(f"  ✗ Error processing {headers_file.name}: {e}\n")
+            print(f"Error processing {headers_file.name}: {e}\n")
             failure_count += 1
 
     # Summary
@@ -247,7 +247,7 @@ def main():
     for key, value in extracted_data.items():
         # Show only first 40 chars for security
         display_value = value[:40] + "..." if len(value) > 40 else value
-        print(f"  {key}: {display_value}")
+        print(f"{key}: {display_value}")
 
     # Update user.json
     print()

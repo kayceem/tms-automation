@@ -129,7 +129,7 @@ class OrderStore:
             )
 
         # Validate mode
-        valid_modes = ['normal', 'ipo', 'ipo-sniper', 'ipo-trigger', 'trigger-sell']
+        valid_modes = ['normal', 'ipo', 'ipo-trigger', 'trigger-sell']
         mode = order['mode']
         if mode not in valid_modes:
             raise ValueError(
@@ -299,8 +299,8 @@ class OrderStore:
             mode = order.get('mode', 'normal')
             queue_id = order.get('queue_id', 999)
 
-            status = "✓ SUCCESS" if success else ("→ EXECUTE" if execute else "  PENDING")
-            queue_str = f"Q{queue_id:02d}" if execute and not success else "   "
+            status = "SUCCESS" if success else ("EXECUTE" if execute else "PENDING")
+            queue_str = f"Q{queue_id:02d}" if execute and not success else " - "
 
             lines.append(
                 f"{status} | {queue_str} | {order_id:15} | {ticker:8} | "

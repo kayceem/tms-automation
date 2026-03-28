@@ -93,7 +93,7 @@ class FakeMarketSimulator:
                 len(self.price_levels) - 1
             )
             self.current_price = self.price_levels[self.current_level_index]
-            print(f"  [MARKET] Price advanced to Rs. {self.current_price:.1f} "
+            print(f"[MARKET] Price advanced to Rs. {self.current_price:.1f} "
                   f"(Level {self.current_level_index + 1}/{len(self.price_levels)})")
 
     def jump_to_level(self, level_index: int):
@@ -102,7 +102,7 @@ class FakeMarketSimulator:
             if 0 <= level_index < len(self.price_levels):
                 self.current_level_index = level_index
                 self.current_price = self.price_levels[level_index]
-                print(f"  [MARKET] Price jumped to Rs. {self.current_price:.1f} "
+                print(f"[MARKET] Price jumped to Rs. {self.current_price:.1f} "
                       f"(Level {level_index + 1}/{len(self.price_levels)})")
 
 
@@ -141,7 +141,6 @@ class FakeTMSClient:
         exchange_security_id: int,
         order_price: float,
         order_quantity: int,
-        client_data: Dict[str, Any],
         buy_or_sell: int,
         order_type: str,
         order_validity: str,
@@ -178,7 +177,7 @@ class FakeTMSClient:
 
         self.orders_placed.append(order_record)
 
-        print(f"    [{self.user_id}] Order placed: Rs. {order_price:.1f} x {order_quantity} "
+        print(f"  [{self.user_id}] Order placed: Rs. {order_price:.1f} x {order_quantity} "
               f"(Order #{self.order_count})")
 
         return {
@@ -190,7 +189,7 @@ class FakeTMSClient:
     def refresh_tokens(self) -> bool:
         """Simulate token refresh."""
         self.refresh_count += 1
-        print(f"    [{self.user_id}] Tokens refreshed (count: {self.refresh_count})")
+        print(f"  [{self.user_id}] Tokens refreshed (count: {self.refresh_count})")
         return True
 
     def _refresh_tokens(self) -> bool:
@@ -239,7 +238,7 @@ class TestIPOTrigger:
         try:
             test_func()
             duration = time.time() - start_time
-            print(f"\n✓ PASSED in {duration:.2f}s")
+            print(f"\nPASSED in {duration:.2f}s")
             self.tests_passed += 1
             self.test_results.append({
                 'name': test_name,
@@ -248,7 +247,7 @@ class TestIPOTrigger:
             })
         except AssertionError as e:
             duration = time.time() - start_time
-            print(f"\n✗ FAILED in {duration:.2f}s: {str(e)}")
+            print(f"\nFAILED in {duration:.2f}s: {str(e)}")
             self.tests_failed += 1
             self.test_results.append({
                 'name': test_name,
@@ -258,7 +257,7 @@ class TestIPOTrigger:
             })
         except Exception as e:
             duration = time.time() - start_time
-            print(f"\n✗ ERROR in {duration:.2f}s: {str(e)}")
+            print(f"\nERROR in {duration:.2f}s: {str(e)}")
             self.tests_failed += 1
             self.test_results.append({
                 'name': test_name,
@@ -328,7 +327,7 @@ class TestIPOTrigger:
             assert fake_client.orders_placed[-1]['quantity'] == 100, \
                 f"Final order should use quantity=100, got {fake_client.orders_placed[-1]['quantity']}"
 
-        print(f"✓ All orders placed with correct quantities")
+        print(f"All orders placed with correct quantities")
 
     def test_skip_first_level(self):
         """Test IPO trigger with skip_first=True."""
@@ -380,8 +379,8 @@ class TestIPOTrigger:
             first_order_price = fake_client.orders_placed[0]['price']
             assert first_order_price > 100.0, \
                 f"First order should skip base price 100.0, got {first_order_price:.1f}"
-            print(f"✓ First level (Rs. 100.0) was skipped")
-            print(f"✓ First order placed at Rs. {first_order_price:.1f}")
+            print(f"First level (Rs. 100.0) was skipped")
+            print(f"First order placed at Rs. {first_order_price:.1f}")
 
     def test_skip_second_last_level(self):
         """Test IPO trigger with skip_second_last=True."""
@@ -446,7 +445,7 @@ class TestIPOTrigger:
         assert second_last_price not in order_prices, \
             f"Second-to-last price Rs. {second_last_price:.1f} should be skipped"
 
-        print(f"✓ Second-to-last level (Rs. {second_last_price:.1f}) was skipped")
+        print(f"Second-to-last level (Rs. {second_last_price:.1f}) was skipped")
 
     def test_skip_both_first_and_second_last(self):
         """Test IPO trigger with both skip_first and skip_second_last."""
@@ -496,8 +495,8 @@ class TestIPOTrigger:
         # First level should be skipped
         assert 100.0 not in order_prices, "First level should be skipped"
 
-        print(f"✓ Both first and second-to-last levels were skipped")
-        print(f"✓ Placed {len(fake_client.orders_placed)} orders")
+        print(f"Both first and second-to-last levels were skipped")
+        print(f"Placed {len(fake_client.orders_placed)} orders")
 
     def test_price_jump_multiple_levels(self):
         """Test handling of price jumping past multiple ladder levels."""
@@ -552,8 +551,8 @@ class TestIPOTrigger:
         assert len(fake_client.orders_placed) < 7, \
             "Should skip some levels when price jumps"
 
-        print(f"✓ Price jump handled correctly")
-        print(f"✓ Skipped intermediate levels as expected")
+        print(f"Price jump handled correctly")
+        print(f"Skipped intermediate levels as expected")
 
     def test_retry_logic_max_3_attempts(self):
         """Test that orders retry up to 3 times before skipping."""
@@ -607,8 +606,8 @@ class TestIPOTrigger:
         assert fake_client.fail_count > 0, "Should have some failures"
         assert len(fake_client.orders_placed) > 0, "Should eventually place orders after retries"
 
-        print(f"✓ Retry logic working correctly")
-        print(f"✓ Orders placed after {fake_client.fail_count} failures")
+        print(f"Retry logic working correctly")
+        print(f"Orders placed after {fake_client.fail_count} failures")
 
     def test_base_quantity_vs_final_quantity(self):
         """Test that base_quantity is used for all levels except final."""
@@ -662,10 +661,10 @@ class TestIPOTrigger:
             assert order['quantity'] == expected_qty, \
                 f"Order {i+1}: expected qty={expected_qty}, got {order['quantity']}"
 
-            print(f"  Order {i+1}: Rs. {order['price']:.1f} x {order['quantity']} "
+            print(f"Order {i+1}: Rs. {order['price']:.1f} x {order['quantity']} "
                   f"{'(FINAL)' if is_last else '(BASE)'}")
 
-        print(f"✓ Quantities correct for all levels")
+        print(f"Quantities correct for all levels")
 
     def test_no_ladder_mode(self):
         """Test no_ladder mode: skip all levels, only place final order."""
@@ -727,8 +726,8 @@ class TestIPOTrigger:
         assert final_order['quantity'] == 100, \
             f"Final order should use main quantity (100), got {final_order['quantity']}"
 
-        print(f"✓ Only final order placed at Rs. {final_order['price']:.1f} x {final_order['quantity']}")
-        print(f"✓ All ladder levels skipped as expected")
+        print(f"Only final order placed at Rs. {final_order['price']:.1f} x {final_order['quantity']}")
+        print(f"All ladder levels skipped as expected")
 
     def test_dynamic_polling_transitions(self):
         """Test dynamic polling: verifies polling intervals change based on LTP proximity to trigger."""
@@ -857,16 +856,16 @@ class TestIPOTrigger:
             fast_idx = verification['phases'].index('fast')
             assert slow_idx < fast_idx, "Should transition from slow to fast as LTP increases"
 
-            print("\n✓ Dynamic polling transitions verified successfully!")
-            print(f"✓ Started with SLOW polling (LTP={ltp_sequence[0]} < threshold={third_last_level})")
-            print(f"✓ Switched to FAST polling when LTP crossed threshold")
-            print(f"✓ Order placed when LTP reached trigger level")
+            print("\nDynamic polling transitions verified successfully!")
+            print(f"Started with SLOW polling (LTP={ltp_sequence[0]} < threshold={third_last_level})")
+            print(f"Switched to FAST polling when LTP crossed threshold")
+            print(f"Order placed when LTP reached trigger level")
 
         # Verify order was placed
         order_requests = interceptor.get_requests_by_method('place_order')
         assert len(order_requests) >= 1, "Should have placed at least one order"
-        print(f"\n✓ Order placement verified: {len(order_requests)} order(s)")
-        print(f"✓ Dynamic polling test complete")
+        print(f"\nOrder placement verified: {len(order_requests)} order(s)")
+        print(f"Dynamic polling test complete")
 
     def print_summary(self):
         """Print test summary."""
@@ -883,9 +882,9 @@ class TestIPOTrigger:
             print(f"\nFailed Tests:")
             for result in self.test_results:
                 if result['status'] != 'PASSED':
-                    print(f"  ✗ {result['name']}")
+                    print(f"{result['name']}")
                     if 'error' in result:
-                        print(f"    Error: {result['error']}")
+                        print(f"  Error: {result['error']}")
 
         print()
 
@@ -1021,18 +1020,18 @@ def test_dynamic_polling_transitions_standalone():
         # 2. The system detects when LTP >= threshold and calls update_poll_settings(100, True)
         # 3. This is visible in the log messages shown above
 
-        print("\n✓ Dynamic polling transitions verified successfully!")
-        print(f"✓ System correctly detects LTP < threshold and switches to SLOW polling")
-        print(f"✓ System correctly detects LTP >= threshold and switches to FAST polling PERMANENTLY")
-        print(f"✓ Order placed when LTP reached trigger level")
+        print("\nDynamic polling transitions verified successfully!")
+        print(f"System correctly detects LTP < threshold and switches to SLOW polling")
+        print(f"System correctly detects LTP >= threshold and switches to FAST polling PERMANENTLY")
+        print(f"Order placed when LTP reached trigger level")
         print(f"\nNote: Actual measured intervals may not reflect changes due to background thread")
         print(f"timing, but log messages confirm update_poll_settings() is called correctly.")
 
     # Verify order was placed
     order_requests = interceptor.get_requests_by_method('place_order')
     assert len(order_requests) >= 1, "Should have placed at least one order"
-    print(f"\n✓ Order placement verified: {len(order_requests)} order(s)")
-    print(f"✓ Dynamic polling test complete")
+    print(f"\nOrder placement verified: {len(order_requests)} order(s)")
+    print(f"Dynamic polling test complete")
 
 
 def main():

@@ -1,7 +1,7 @@
 """Utility functions for the TMS automation bot."""
 
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Tuple, Union
 from pathlib import Path
 
 
@@ -25,19 +25,6 @@ def load_json_file(file_path: str) -> Dict[str, Any]:
 
     with open(path, 'r') as f:
         return json.load(f)
-
-
-def load_client_data(file_path: str) -> Dict[str, Any]:
-    """
-    Load client data from JSON file.
-
-    Args:
-        file_path: Path to client data JSON file
-
-    Returns:
-        Client data dictionary
-    """
-    return load_json_file(file_path)
 
 
 def load_order_params(file_path: str) -> Dict[str, Any]:
@@ -113,3 +100,68 @@ def validate_positive_integer(value: Any, name: str) -> int:
         return num
     except (TypeError, ValueError) as e:
         raise ValueError(f"Invalid {name}: {value}") from e
+
+
+def detect_system_from_config(config_data: Dict[str, Any]) -> str:
+    """
+    Detect which trading system (TMS or ATRAD) based on configuration data.
+
+    Args:
+        config_data: User configuration dictionary
+
+    Returns:
+        'tms' or 'atrad'
+    """
+    # Check for explicit 'system' field
+    if 'system' in config_data:
+        system = config_data['system'].lower()
+        if system in ['tms', 'atrad']:
+            return system
+
+    # Fallback: detect based on presence of fields
+    # ATRAD has: username, password, atrad_base_url
+    # TMS has: xsrf_token, rid_cookie, access_token, tms_host
+    if 'username' in config_data and 'password' in config_data:
+        return 'atrad'
+    elif 'xsrf_token' in config_data and 'rid_cookie' in config_data:
+        return 'tms'
+
+    # Default to TMS for backward compatibility
+    return 'tms'
+
+
+def initialize_order_client_and_service(config_path: str) -> Tuple[Union['TMSClient', 'ATRADClient'], Union['OrderService', 'ATRADOrderService'], str]:
+    """
+    Initialize the appropriate client and order service based on system type.
+
+    Args:
+        config_path: Path to user configuration JSON file
+
+    Returns:
+        Tuple of (client, order_service, system_type)
+
+    Raises:
+        ValueError: If system type is invalid or configuration is incomplete
+    """
+    from config.user_config import UserConfig
+    from config.atrad_user_config import ATRADUserConfig
+    from api import TMSClient, ATRADClient
+    from services.order_service import OrderService
+    from services.atrad_order_service import ATRADOrderService
+
+    # Load config to detect system
+    config_data = load_json_file(config_path)
+    system = detect_system_from_config(config_data)
+
+    if system == 'atrad':
+        # Initialize ATRAD system
+        user_config = ATRADUserConfig.from_file(config_path)
+        client = ATRADClient(user_config)
+        order_service = ATRADOrderService(client)
+        return client, order_service, 'atrad'
+    else:
+        # Initialize TMS system (default)
+        user_config = UserConfig.from_file(config_path)
+        client = TMSClient(user_config)
+        order_service = OrderService(client)
+        return client, order_service, 'tms'
