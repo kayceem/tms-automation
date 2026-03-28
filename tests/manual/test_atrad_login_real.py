@@ -33,7 +33,7 @@ class TestATRADLoginReal:
         print("="*80)
 
         # Load example user config
-        example_config_path = Path(__file__).parent.parent.parent / 'users' / 'atrad_user.example.json'
+        example_config_path = Path(__file__).parent.parent.parent / 'users' / 'atrad_user.json'
         print(f"\nLoading config from: {example_config_path}")
 
         with open(example_config_path, 'r') as f:

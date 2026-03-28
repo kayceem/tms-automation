@@ -26,9 +26,6 @@ class ATRADUserConfig:
     default_order_type: str = '16'  # 16=Day order
     default_product: str = 'web'
 
-    # IPO Sniper settings (same as TMS for consistency)
-    ipo_sniper_duration_minutes: int = 2
-
     # Trigger mode settings (same as TMS for consistency)
     trigger_mode_poll_interval_ms: int = 100
     trigger_mode_refresh_interval_seconds: int = 60
@@ -75,7 +72,6 @@ class ATRADUserConfig:
             'default_board': self.default_board,
             'default_order_type': self.default_order_type,
             'default_product': self.default_product,
-            'ipo_sniper_duration_minutes': self.ipo_sniper_duration_minutes,
             'trigger_mode_poll_interval_ms': self.trigger_mode_poll_interval_ms,
             'trigger_mode_refresh_interval_seconds': self.trigger_mode_refresh_interval_seconds,
             'trigger_sell_poll_interval_ms': self.trigger_sell_poll_interval_ms,

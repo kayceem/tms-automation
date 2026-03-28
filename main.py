@@ -42,9 +42,6 @@ Examples:
   # Scheduled manual order
   python main.py --user-config users/user1.json --ticker NABIL --price 500 --quantity 10 --time 14:30
 
-  # IPO sniping mode (manual)
-  python main.py --user-config users/user1.json --ticker EXAMPLE --price 1000 --quantity 10 --ipo --limit 1050
-
   # IPO trigger mode (manual) - single fetch user
   python main.py --user-config users/user1.json --fetch-user users/fetch_user.json --ticker EXAMPLE --price 1000 --quantity 10 --ipo-trigger --limit 1050
 
@@ -126,16 +123,6 @@ Examples:
         '--client-data',
         type=str,
         help='Path to JSON file with client data (optional)'
-    )
-    parser.add_argument(
-        '--ipo',
-        action='store_true',
-        help='IPO sniping mode: automatically place orders at +2, +4, +6, +8, +10 percent'
-    )
-    parser.add_argument(
-        '--ipo-sniper',
-        action='store_true',
-        help='IPO sniper mode: aggressively place orders at +10 percent for 2 minutes'
     )
     parser.add_argument(
         '--ipo-trigger',
@@ -236,13 +223,13 @@ def validate_args(args: argparse.Namespace):
     validate_positive_integer(args.quantity, 'quantity')
 
     # Validate mutually exclusive IPO/trigger modes
-    mode_flags = [args.ipo, args.ipo_sniper, args.ipo_trigger, args.trigger_sell]
+    mode_flags = [args.ipo_trigger, args.trigger_sell]
     mode_count = sum(1 for flag in mode_flags if flag)
 
     if mode_count > 1:
         raise ValueError(
             "Cannot use multiple mode flags together. "
-            "Choose one: --ipo, --ipo-sniper, --ipo-trigger, or --trigger-sell"
+            "Choose one: --ipo-trigger or --trigger-sell"
         )
 
     # Validate fetch-user requirement for trigger modes
@@ -259,8 +246,8 @@ def validate_args(args: argparse.Namespace):
     if args.skip_first and not args.ipo_trigger:
         logger.warning("--skip-first flag is only used with --ipo-trigger mode. It will be ignored.")
 
-    if args.limit and not (args.ipo or args.ipo_trigger):
-        logger.warning("--limit flag is only used with --ipo or --ipo-trigger modes. It will be ignored.")
+    if args.limit and not args.ipo_trigger:
+        logger.warning("--limit flag is only used with --ipo-trigger mode. It will be ignored.")
 
     if args.limit:
         validate_positive_number(args.limit, 'limit')
@@ -374,21 +361,20 @@ def execute_order_for_user(
         # Detect if this is ATRAD or TMS user
         is_atrad = isinstance(user_config, ATRADUserConfig)
 
+        # Create fetch clients if provided
+        fetch_clients = None
+        if fetch_user_configs:
+            fetch_clients = [TMSClient(cfg) for cfg in fetch_user_configs]
+            if len(fetch_clients) == 1:
+                logger.info(f"[{user_id}] Fetch client initialized: {fetch_user_configs[0].user_id}")
+            else:
+                user_ids = ', '.join(cfg.user_id for cfg in fetch_user_configs)
+                logger.info(f"[{user_id}] Multi-user fetch initialized: {len(fetch_clients)} users ({user_ids})")
+
         if is_atrad:
             # ATRAD user - create ATRAD client and service
             logger.info(f"[{user_id}] Using ATRAD system")
             order_client = ATRADClient(user_config)
-
-            # Create fetch clients for trigger mode (TMS clients for price fetching)
-            fetch_clients = None
-            if fetch_user_configs:
-                fetch_clients = [TMSClient(cfg) for cfg in fetch_user_configs]
-                if len(fetch_clients) == 1:
-                    logger.info(f"[{user_id}] Fetch client initialized: {fetch_user_configs[0].user_id}")
-                else:
-                    user_ids = ', '.join(cfg.user_id for cfg in fetch_user_configs)
-                    logger.info(f"[{user_id}] Multi-user fetch initialized: {len(fetch_clients)} users ({user_ids})")
-
             # Create ATRAD order service
             order_service = ATRADOrderService(order_client)
 
@@ -396,17 +382,6 @@ def execute_order_for_user(
             # TMS user - create TMS client and service
             logger.info(f"[{user_id}] Using TMS system")
             order_client = TMSClient(user_config)
-
-            # Create fetch clients if provided
-            fetch_clients = None
-            if fetch_user_configs:
-                fetch_clients = [TMSClient(cfg) for cfg in fetch_user_configs]
-                if len(fetch_clients) == 1:
-                    logger.info(f"[{user_id}] Fetch client initialized: {fetch_user_configs[0].user_id}")
-                else:
-                    user_ids = ', '.join(cfg.user_id for cfg in fetch_user_configs)
-                    logger.info(f"[{user_id}] Multi-user fetch initialized: {len(fetch_clients)} users ({user_ids})")
-
             # Create TMS order service
             order_service = OrderService(order_client)
 
@@ -421,11 +396,8 @@ def execute_order_for_user(
                 **order_params
             )
         else:
-            # Add fetch_clients to order_params if not already there
-            if fetch_clients and 'fetch_clients' not in order_params:
-                order_params = {**order_params, 'fetch_clients': fetch_clients}
             # Immediate execution
-            result = order_service.execute_order(**order_params)
+            result = order_service.execute_order(fetch_clients=fetch_clients, **order_params)
 
         logger.info(f"[{user_id}] Order execution completed successfully")
         return result
@@ -505,8 +477,6 @@ def execute_from_order_store(
             raise ValueError(f"Ticker lookup failed for '{order['ticker']}': {e}")
 
         # Determine mode flags
-        ipo_mode = order['mode'] == 'ipo'
-        ipo_sniper_mode = order['mode'] == 'ipo-sniper'
         ipo_trigger_mode = order['mode'] == 'ipo-trigger'
         trigger_sell_mode = order['mode'] == 'trigger-sell'
         buy_or_sell = 2 if order['sell'] else 1
@@ -536,8 +506,6 @@ def execute_from_order_store(
             'order_type': None,  # Use defaults from user config
             'order_validity': None,
             'client_data_file': None,
-            'ipo_mode': ipo_mode,
-            'ipo_sniper_mode': ipo_sniper_mode,
             'ipo_trigger_mode': ipo_trigger_mode,
             'trigger_sell_mode': trigger_sell_mode,
             'limit_price': order['limit'],
@@ -677,8 +645,6 @@ def main():
                 'order_type': args.order_type,
                 'order_validity': args.order_validity,
                 'client_data_file': args.client_data,
-                'ipo_mode': args.ipo,
-                'ipo_sniper_mode': args.ipo_sniper,
                 'ipo_trigger_mode': args.ipo_trigger,
                 'trigger_sell_mode': args.trigger_sell,
                 'limit_price': args.limit,
@@ -692,11 +658,7 @@ def main():
 
             # Log execution mode
             mode = "SCHEDULED" if args.time else "IMMEDIATE"
-            if args.ipo:
-                mode += " (IPO SNIPING)"
-            elif args.ipo_sniper:
-                mode += " (IPO SNIPER)"
-            elif args.ipo_trigger:
+            if args.ipo_trigger:
                 mode += " (IPO TRIGGER)"
             elif args.trigger_sell:
                 mode += " (TRIGGER SELL)"

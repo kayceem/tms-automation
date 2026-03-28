@@ -8,7 +8,7 @@
     "price": "Order price per unit",
     "quantity": "Number of units for the FINAL ladder level (or all levels if base_quantity not specified)",
     "base_quantity": "(Optional) Number of units for all ladder levels EXCEPT final level (default: 10). Only applies to IPO modes.",
-    "mode": "Execution mode: 'normal', 'ipo', 'ipo-sniper', or 'ipo-trigger'",
+    "mode": "Execution mode: 'normal', 'ipo', or 'ipo-trigger'",
     "limit": "(Optional) Upper limit price for IPO and IPO-trigger modes",
     "time": "(Optional) Scheduled execution time in HH:MM or HH:MM:SS format",
     "refresh_before": "(Optional) Seconds before execution to refresh tokens (default: 20)",

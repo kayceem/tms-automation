@@ -60,7 +60,6 @@ Place your ATRAD user config in the `users/` directory:
   "default_order_type": "16",
   "default_product": "web",
 
-  "ipo_sniper_duration_minutes": 2,
   "trigger_mode_poll_interval_ms": 100,
   "trigger_mode_refresh_interval_seconds": 60,
   "trigger_sell_poll_interval_ms": 500,
