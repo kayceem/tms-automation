@@ -27,19 +27,6 @@ def load_json_file(file_path: str) -> Dict[str, Any]:
         return json.load(f)
 
 
-def load_client_data(file_path: str) -> Dict[str, Any]:
-    """
-    Load client data from JSON file.
-
-    Args:
-        file_path: Path to client data JSON file
-
-    Returns:
-        Client data dictionary
-    """
-    return load_json_file(file_path)
-
-
 def load_order_params(file_path: str) -> Dict[str, Any]:
     """
     Load order parameters from JSON file.

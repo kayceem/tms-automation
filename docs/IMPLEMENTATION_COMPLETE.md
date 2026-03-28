@@ -104,7 +104,6 @@ response = order_service.execute_order(
     order_price=100.0,
     order_quantity=100,
     buy_or_sell=1,
-    ipo_sniper_mode=True,
     double_buy=True
 )
 ```
@@ -204,7 +203,6 @@ Or auto-detect based on fields (username/password = ATRAD, xsrf_token = TMS)
   "default_order_type": "16",
   "default_product": "web",
 
-  "ipo_sniper_duration_minutes": 2,
   "trigger_mode_poll_interval_ms": 100,
   "trigger_mode_refresh_interval_seconds": 60,
   "trigger_sell_poll_interval_ms": 500,

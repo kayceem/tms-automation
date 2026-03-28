@@ -2,7 +2,6 @@
 
 from .helpers import (
     load_json_file,
-    load_client_data,
     load_order_params,
     save_json_file,
     validate_positive_number,
@@ -15,7 +14,6 @@ from .order_store import OrderStore
 
 __all__ = [
     'load_json_file',
-    'load_client_data',
     'load_order_params',
     'save_json_file',
     'validate_positive_number',

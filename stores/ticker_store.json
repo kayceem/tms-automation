@@ -97,5 +97,18 @@
             "tms89.nepsetms.com.np": 3106
 
         }
+    },
+    "RLEL": {
+        "security_id": 3105,
+        "exchange_security_id": 9324,
+        "name": "Super Khudi Hydropower Limited",
+        "fetch_id": {
+            "tms01.nepsetms.com.np": 3105,
+            "tms35.nepsetms.com.np": 3106,
+            "tms56.nepsetms.com.np": 3105,
+            "tms57.nepsetms.com.np": 3105,
+            "tms89.nepsetms.com.np": 3107
+
+        }
     }
 }

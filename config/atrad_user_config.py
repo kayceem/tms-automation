@@ -44,6 +44,7 @@ class ATRADUserConfig:
     _max_basket_limit: Optional[int] = None  # Max orders per basket (if applicable)
     _watch_id: Optional[int] = None  # For order status tracking (if applicable)
     _is_dvp_enabled: Optional[str] = None  # Whether DVP settlement is enabled
+    _theme: Optional[str] = None  # User's selected theme (e.g., "black")
     _cookies: Optional[Dict[str, str]] = None  # All session cookies for persistence
 
     # Internal: file path for auto-saving
@@ -126,7 +127,7 @@ class ATRADUserConfig:
 
     def update_session(self, session_id: str = None, role: str = None, broker_code: str = None,
                       max_basket_limit: int = None, watch_id: int = None, is_dvp_enabled: str = None,
-                      cookies: Dict[str, str] = None):
+                      theme: str = None, cookies: Dict[str, str] = None):
         """
         Update session information after login.
 
@@ -137,6 +138,7 @@ class ATRADUserConfig:
             max_basket_limit: Max orders per basket (if applicable)
             watch_id: Watch ID for order status tracking (if applicable)
             is_dvp_enabled: Whether DVP settlement is enabled
+            theme: User's selected theme (e.g., "black") - for compatibility with ATRAD web UI
             cookies: All session cookies for persistence
         """
         if session_id:
@@ -151,6 +153,8 @@ class ATRADUserConfig:
             self._watch_id = watch_id
         if is_dvp_enabled is not None:
             self._is_dvp_enabled = is_dvp_enabled
+        if theme:
+            self._theme = theme
         if cookies is not None:
             self._cookies = cookies
 

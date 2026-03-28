@@ -86,7 +86,8 @@ class ATRADClient:
                 broker_code=self.session.cookies.get("broker_code"),
                 max_basket_limit=int(self.session.cookies.get("max_basket_limit", None)),
                 watch_id=int(self.session.cookies.get("watchID", None)),
-                is_dvp_enabled=self.session.cookies.get("is_dvp_enabled")
+                is_dvp_enabled=self.session.cookies.get("is_dvp_enabled"),
+                theme=self.session.cookies.get("theme")
             )
             logger.info(f"[{self.user_id}] Session restored successfully from saved cookies")
         else:
@@ -171,13 +172,15 @@ class ATRADClient:
                         broker_code=result.get("broker_code"),
                         max_basket_limit=int(result.get("max_basket_limit")) if result.get("max_basket_limit") else None,
                         watch_id=int(result.get("watchID")) if result.get("watchID") else None,
-                        is_dvp_enabled=result.get("is_dvp_enabled")
+                        is_dvp_enabled=result.get("is_dvp_enabled"),
+                        theme="black"
                     )
                     self.session.cookies.set("role", result.get("role"))
                     self.session.cookies.set("broker_code", result.get("broker_code"))
                     self.session.cookies.set("max_basket_limit", str(result.get("max_basket_limit")))
                     self.session.cookies.set("watchID", str(result.get("watchID")))
                     self.session.cookies.set("is_dvp_enabled", result.get("is_dvp_enabled"))
+                    self.session.cookies.set("theme", "black")
 
                     # Save cookies to config file for session persistence
                     self._save_cookies_to_config()
@@ -239,7 +242,7 @@ class ATRADClient:
         order_type = order_type or self.user_config.default_order_type
 
         # Convert side to actionSelect value
-        action_select = "1" if side.upper() == "BUY" else "2"
+        action_select = "2" if side.upper() == "SELL" else "1"
 
         logger.info(
             f"[{self.user_id}] Placing {side} order: "
@@ -316,3 +319,11 @@ class ATRADClient:
         """Ensure the client is authenticated, login if necessary."""
         if not self._is_authenticated:
             self.login()
+
+    def refresh_tokens(self) -> bool:
+        """
+        Returns:
+            True if refresh was successful, False otherwise
+        """
+        self.ensure_authenticated()
+        return self._is_authenticated

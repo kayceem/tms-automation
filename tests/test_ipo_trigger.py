@@ -141,7 +141,6 @@ class FakeTMSClient:
         exchange_security_id: int,
         order_price: float,
         order_quantity: int,
-        client_data: Dict[str, Any],
         buy_or_sell: int,
         order_type: str,
         order_validity: str,

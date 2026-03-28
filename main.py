@@ -505,7 +505,6 @@ def execute_from_order_store(
             'buy_or_sell': buy_or_sell,
             'order_type': None,  # Use defaults from user config
             'order_validity': None,
-            'client_data_file': None,
             'ipo_trigger_mode': ipo_trigger_mode,
             'trigger_sell_mode': trigger_sell_mode,
             'limit_price': order['limit'],
@@ -644,7 +643,6 @@ def main():
                 'buy_or_sell': buy_or_sell,
                 'order_type': args.order_type,
                 'order_validity': args.order_validity,
-                'client_data_file': args.client_data,
                 'ipo_trigger_mode': args.ipo_trigger,
                 'trigger_sell_mode': args.trigger_sell,
                 'limit_price': args.limit,
