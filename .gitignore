@@ -69,3 +69,6 @@ main_old.py
 headers.txt
 
 temp/
+
+debug/
+*/users/*.json
