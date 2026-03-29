@@ -3,7 +3,9 @@
 import requests
 import json
 import threading
+import random
 from typing import Dict, Any, Optional
+from urllib.parse import quote
 from config.atrad_user_config import ATRADUserConfig
 from utils.logger import get_logger
 
@@ -46,13 +48,13 @@ class ATRADClient:
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0',
             'Accept': '*/*',
             'Accept-Language': 'en-US,en;q=0.9',
-            'X-Requested-With': 'XMLHttpRequest',
-            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
             'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Requested-With': 'XMLHttpRequest',
             'Origin': self.user_config.atrad_base_url,
+            'Sec-GPC': '1',
             'Connection': 'keep-alive',
-            'Sec-Gpc': '1',
-            'Referer': f'{self.user_config.atrad_base_url}/atsweb/login',
+            'Referer': f'{self.user_config.atrad_base_url}/atsweb/home?action=showHome&format=html',
             'Sec-Fetch-Dest': 'empty',
             'Sec-Fetch-Mode': 'cors',
             'Sec-Fetch-Site': 'same-origin',
@@ -165,18 +167,29 @@ class ATRADClient:
 
                 if result.get("code") == "0":
                     self._is_authenticated = True
+
+                    # Extract broker_code from response or cookies
+                    broker_code = result.get("broker_code") or self.session.cookies.get("broker_code")
+
                     # Store session information
                     self.user_config.update_session(
                         session_id=self.session.cookies.get("JSESSIONID"),
                         role=result.get("role"),
-                        broker_code=result.get("broker_code"),
+                        broker_code=broker_code,
                         max_basket_limit=int(result.get("max_basket_limit")) if result.get("max_basket_limit") else None,
                         watch_id=int(result.get("watchID")) if result.get("watchID") else None,
                         is_dvp_enabled=result.get("is_dvp_enabled"),
                         theme="black"
                     )
+
+                    # Update user config broker_code if not already set
+                    if broker_code and not self.user_config.broker_code:
+                        self.user_config.broker_code = broker_code
+
+                    # Set cookies for subsequent requests
                     self.session.cookies.set("role", result.get("role"))
-                    self.session.cookies.set("broker_code", result.get("broker_code"))
+                    if broker_code:
+                        self.session.cookies.set("broker_code", broker_code)
                     self.session.cookies.set("max_basket_limit", str(result.get("max_basket_limit")))
                     self.session.cookies.set("watchID", str(result.get("watchID")))
                     self.session.cookies.set("is_dvp_enabled", result.get("is_dvp_enabled"))
@@ -187,7 +200,7 @@ class ATRADClient:
 
                     logger.info(
                         f"[{self.user_id}] ATRAD login successful! "
-                        f"Role: {result.get('role')}, Broker: {result.get('broker_code')}"
+                        f"Role: {result.get('role')}, Broker: {broker_code or 'N/A'}"
                     )
                     return result
                 else:
@@ -202,6 +215,20 @@ class ATRADClient:
         """Check if session is authenticated."""
         return self._is_authenticated
 
+    def _generate_duplicate_order_id(self) -> str:
+        """
+        Generate a duplicate order ID matching ATRAD's format.
+
+        Creates a 10-character random string using alphanumeric characters
+        (digits 1-9, lowercase a-z, uppercase A-Z) - matching the JavaScript
+        implementation in ATRAD's debtOrderWindow.js.
+
+        Returns:
+            10-character random alphanumeric string
+        """
+        chars = "123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        return ''.join(random.choice(chars) for _ in range(10))
+
     def place_order(
         self,
         symbol: str,
@@ -211,6 +238,7 @@ class ATRADClient:
         asset_select: str = None,
         board: str = None,
         order_type: str = None,
+        market_price: float = None,
         **kwargs  # Additional ATRAD-specific parameters
     ) -> Dict[str, Any]:
         """
@@ -223,7 +251,9 @@ class ATRADClient:
             side: 'BUY' or 'SELL'
             asset_select: Asset type (default: '1' for EQUITY)
             board: Board type (default: '1' for Regular)
-            order_type: Order type (default: '16' for Day order)
+            order_type: Order type (default: '1' for LIMIT)
+            market_price: Current market price (LTP)
+            contra_broker: Contra broker code (optional)
             **kwargs: Additional ATRAD-specific parameters
 
         Returns:
@@ -241,6 +271,10 @@ class ATRADClient:
         board = board or self.user_config.default_board
         order_type = order_type or self.user_config.default_order_type
 
+        # Use price as market_price if not provided
+        if market_price is None:
+            market_price = price
+
         # Convert side to actionSelect value
         action_select = "2" if side.upper() == "SELL" else "1"
 
@@ -249,29 +283,68 @@ class ATRADClient:
             f"Symbol={symbol}, Price={price}, Qty={quantity}"
         )
 
-        # Build ATRAD order payload
+        # Generate duplicate order ID
+        duplicate_order_id = self._generate_duplicate_order_id()
+        logger.debug(f"[{self.user_id}] Generated duplicateOrderId: {duplicate_order_id}")
+
         payload = {
             "action": "submitOrder",
+            "market": "NEPSE",
+            "broker": self.user_config.broker_code or "",
+            "format": "json",
+            "clientOrderId": "",
+            "cseOrderId": "",
+            "brokerClient": "1",
+            "orderStatus": "Open",
+            "filledQty": "",
+            "acntid": str(self.user_config.account_id),
+            "oldPrice": "",
+            "oldQty": "",
+            "remainder": "",
+            "orderplacedate": "",
+            "marketPrice": f"{market_price:.1f}",
+            "oldDisclose": "",
+            "txtContraBroker": self.user_config.contra_broker or "",
+            "txtapprovalReason": "",
+            "txtsenttoapproval": "no",
+            "txtCompId": "",
+            "txtOdrStatus": "",
+            "duplicateOrderId": duplicate_order_id,
+            "product": self.user_config.default_product,
+            "clientAcc": self.user_config.client_account or "",
             "assetSelect": asset_select,
             "actionSelect": action_select,
             "txtSecurity": symbol,
+            "cmbTypeOfOrder": order_type,
             "spnQuantity": str(quantity),
-            "spnPrice": f"{price:.2f}",
-            "acntid": self.user_config.account_id,
-            "product": self.user_config.default_product,
-            "format": "json",
+            "spnPrice": f"{price:.1f}",
+            "cmbTif": "16",
+            "cmbTifDays": "1",
             "cmbBoard": board,
-            "cmbTif": order_type,
-            "spnDisclose": "0",
-            "market": "",
-            "broker": "",
-            "txtsenttoapproval": "no",
-            **kwargs  # Allow additional parameters
+            "hiddenSpnCseFee": "0.02",
+            "txtContraBroker_": str(self.user_config.contra_broker) or "",
+            "brokerClientVal": "1",
+            "confirm": "1"
         }
 
+        # Build form data manually
+        body_parts = []
+        for key, value in payload.items():
+            if key == "clientAcc":
+                # Special encoding for clientAcc: spaces to %20, keep () unencoded
+                encoded_value = quote(str(value), safe='()-')
+            else:
+                # Standard encoding for other fields
+                encoded_value = quote(str(value), safe='')
+            body_parts.append(f"{key}={encoded_value}")
+
+        body = "&".join(body_parts)
+
+        logger.debug(f"[{self.user_id}] Request body made")
+        
         # Make thread-safe API request
         with self._request_lock:
-            response = self.session.post(self.order_endpoint, data=payload)
+            response = self.session.post(self.order_endpoint, data=body)
             response.encoding = 'utf-8'
 
             logger.debug(
@@ -296,6 +369,9 @@ class ATRADClient:
                 # Retry order placement
                 response = self.session.post(self.order_endpoint, data=payload)
                 response.encoding = 'utf-8'
+                logger.debug(
+                    f"[{self.user_id}] Response status: {response.status_code}"
+                )
 
             response.raise_for_status()
 

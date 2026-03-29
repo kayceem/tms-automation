@@ -17,6 +17,11 @@ class ATRADUserConfig:
     password: str
     account_id: str  # UCC/Account ID for order placement
 
+    # Additional account information
+    client_account: Optional[str] = None  # Client account display string
+    broker_code: Optional[str] = None  # Broker code (e.g., "NSH")
+    contra_broker: Optional[str] = None
+
     # Client data (user's broker account information) - for compatibility
     client_data: Optional[Dict[str, Any]] = None
 
@@ -68,6 +73,9 @@ class ATRADUserConfig:
             'username': self.username,
             'password': self.password,
             'account_id': self.account_id,
+            'client_account': self.client_account,
+            'broker_code': self.broker_code,
+            'contra_broker': self.contra_broker,
             'client_data': self.client_data,
             'default_asset_select': self.default_asset_select,
             'default_board': self.default_board,

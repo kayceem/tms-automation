@@ -388,7 +388,7 @@ class MultiUserPriceFetcher:
                     logger.debug(
                         f"Cooldown delay after {self._rotation_cycles_completed} rotation cycles"
                     )
-                    time.sleep(self.poll_interval_seconds + 0.03)
+                    time.sleep(self.poll_interval_seconds + self.poll_interval_seconds / 2)
                     if self._rotation_cycles_completed > (self._len_fetch_users * 2) :
                         self._rotation_cycles_completed = 0
             except KeyboardInterrupt:

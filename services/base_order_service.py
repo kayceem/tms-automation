@@ -411,6 +411,9 @@ class BaseOrderService(ABC):
                         if 'side' in sell_params:
                             sell_params['side'] = 'SELL'  # ATRAD: 'SELL'
 
+                        # Pass current LTP as market_price for ATRAD orders
+                        sell_params['market_price'] = ltp
+
                         # No retry - validation errors (400) won't resolve on retry
                         response = self._place_single_order(
                             price=sell_price,
@@ -873,10 +876,13 @@ class BaseOrderService(ABC):
                         self.logger.debug(f"[{self.user_id}] Attempt #{attempt}/{max_attempts}")
 
                     try:
+                        # Pass current LTP as market_price for ATRAD orders
+                        order_params = {**platform_params, 'market_price': ltp}
+
                         response = self._place_single_order(
                             price=target_price,
                             quantity=qty_for_level,
-                            **platform_params
+                            **order_params
                         )
 
                         if response:

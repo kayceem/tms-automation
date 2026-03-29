@@ -1,19 +1,32 @@
 #!/usr/bin/env python3
 """
-Comprehensive test suite for IPO Trigger mode functionality.
+Comprehensive test suite for TMS Automation Order Execution Modes.
 
-This test suite simulates the complete IPO trigger workflow including:
-- Price fetching with delays
-- Order placement with delays
-- Token refresh
+This test suite covers all order execution modes:
+
+## IPO Trigger / Ladder Mode:
+- Basic trigger with all ladder levels
 - Skip first ladder level
 - Skip second-last ladder level
+- Skip both first and second-last levels
 - Multi-level price jumps
-- Retry logic with max 3 attempts
-- Queue execution
-- Multi-user parallel execution
+- Retry logic (max 3 attempts)
+- Base quantity vs final quantity
+- No ladder mode (skip all ladder levels, place final order only)
+- IPO trigger with double buy at final level
+- Dynamic polling (slow to fast transition based on LTP proximity)
 
-All tests run in a fake environment without hitting the live market.
+## Trigger Modes (Double Buy & Trigger Sell):
+- Double buy: places two orders at same price with different quantities
+- Trigger sell: monitors LTP and places sell order when trigger price reached
+
+All tests simulate:
+- Price fetching with realistic delays (200ms for GET)
+- Order placement with realistic delays (1s for POST)
+- Token refresh
+- Market price movements
+- Order retry logic
+- Fake environment (no live market access)
 """
 
 import sys
@@ -729,6 +742,178 @@ class TestIPOTrigger:
         print(f"Only final order placed at Rs. {final_order['price']:.1f} x {final_order['quantity']}")
         print(f"All ladder levels skipped as expected")
 
+    def test_double_buy_basic(self):
+        """Test basic double buy: places order twice at same price."""
+        print("Testing double buy mode...")
+
+        # Setup
+        market = FakeMarketSimulator(base_price=100.0, limit_price=110.0)
+        user_config = self.create_user_config('user1')
+        fake_client = FakeTMSClient(user_config, market)
+
+        with patch.object(OrderService, '__init__', lambda self, client: setattr(self, 'client', client) or setattr(self, 'user_id', client.user_id)):
+            order_service = OrderService(fake_client)
+
+            # Execute double buy
+            result = order_service._execute_double_buy(
+                security_id=3100,
+                exchange_security_id=9308,
+                price=105.0,
+                quantity=100,
+                double_buy_quantity=50,
+                client_data=user_config.client_data,
+                buy_or_sell=1,
+                order_type='LMT',
+                order_validity='DAY'
+            )
+
+        # Verify results
+        print(f"\nOrders placed: {len(fake_client.orders_placed)}")
+
+        # Should have placed exactly 2 orders
+        assert len(fake_client.orders_placed) == 2, \
+            f"Expected exactly 2 orders for double buy, got {len(fake_client.orders_placed)}"
+
+        # Both orders should be at same price
+        assert fake_client.orders_placed[0]['price'] == 105.0, \
+            f"First order should be at Rs. 105.0, got {fake_client.orders_placed[0]['price']:.1f}"
+        assert fake_client.orders_placed[1]['price'] == 105.0, \
+            f"Second order should be at Rs. 105.0, got {fake_client.orders_placed[1]['price']:.1f}"
+
+        # Verify quantities
+        assert fake_client.orders_placed[0]['quantity'] == 100, \
+            f"First order should be 100 qty, got {fake_client.orders_placed[0]['quantity']}"
+        assert fake_client.orders_placed[1]['quantity'] == 50, \
+            f"Second order should be 50 qty, got {fake_client.orders_placed[1]['quantity']}"
+
+        print(f"Order 1: Rs. {fake_client.orders_placed[0]['price']:.1f} x {fake_client.orders_placed[0]['quantity']}")
+        print(f"Order 2: Rs. {fake_client.orders_placed[1]['price']:.1f} x {fake_client.orders_placed[1]['quantity']}")
+        print(f"Double buy executed correctly")
+
+    def test_trigger_sell_basic(self):
+        """Test basic trigger sell: waits for LTP to reach sell price, then places sell order."""
+        print("Testing trigger sell mode...")
+
+        # Setup
+        market = FakeMarketSimulator(base_price=100.0, limit_price=110.0)
+        user_config = self.create_user_config('user1')
+        fake_client = FakeTMSClient(user_config, market)
+
+        with patch.object(OrderService, '__init__', lambda self, client: setattr(self, 'client', client) or setattr(self, 'user_id', client.user_id)):
+            order_service = OrderService(fake_client)
+
+            # Price advancement thread - advance to trigger price
+            def advance_prices():
+                time.sleep(2)
+                # Advance to Rs. 108.0 (above trigger of 106.0)
+                for i in range(4):
+                    time.sleep(2)
+                    market.advance_price(1)
+
+            price_thread = threading.Thread(target=advance_prices, daemon=True)
+            price_thread.start()
+
+            # Execute trigger sell
+            result = order_service._execute_trigger_sell(
+                security_id=3100,
+                exchange_security_id=9308,
+                sell_price=106.0,  # Trigger at Rs. 106.0
+                order_quantity=100,
+                client_data=user_config.client_data,
+                order_type='LMT',
+                order_validity='DAY',
+                fetch_client=fake_client,
+                fetch_security_id=3100
+            )
+
+        # Verify results
+        print(f"\nOrders placed: {len(fake_client.orders_placed)}")
+
+        # Should have placed exactly 1 sell order
+        assert len(fake_client.orders_placed) == 1, \
+            f"Expected exactly 1 sell order, got {len(fake_client.orders_placed)}"
+
+        # Verify it's a sell order
+        sell_order = fake_client.orders_placed[0]
+        assert sell_order['buy_or_sell'] == 2, \
+            f"Order should be SELL (2), got {sell_order['buy_or_sell']}"
+
+        # Verify price and quantity
+        assert sell_order['price'] == 106.0, \
+            f"Sell order should be at Rs. 106.0, got {sell_order['price']:.1f}"
+        assert sell_order['quantity'] == 100, \
+            f"Sell order should be 100 qty, got {sell_order['quantity']}"
+
+        print(f"Sell order: Rs. {sell_order['price']:.1f} x {sell_order['quantity']} (SELL)")
+        print(f"Trigger sell executed correctly")
+
+    def test_ipo_trigger_with_double_buy(self):
+        """Test IPO trigger mode with double_buy enabled at final level."""
+        print("Testing IPO trigger with double buy at final level...")
+
+        # Setup
+        market = FakeMarketSimulator(base_price=100.0, limit_price=110.0)
+        user_config = self.create_user_config('user1')
+        fake_client = FakeTMSClient(user_config, market)
+
+        with patch.object(OrderService, '__init__', lambda self, client: setattr(self, 'client', client) or setattr(self, 'user_id', client.user_id)):
+            order_service = OrderService(fake_client)
+
+            # Price advancement
+            def advance_prices():
+                time.sleep(2)
+                for i in range(6):
+                    time.sleep(3)
+                    market.advance_price(1)
+
+            price_thread = threading.Thread(target=advance_prices, daemon=True)
+            price_thread.start()
+
+            # Execute with double_buy enabled
+            result = order_service._execute_ipo_trigger(
+                security_id=3100,
+                exchange_security_id=9308,
+                base_price=100.0,
+                order_quantity=100,
+                client_data=user_config.client_data,
+                buy_or_sell=1,
+                order_type='LMT',
+                order_validity='DAY',
+                fetch_clients=[fake_client],
+                limit_price=110.0,
+                skip_first=False,
+                skip_second_last=False,
+                fetch_security_id=3100,
+                base_quantity=10,
+                double_buy=True,  # Enable double buy
+                double_buy_quantity=50  # Second order quantity
+            )
+
+        # Verify results
+        print(f"\nOrders placed: {len(fake_client.orders_placed)}")
+
+        # Should have ladder orders + one extra for double buy at final price
+        assert len(fake_client.orders_placed) >= 6, \
+            f"Expected at least 6 orders (ladder + double buy), got {len(fake_client.orders_placed)}"
+
+        # Find final price level orders
+        final_price_orders = [o for o in fake_client.orders_placed
+                              if abs(o['price'] - (110.0 * 1.10)) < 1.0]
+
+        # Should have 2 orders at final price (double buy)
+        assert len(final_price_orders) == 2, \
+            f"Expected 2 orders at final price (double buy), got {len(final_price_orders)}"
+
+        # Verify quantities
+        assert final_price_orders[0]['quantity'] == 100, \
+            f"First final order should be 100 qty, got {final_price_orders[0]['quantity']}"
+        assert final_price_orders[1]['quantity'] == 50, \
+            f"Second final order should be 50 qty, got {final_price_orders[1]['quantity']}"
+
+        print(f"Double buy at final level verified")
+        print(f"Final order 1: Rs. {final_price_orders[0]['price']:.1f} x {final_price_orders[0]['quantity']}")
+        print(f"Final order 2: Rs. {final_price_orders[1]['price']:.1f} x {final_price_orders[1]['quantity']}")
+
     def test_dynamic_polling_transitions(self):
         """Test dynamic polling: verifies polling intervals change based on LTP proximity to trigger."""
         print("\nTesting dynamic polling with interval transitions...")
@@ -1036,12 +1221,15 @@ def test_dynamic_polling_transitions_standalone():
 
 def main():
     """Run all tests."""
-    print("IPO Trigger Mode - Comprehensive Test Suite")
+    print("TMS Automation - Comprehensive Test Suite")
     print("=" * 70)
 
     suite = TestIPOTrigger()
 
-    # Run all tests
+    # IPO Trigger Tests (Ladder Mode)
+    print("\n" + "="*70)
+    print("IPO TRIGGER / LADDER MODE TESTS")
+    print("="*70)
     suite.run_test("Basic Trigger (No Skips)", suite.test_basic_trigger_no_skips)
     suite.run_test("Skip First Level", suite.test_skip_first_level)
     suite.run_test("Skip Second-Last Level", suite.test_skip_second_last_level)
@@ -1050,7 +1238,15 @@ def main():
     suite.run_test("Retry Logic (Max 3 Attempts)", suite.test_retry_logic_max_3_attempts)
     suite.run_test("Base Quantity vs Final Quantity", suite.test_base_quantity_vs_final_quantity)
     suite.run_test("No Ladder Mode", suite.test_no_ladder_mode)
-    suite.run_test("Dynamic Polling (Slow to Fast)", suite.test_dynamic_polling_slow_to_fast)
+    suite.run_test("IPO Trigger with Double Buy", suite.test_ipo_trigger_with_double_buy)
+    suite.run_test("Dynamic Polling (Slow to Fast)", suite.test_dynamic_polling_transitions)
+
+    # Trigger Mode Tests (Double Buy & Trigger Sell)
+    print("\n" + "="*70)
+    print("TRIGGER MODE TESTS (Double Buy & Trigger Sell)")
+    print("="*70)
+    suite.run_test("Double Buy Basic", suite.test_double_buy_basic)
+    suite.run_test("Trigger Sell Basic", suite.test_trigger_sell_basic)
 
     # Print summary
     suite.print_summary()

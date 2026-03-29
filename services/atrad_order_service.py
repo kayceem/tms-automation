@@ -197,7 +197,8 @@ class ATRADOrderService(BaseOrderService):
             side=params.get('side'),
             asset_select=params.get('asset_select'),
             board=params.get('board'),
-            order_type=params.get('order_type')
+            order_type=params.get('order_type'),
+            market_price=params.get('market_price')  # Pass LTP as market price
         )
 
     def _setup_token_manager(self) -> Optional[Any]:
