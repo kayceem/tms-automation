@@ -248,6 +248,7 @@ class MultiUserPriceFetcher:
         self._len_fetch_users = len(fetch_users)
         self.poll_interval_ms = poll_interval_ms
         self.poll_interval_seconds = poll_interval_ms / 1000.0
+        self.delay = max(0.01, self.poll_interval_seconds / 2) 
         self.requests_per_user = requests_per_user
         self.enable_cooldown = enable_cooldown
 
@@ -339,6 +340,7 @@ class MultiUserPriceFetcher:
         with self._lock:
             self.poll_interval_ms = poll_interval_ms
             self.poll_interval_seconds = poll_interval_ms / 1000.0
+            self.delay = max(0.01, self.poll_interval_seconds / 2)
             self.enable_cooldown = enable_cooldown
 
     def _fetch_loop(self):
@@ -390,7 +392,7 @@ class MultiUserPriceFetcher:
                     logger.debug(
                         f"Cooldown delay after {self._rotation_cycles_completed} rotation cycles"
                     )
-                    time.sleep(self.poll_interval_seconds + self.poll_interval_seconds / 2)
+                    time.sleep(self.poll_interval_seconds + self.delay)
                     if self._rotation_cycles_completed > (self._len_fetch_users * 2) :
                         self._rotation_cycles_completed = 0
             except KeyboardInterrupt:
