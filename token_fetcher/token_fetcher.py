@@ -3,12 +3,6 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 from playwright.sync_api import sync_playwright, Page, Browser
-import pytesseract
-from PIL import Image, ImageEnhance, ImageFilter
-import io
-import cv2
-import numpy as np
-
 
 class TokenFetcher:
     """
