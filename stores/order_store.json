@@ -25,10 +25,10 @@
       "queue_id": 1,
       "ticker": "RSML",
       "mode": "ipo-trigger",
-      "quantity": 300,
+      "quantity": 10,
       "base_quantity": 50,
       "price": 2009.7,
-      "limit": 2214.4,
+      "limit": 2013.1,
       "no_ladder": true,
       "double_buy": false,
       "double_buy_quantity": 100
@@ -46,6 +46,7 @@
       "limit": 289.1,
       "double_buy": false,
       "double_buy_quantity": 100,
+      "time": "11:00:00",
       "no_ladder": true
     },
     {

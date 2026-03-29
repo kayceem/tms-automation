@@ -36,6 +36,9 @@ class ATRADClient:
 
         self._setup_headers()
 
+        # Pre-build static parts of order payload
+        self._build_static_payload()
+
         # Try to restore session from saved cookies
         self._restore_session_from_cookies()
 
@@ -61,6 +64,58 @@ class ATRADClient:
             'Priority': 'u=0',
             'TE': 'trailers'
         })
+
+    def _build_static_payload(self):
+        """Pre-build static parts of the order payload and body for efficiency."""
+        # Static fields that don't change per order
+        static_fields = {
+            "action": "submitOrder",
+            "market": "NEPSE",
+            "broker": self.user_config.broker_code or "",
+            "format": "json",
+            "clientOrderId": "",
+            "cseOrderId": "",
+            "brokerClient": "1",
+            "orderStatus": "Open",
+            "filledQty": "",
+            "acntid": str(self.user_config.account_id),
+            "oldPrice": "",
+            "oldQty": "",
+            "remainder": "",
+            "orderplacedate": "",
+            "oldDisclose": "",
+            "txtContraBroker": self.user_config.contra_broker or "",
+            "txtapprovalReason": "",
+            "txtsenttoapproval": "no",
+            "txtCompId": "",
+            "txtOdrStatus": "",
+            "product": self.user_config.default_product,
+            "clientAcc": self.user_config.client_account or "",
+            "assetSelect": self.user_config.default_asset_select,
+            "cmbTypeOfOrder": self.user_config.default_type_of_order,
+            "cmbTif": self.user_config.default_order_type,
+            "cmbTifDays": "1",
+            "cmbBoard": self.user_config.default_board,
+            "hiddenSpnCseFee": "0.02",
+            "txtContraBroker_": str(self.user_config.contra_broker) or "",
+            "brokerClientVal": "1",
+            "confirm": "1"
+        }
+
+        # Pre-encode static body parts
+        body_parts = []
+        for key, value in static_fields.items():
+            if key == "clientAcc":
+                # Special encoding for clientAcc: spaces to %20, keep () unencoded
+                encoded_value = quote(str(value), safe='()-')
+            else:
+                # Standard encoding for other fields
+                encoded_value = quote(str(value), safe='')
+            body_parts.append(f"{key}={encoded_value}")
+
+        # Store pre-encoded static body string
+        self._static_body = "&".join(body_parts)
+
 
     def _restore_session_from_cookies(self):
         """
@@ -235,11 +290,8 @@ class ATRADClient:
         quantity: int,
         price: float,
         side: str = 'BUY',  # 'BUY' or 'SELL'
-        asset_select: str = None,
-        board: str = None,
-        order_type: str = None,
         market_price: float = None,
-        **kwargs  # Additional ATRAD-specific parameters
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Place an order on NEPSE ATRAD (thread-safe).
@@ -249,9 +301,6 @@ class ATRADClient:
             quantity: Number of units
             price: Price per unit
             side: 'BUY' or 'SELL'
-            asset_select: Asset type (default: '1' for EQUITY)
-            board: Board type (default: '1' for Regular)
-            order_type: Order type (default: '1' for LIMIT)
             market_price: Current market price (LTP)
             contra_broker: Contra broker code (optional)
             **kwargs: Additional ATRAD-specific parameters
@@ -265,11 +314,6 @@ class ATRADClient:
         if not self._is_authenticated:
             logger.warning(f"[{self.user_id}] Not authenticated, attempting login...")
             self.login()
-
-        # Use defaults from user config if not provided
-        asset_select = asset_select or self.user_config.default_asset_select
-        board = board or self.user_config.default_board
-        order_type = order_type or self.user_config.default_order_type
 
         # Use price as market_price if not provided
         if market_price is None:
@@ -287,61 +331,24 @@ class ATRADClient:
         duplicate_order_id = self._generate_duplicate_order_id()
         logger.debug(f"[{self.user_id}] Generated duplicateOrderId: {duplicate_order_id}")
 
-        payload = {
-            "action": "submitOrder",
-            "market": "NEPSE",
-            "broker": self.user_config.broker_code or "",
-            "format": "json",
-            "clientOrderId": "",
-            "cseOrderId": "",
-            "brokerClient": "1",
-            "orderStatus": "Open",
-            "filledQty": "",
-            "acntid": str(self.user_config.account_id),
-            "oldPrice": "",
-            "oldQty": "",
-            "remainder": "",
-            "orderplacedate": "",
+        dynamic_fields = {
             "marketPrice": f"{market_price:.1f}",
-            "oldDisclose": "",
-            "txtContraBroker": self.user_config.contra_broker or "",
-            "txtapprovalReason": "",
-            "txtsenttoapproval": "no",
-            "txtCompId": "",
-            "txtOdrStatus": "",
             "duplicateOrderId": duplicate_order_id,
-            "product": self.user_config.default_product,
-            "clientAcc": self.user_config.client_account or "",
-            "assetSelect": asset_select,
             "actionSelect": action_select,
             "txtSecurity": symbol,
-            "cmbTypeOfOrder": order_type,
             "spnQuantity": str(quantity),
             "spnPrice": f"{price:.1f}",
-            "cmbTif": "16",
-            "cmbTifDays": "1",
-            "cmbBoard": board,
-            "hiddenSpnCseFee": "0.02",
-            "txtContraBroker_": str(self.user_config.contra_broker) or "",
-            "brokerClientVal": "1",
-            "confirm": "1"
         }
 
-        # Build form data manually
-        body_parts = []
-        for key, value in payload.items():
-            if key == "clientAcc":
-                # Special encoding for clientAcc: spaces to %20, keep () unencoded
-                encoded_value = quote(str(value), safe='()-')
-            else:
-                # Standard encoding for other fields
-                encoded_value = quote(str(value), safe='')
-            body_parts.append(f"{key}={encoded_value}")
+        # Encode dynamic fields
+        dynamic_parts = []
+        for key, value in dynamic_fields.items():
+            encoded_value = quote(str(value), safe='')
+            dynamic_parts.append(f"{key}={encoded_value}")
 
-        body = "&".join(body_parts)
+        # Combine pre-encoded static body with dynamic parts
+        body = self._static_body + "&" + "&".join(dynamic_parts)
 
-        logger.debug(f"[{self.user_id}] Request body made")
-        
         # Make thread-safe API request
         with self._request_lock:
             response = self.session.post(self.order_endpoint, data=body)
@@ -366,8 +373,8 @@ class ATRADClient:
                 self._is_authenticated = False
                 self.login()
 
-                # Retry order placement
-                response = self.session.post(self.order_endpoint, data=payload)
+                # Retry order placement with the same encoded body
+                response = self.session.post(self.order_endpoint, data=body)
                 response.encoding = 'utf-8'
                 logger.debug(
                     f"[{self.user_id}] Response status: {response.status_code}"

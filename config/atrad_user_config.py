@@ -29,6 +29,7 @@ class ATRADUserConfig:
     default_asset_select: str = '1'  # 1=EQUITY
     default_board: str = '1'  # 1=Regular board
     default_order_type: str = '16'  # 16=Day order
+    default_type_of_order: str = '1'  # 1 day validity
     default_product: str = 'web'
 
     # Trigger mode settings (same as TMS for consistency)
@@ -80,6 +81,7 @@ class ATRADUserConfig:
             'default_asset_select': self.default_asset_select,
             'default_board': self.default_board,
             'default_order_type': self.default_order_type,
+            'default_type_of_order': self.default_type_of_order,
             'default_product': self.default_product,
             'trigger_mode_poll_interval_ms': self.trigger_mode_poll_interval_ms,
             'trigger_mode_refresh_interval_seconds': self.trigger_mode_refresh_interval_seconds,

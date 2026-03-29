@@ -898,7 +898,7 @@ class BaseOrderService(ABC):
                                     price=target_price,
                                     quantity=qty_for_level,
                                     double_buy_quantity=double_buy_quantity,
-                                    **platform_params
+                                    **order_params
                                 )
 
                             # Move to next level

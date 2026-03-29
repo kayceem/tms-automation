@@ -378,6 +378,8 @@ class MultiUserPriceFetcher:
                 logger.error(
                     f"[{current_user.name}] Error in fetch loop (fetch #{fetch_count}): {str(e)}"
                 )
+                time.sleep(self.poll_interval_seconds/2)
+                continue
 
             # Sleep for the configured interval
             try:

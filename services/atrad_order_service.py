@@ -31,9 +31,6 @@ class ATRADOrderService(BaseOrderService):
         order_price: float,
         order_quantity: int,
         buy_or_sell: int = 1,
-        asset_select: str = None,
-        board: str = None,
-        order_type: str = None,
         ipo_trigger_mode: bool = False,
         trigger_sell_mode: bool = False,
         limit_price: Optional[float] = None,
@@ -57,9 +54,6 @@ class ATRADOrderService(BaseOrderService):
             order_price: Price per unit
             order_quantity: Number of units
             buy_or_sell: 1 for buy, 2 for sell
-            asset_select: Asset type (default: '1' for EQUITY)
-            board: Board type (default: '1' for Regular)
-            order_type: Order type (default: '16' for Day order)
             ipo_trigger_mode: Enable IPO trigger mode (price-based ladder triggering)
             trigger_sell_mode: Enable trigger sell mode (sell when LTP reaches trigger price)
             limit_price: Optional upper limit price for IPO trigger mode
@@ -99,9 +93,6 @@ class ATRADOrderService(BaseOrderService):
                 base_price=order_price,
                 order_quantity=order_quantity,
                 side=side,
-                asset_select=asset_select,
-                board=board,
-                order_type=order_type,
                 limit_price=limit_price,
                 fetch_clients=actual_fetch_clients,
                 skip_first=skip_first,
@@ -134,9 +125,6 @@ class ATRADOrderService(BaseOrderService):
                 sell_price=order_price,
                 order_quantity=order_quantity,
                 side=side,
-                asset_select=asset_select,
-                board=board,
-                order_type=order_type,
                 fetch_client=actual_fetch_client,
                 fetch_security_id=fetch_id,
                 ticker=ticker,
@@ -155,9 +143,6 @@ class ATRADOrderService(BaseOrderService):
                 quantity=order_quantity,
                 price=order_price,
                 side=side,
-                asset_select=asset_select,
-                board=board,
-                order_type=order_type,
                 **kwargs
             )
 
@@ -172,9 +157,6 @@ class ATRADOrderService(BaseOrderService):
                     order_quantity=order_quantity,
                     double_buy_quantity=double_buy_quantity,
                     side=side,
-                    asset_select=asset_select,
-                    board=board,
-                    order_type=order_type,
                     **kwargs
                 )
 
@@ -195,9 +177,6 @@ class ATRADOrderService(BaseOrderService):
             quantity=quantity,
             price=price,
             side=params.get('side'),
-            asset_select=params.get('asset_select'),
-            board=params.get('board'),
-            order_type=params.get('order_type'),
             market_price=params.get('market_price')  # Pass LTP as market price
         )
 
