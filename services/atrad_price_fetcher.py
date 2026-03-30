@@ -95,10 +95,13 @@ class ATRADPriceFetcher:
             f"(interval={self.poll_interval_ms}ms)"
         )
 
+        # Set timeout to 2x poll interval to prevent blocking
+        timeout = min(self.poll_interval_seconds * 3, 0.1)
+
         while self._running:
             try:
-                # Fetch LTP
-                ltp = self.fetch_client.get_ltp(self.symbol)
+                # Fetch LTP with timeout
+                ltp = self.fetch_client.get_ltp(self.symbol, timeout=timeout)
 
                 # Update latest value
                 if ltp is not None:
@@ -256,6 +259,9 @@ class ATRADMultiUserPriceFetcher:
             f"rotation={self.requests_per_user} requests/user)"
         )
 
+        # Set timeout to 2x poll interval to prevent blocking
+        timeout = min(self.poll_interval_seconds * 3, 0.1)
+
         fetch_count = 0
         while self._running:
             try:
@@ -264,8 +270,8 @@ class ATRADMultiUserPriceFetcher:
                 # Get the user for this request
                 current_user = self._get_next_user()
 
-                # Fetch LTP using the user's specific symbol
-                ltp = current_user.client.get_ltp(current_user.symbol)
+                # Fetch LTP using the user's specific symbol with timeout
+                ltp = current_user.client.get_ltp(current_user.symbol, timeout=timeout)
 
                 # Update latest value
                 if ltp is not None:

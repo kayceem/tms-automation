@@ -95,10 +95,13 @@ class PriceFetcher:
             f"(interval={self.poll_interval_ms}ms)"
         )
 
+        # Set timeout to 2x poll interval to prevent blocking
+        timeout = min(self.poll_interval_seconds * 3, 0.1)
+
         while self._running:
             try:
-                # Fetch LTP
-                ltp = self.fetch_client.get_ltp(self.security_id)
+                # Fetch LTP with timeout
+                ltp = self.fetch_client.get_ltp(self.security_id, timeout=timeout)
 
                 # Update latest value
                 if ltp is not None:
@@ -188,7 +191,7 @@ class TokenRefreshManager:
         )
 
         # First refresh happens 15 seconds earlier
-        time.sleep(max(0, self.refresh_interval_seconds - 16))
+        time.sleep(max(0, self.refresh_interval_seconds - 15))
 
         while self._running:
             try:
@@ -348,6 +351,9 @@ class MultiUserPriceFetcher:
             f"rotation={self.requests_per_user} requests/user)"
         )
 
+        # Set timeout to 2x poll interval to prevent blocking
+        timeout = min(self.poll_interval_seconds * 3, 0.1)
+
         fetch_count = 0
         while self._running:
             try:
@@ -356,8 +362,8 @@ class MultiUserPriceFetcher:
                 # Get the user for this request
                 current_user = self._get_next_user()
 
-                # Fetch LTP using the user's specific fetch_security_id
-                ltp = current_user.client.get_ltp(current_user.fetch_security_id)
+                # Fetch LTP using the user's specific fetch_security_id with timeout
+                ltp = current_user.client.get_ltp(current_user.fetch_security_id, timeout=timeout)
 
                 # Update latest value
                 if ltp is not None:

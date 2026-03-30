@@ -198,14 +198,18 @@ class ATRADClient:
         """
         try:
             # Make a lightweight test request to check session validity
-            test_url = f"{self.base_url}/atsweb/home"
+            test_url = f"{self.base_url}/atsweb/login?action=checkUserSession&format=json&txtUserName={self.user_config.username}&dojo.preventCache={int(time.time() * 1000)}"
             response = self.session.get(test_url, timeout=5)
         
             # If we get redirected to login page or get 401, session is invalid
-            if response.status_code == 401 or response.status_code == 302 or 'login' in response.url.lower():
-                logger.info(f"[{self.user_id}] {response.url}")
+            if response.status_code == 200:
+                result = response.text.strip().replace("'", '"')
+                result = json.loads(result)
+                if result.get("code") == "0" and result.get("data", {}).get("validation", [False])[0] == True:
+                    logger.debug(f"[{self.user_id}] Session validation successful")
+                    return True
+                logger.debug(f"[{self.user_id}] Session expired or invalid")
                 return False
-
             return response.status_code == 200
 
         except Exception as e:
@@ -297,11 +301,11 @@ class ATRADClient:
                     return result
                 else:
                     logger.error(f"[{self.user_id}] ATRAD login failed: {result.get('description')}")
-                    raise Exception(f"Login failed: {result.get('description')}")
+                    return False
 
             except requests.exceptions.RequestException as e:
                 logger.error(f"[{self.user_id}] ATRAD login request failed: {e}")
-                raise
+                return False
 
     def is_authenticated(self) -> bool:
         """Check if session is authenticated."""
@@ -390,6 +394,7 @@ class ATRADClient:
         with self._request_lock:
             response = self.session.post(self.order_endpoint, data=body)
             response.encoding = 'utf-8'
+            logger.debug(f"[{self.user_id}] Request body: {body}")
 
             logger.debug(
                 f"[{self.user_id}] Response status: {response.status_code}"
@@ -438,7 +443,9 @@ class ATRADClient:
     def ensure_authenticated(self):
         """Ensure the client is authenticated, login if necessary."""
         if not self._is_authenticated:
-            self.login()
+            if self.login():
+                return True
+            return False
 
     def refresh_tokens(self) -> bool:
         """
@@ -448,15 +455,16 @@ class ATRADClient:
         self.ensure_authenticated()
         return self._is_authenticated
 
-    def get_ltp(self, symbol: str) -> Optional[float]:
+    def get_ltp(self, symbol: str, timeout: float = 5.0) -> Optional[float]:
         """
         Fetch the Last Traded Price (LTP) for a security (thread-safe).
 
         Args:
             symbol: Symbol to fetch LTP for
+            timeout: Request timeout in seconds (default: 5.0)
 
         Returns:
-            LTP as float, or None if fetch fails
+            LTP as float, or None if fetch fails or times out
 
         Raises:
             requests.HTTPError: If API request fails with non-401 error
@@ -464,31 +472,45 @@ class ATRADClient:
         logger.debug(f"[{self.user_id}] Fetching LTP for symbol={symbol}")
 
         epoch_time_ms = lambda: int(round(time.time() * 1000))
-        endpoint = f"{self.quote_endpoint}&security={symbol}&dojo.preventCache="
+        endpoint = f"{self.quote_endpoint}&securityid={symbol}&dojo.preventCache="
 
-        # Make thread-safe API request
+        # Make thread-safe API request with timeout
         with self._request_lock:
-            response = self.session.get(endpoint + str(epoch_time_ms()))
-            response.encoding = 'utf-8'
+            try:
+                response = self.session.get(endpoint + str(epoch_time_ms()), timeout=timeout)
+                response.encoding = 'utf-8'
+            except requests.exceptions.Timeout:
+                logger.warning(f"[{self.user_id}] LTP fetch timed out after {timeout}s")
+                return None
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"[{self.user_id}] LTP fetch failed: {e}")
+                return None
 
             logger.debug(
                 f"[{self.user_id}] LTP fetch response status: {response.status_code}"
             )
 
             # If we get 401, try to refresh tokens and retry once
-            if response.status_code == 401:
+            if response.status_code == 401 or (response.status_code == 200 and "<html>" in response.text.lower()):
                 logger.debug(f"[{self.user_id}] Session expired, attempting token refresh")
 
                 if self.ensure_authenticated():
                     logger.debug(f"[{self.user_id}] Tokens refreshed, retrying LTP fetch")
 
                     # Retry the request with new tokens
-                    response = self.session.get(f"{endpoint + str(epoch_time_ms())}") 
-                    response.encoding = 'utf-8'
+                    try:
+                        response = self.session.get(f"{endpoint + str(epoch_time_ms())}", timeout=timeout)
+                        response.encoding = 'utf-8'
 
-                    logger.debug(
-                        f"[{self.user_id}] Retry LTP response status: {response.status_code}"
-                    )
+                        logger.debug(
+                            f"[{self.user_id}] Retry LTP response status: {response.status_code}"
+                        )
+                    except requests.exceptions.Timeout:
+                        logger.warning(f"[{self.user_id}] Retry LTP fetch timed out after {timeout}s")
+                        return None
+                    except requests.exceptions.RequestException as e:
+                        logger.warning(f"[{self.user_id}] Retry LTP fetch failed: {e}")
+                        return None
                 else:
                     logger.error(f"[{self.user_id}] Token refresh failed for LTP fetch")
                     return None
@@ -497,7 +519,7 @@ class ATRADClient:
                 try:
                     data = response.text.strip().replace("'", '"')
                     data = json.loads(data)
-                    security = data.get('data', {}).get('watch', [None])[0]
+                    security = data.get('data', {})
 
                     # Handle both None and empty dict
                     if not security or not isinstance(security, dict):

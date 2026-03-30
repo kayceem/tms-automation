@@ -284,15 +284,16 @@ class TMSClient:
                 f"[{self.user_id}] Could not save cookies: {str(e)}"
             )
 
-    def get_ltp(self, security_id: int) -> Optional[float]:
+    def get_ltp(self, security_id: int, timeout: float = 0.1) -> Optional[float]:
         """
         Fetch the Last Traded Price (LTP) for a security (thread-safe).
 
         Args:
             security_id: Security ID to fetch LTP for
+            timeout: Request timeout in seconds (default: 5.0)
 
         Returns:
-            LTP as float, or None if fetch fails
+            LTP as float, or None if fetch fails or times out
 
         Raises:
             requests.HTTPError: If API request fails with non-401 error
@@ -301,14 +302,21 @@ class TMSClient:
 
         endpoint = f"{self.quote_endpoint}{security_id}"
 
-        # Make thread-safe API request
+        # Make thread-safe API request with timeout
         with self._request_lock:
-            response = self.session.get(endpoint)
-            response.encoding = 'utf-8'
+            try:
+                response = self.session.get(endpoint, timeout=timeout)
+                response.encoding = 'utf-8'
 
-            logger.debug(
-                f"[{self.user_id}] LTP fetch response status: {response.status_code}"
-            )
+                logger.debug(
+                    f"[{self.user_id}] LTP fetch response status: {response.status_code}"
+                )
+            except requests.exceptions.Timeout:
+                logger.warning(f"[{self.user_id}] LTP fetch timed out after {timeout}s")
+                return None
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"[{self.user_id}] LTP fetch failed: {e}")
+                return None
 
             # If we get 401, try to refresh tokens and retry once
             if response.status_code == 401:
@@ -318,12 +326,19 @@ class TMSClient:
                     logger.debug(f"[{self.user_id}] Tokens refreshed, retrying LTP fetch")
 
                     # Retry the request with new tokens
-                    response = self.session.get(endpoint)
-                    response.encoding = 'utf-8'
+                    try:
+                        response = self.session.get(endpoint, timeout=timeout)
+                        response.encoding = 'utf-8'
 
-                    logger.debug(
-                        f"[{self.user_id}] Retry LTP response status: {response.status_code}"
-                    )
+                        logger.debug(
+                            f"[{self.user_id}] Retry LTP response status: {response.status_code}"
+                        )
+                    except requests.exceptions.Timeout:
+                        logger.warning(f"[{self.user_id}] Retry LTP fetch timed out after {timeout}s")
+                        return None
+                    except requests.exceptions.RequestException as e:
+                        logger.warning(f"[{self.user_id}] Retry LTP fetch failed: {e}")
+                        return None
                 else:
                     logger.error(f"[{self.user_id}] Token refresh failed for LTP fetch")
                     return None

@@ -42,7 +42,7 @@ class ATRADUserConfig:
     # ATRAD API endpoints
     atrad_login_endpoint: str = '/atsweb/login'
     atrad_order_endpoint: str = '/atsweb/order'
-    atrad_watch_endpoint: str = '/atsweb/watch?action=getQuickWatch&format=json&exchange=NEPSE&bookDefId=1&watchId=101305&isquickwatchsecurity=true&lastUpdatedId=undefined'
+    atrad_watch_endpoint: str = '/atsweb/watch?action=getWatchForSecurity&format=json&exchange=NEPSE&bookDefId=1'
 
     # Session management (populated after login)
     _session_id: Optional[str] = None  # JSESSIONID
