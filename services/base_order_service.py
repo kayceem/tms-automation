@@ -962,10 +962,3 @@ class BaseOrderService(ABC):
             f"[{self.user_id}] IPO TRIGGER COMPLETE: {total_placed} orders placed"
         )
         return last_response
-
-
-    # The following method will be implemented in Phase 4:
-    # - _execute_ipo_trigger() (Phase 4)
-    #
-    # This will be extracted from the existing service files and placed here,
-    # using the abstract methods defined above for platform-specific operations.
