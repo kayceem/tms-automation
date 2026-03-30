@@ -1,15 +1,51 @@
 """NEPSE ATRAD API client for order placement."""
 
+import time
 import requests
 import json
 import threading
 import random
+import socket
 from typing import Dict, Any, Optional
 from urllib.parse import quote
 from config.atrad_user_config import ATRADUserConfig
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+# Force IPv4 for faster connections (NEPSE servers don't support IPv6)
+def create_ipv4_connection(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None, socket_options=None):
+    """Create socket connection using IPv4 only."""
+    host, port = address
+    err = None
+    for res in socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM):
+        af, socktype, proto, _, sa = res
+        sock = None
+        try:
+            sock = socket.socket(af, socktype, proto)
+            if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            if socket_options:
+                for opt in socket_options:
+                    sock.setsockopt(*opt)
+            sock.connect(sa)
+            return sock
+        except socket.error as _:
+            err = _
+            if sock is not None:
+                sock.close()
+    if err is not None:
+        raise err
+    else:
+        raise socket.error("getaddrinfo returns an empty list")
+
+
+# Monkey-patch urllib3 to use IPv4 only
+urllib3_connection = __import__('urllib3.util.connection', fromlist=['connection'])
+urllib3_connection.create_connection = create_ipv4_connection
 
 
 class ATRADClient:
@@ -27,6 +63,7 @@ class ATRADClient:
         self.base_url = user_config.atrad_base_url
         self.login_endpoint = f"{self.base_url}{user_config.atrad_login_endpoint}"
         self.order_endpoint = f"{self.base_url}{user_config.atrad_order_endpoint}"
+        self.quote_endpoint = f"{self.base_url}{user_config.atrad_watch_endpoint}"
 
         # Thread-safe session
         self.session = requests.Session()
@@ -410,3 +447,81 @@ class ATRADClient:
         """
         self.ensure_authenticated()
         return self._is_authenticated
+
+    def get_ltp(self, symbol: str) -> Optional[float]:
+        """
+        Fetch the Last Traded Price (LTP) for a security (thread-safe).
+
+        Args:
+            symbol: Symbol to fetch LTP for
+
+        Returns:
+            LTP as float, or None if fetch fails
+
+        Raises:
+            requests.HTTPError: If API request fails with non-401 error
+        """
+        logger.debug(f"[{self.user_id}] Fetching LTP for symbol={symbol}")
+
+        epoch_time_ms = lambda: int(round(time.time() * 1000))
+        endpoint = f"{self.quote_endpoint}&security={symbol}&dojo.preventCache="
+
+        # Make thread-safe API request
+        with self._request_lock:
+            response = self.session.get(endpoint + str(epoch_time_ms()))
+            response.encoding = 'utf-8'
+
+            logger.debug(
+                f"[{self.user_id}] LTP fetch response status: {response.status_code}"
+            )
+
+            # If we get 401, try to refresh tokens and retry once
+            if response.status_code == 401:
+                logger.debug(f"[{self.user_id}] Session expired, attempting token refresh")
+
+                if self.ensure_authenticated():
+                    logger.debug(f"[{self.user_id}] Tokens refreshed, retrying LTP fetch")
+
+                    # Retry the request with new tokens
+                    response = self.session.get(f"{endpoint + str(epoch_time_ms())}") 
+                    response.encoding = 'utf-8'
+
+                    logger.debug(
+                        f"[{self.user_id}] Retry LTP response status: {response.status_code}"
+                    )
+                else:
+                    logger.error(f"[{self.user_id}] Token refresh failed for LTP fetch")
+                    return None
+
+            if response.status_code == 200:
+                try:
+                    data = response.text.strip().replace("'", '"')
+                    data = json.loads(data)
+                    security = data.get('data', {}).get('watch', [None])[0]
+
+                    # Handle both None and empty dict
+                    if not security or not isinstance(security, dict):
+                        logger.warning(f"[{self.user_id}] No security data in response: {data}")
+                        return None
+
+                    ltp = security.get('tradeprice')
+                    if ltp is not None and ltp != '':
+                        logger.debug(f"[{self.user_id}] LTP={ltp}")
+                        # Remove commas if present (e.g., "1,234.56" -> "1234.56")
+                        ltp_str = str(ltp).replace(',', '')
+                        return float(ltp_str)
+                    else:
+                        logger.warning(f"[{self.user_id}] No LTP (tradeprice) in security data: {security}")
+                        return None
+                except Exception as e:
+                    logger.error(
+                        f"[{self.user_id}] Error parsing LTP response: {str(e)}",
+                        exc_info=True
+                    )
+                    return None
+            else:
+                logger.warning(
+                    f"[{self.user_id}] LTP fetch failed: "
+                    f"{response.status_code} {response.reason}"
+                )
+                return None

@@ -4,42 +4,42 @@ import time
 import threading
 from typing import Optional, List
 from dataclasses import dataclass
-from api import TMSClient
+from api import ATRADClient
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
 @dataclass
-class FetchUser:
-    """Represents a fetch user with their own TMS client for LTP monitoring."""
+class ATRADFetchUser:
+    """Represents a fetch user with their own ATRAD client for LTP monitoring."""
     name: str
-    client: TMSClient
-    fetch_security_id: int  # Security ID for fetching LTP (can differ per host)
+    client: ATRADClient
+    symbol: str
 
     def __post_init__(self):
         """Validate the client."""
-        if not isinstance(self.client, TMSClient):
-            raise ValueError(f"client must be a TMSClient instance")
+        if not isinstance(self.client, ATRADClient):
+            raise ValueError(f"client must be an ATRADClient instance")
 
 
-class PriceFetcher:
+class ATRADPriceFetcher:
     """
     Service for continuously monitoring LTP using a dedicated fetch user.
     Handles automatic token refresh for the fetch user.
     """
 
-    def __init__(self, fetch_client: TMSClient, security_id: int, poll_interval_ms: int = 100):
+    def __init__(self, fetch_client: ATRADClient, symbol: str, poll_interval_ms: int = 100):
         """
         Initialize price fetcher.
 
         Args:
-            fetch_client: TMSClient instance for the fetch user
-            security_id: Security ID to monitor
+            fetch_client: ATRADClient instance for the fetch user
+            symbol: Symbol to monitor
             poll_interval_ms: Polling interval in milliseconds
         """
         self.fetch_client = fetch_client
-        self.security_id = security_id
+        self.symbol = symbol
         self.poll_interval_ms = poll_interval_ms
         self.poll_interval_seconds = poll_interval_ms / 1000.0
 
@@ -49,24 +49,24 @@ class PriceFetcher:
         self._fetch_thread: Optional[threading.Thread] = None
 
         logger.info(
-            f"[{self.fetch_client.user_id}] PriceFetcher initialized for "
-            f"security_id={security_id}, poll_interval={poll_interval_ms}ms"
+            f"[{self.fetch_client.user_id}] ATRADPriceFetcher initialized for "
+            f"symbol={self.symbol}, poll_interval={self.poll_interval_ms}ms"
         )
 
     def start(self):
         """Start the price fetching thread."""
         if self._running:
-            logger.warning(f"[{self.fetch_client.user_id}] PriceFetcher already running")
+            logger.warning(f"[{self.fetch_client.user_id}] ATRADPriceFetcher already running")
             return
 
         self._running = True
         self._fetch_thread = threading.Thread(
             target=self._fetch_loop,
-            name=f"PriceFetcher-{self.fetch_client.user_id}",
+            name=f"ATRADPriceFetcher-{self.fetch_client.user_id}",
             daemon=True
         )
         self._fetch_thread.start()
-        logger.info(f"[{self.fetch_client.user_id}] PriceFetcher started")
+        logger.info(f"[{self.fetch_client.user_id}] ATRADPriceFetcher started")
 
     def stop(self):
         """Stop the price fetching thread."""
@@ -76,7 +76,7 @@ class PriceFetcher:
         self._running = False
         if self._fetch_thread:
             self._fetch_thread.join(timeout=5.0)
-        logger.info(f"[{self.fetch_client.user_id}] PriceFetcher stopped")
+        logger.info(f"[{self.fetch_client.user_id}] ATRADPriceFetcher stopped")
 
     def get_latest_ltp(self) -> Optional[float]:
         """
@@ -98,7 +98,7 @@ class PriceFetcher:
         while self._running:
             try:
                 # Fetch LTP
-                ltp = self.fetch_client.get_ltp(self.security_id)
+                ltp = self.fetch_client.get_ltp(self.symbol)
 
                 # Update latest value
                 if ltp is not None:
@@ -130,113 +130,21 @@ class PriceFetcher:
         logger.info(f"[{self.fetch_client.user_id}] Fetch loop ended")
 
 
-class TokenRefreshManager:
-    """
-    Manager for periodically refreshing tokens to keep them active.
-    Used in trigger mode to ensure the main user is ready immediately when orders need to be placed.
-    """
-
-    def __init__(self, tms_client: TMSClient, refresh_interval_seconds: int = 60):
-        """
-        Initialize token refresh manager.
-
-        Args:
-            tms_client: TMSClient instance to refresh tokens for
-            refresh_interval_seconds: How often to refresh tokens
-        """
-        self.tms_client = tms_client
-        self.refresh_interval_seconds = refresh_interval_seconds
-
-        self._running = False
-        self._refresh_thread: Optional[threading.Thread] = None
-
-        logger.info(
-            f"[{self.tms_client.user_id}] TokenRefreshManager initialized "
-            f"(interval={refresh_interval_seconds}s)"
-        )
-
-    def start(self):
-        """Start the token refresh thread."""
-        if self._running:
-            logger.warning(f"[{self.tms_client.user_id}] TokenRefreshManager already running")
-            return
-
-        self._running = True
-        self._refresh_thread = threading.Thread(
-            target=self._refresh_loop,
-            name=f"TokenRefresh-{self.tms_client.user_id}",
-            daemon=True
-        )
-        self._refresh_thread.start()
-        logger.info(f"[{self.tms_client.user_id}] TokenRefreshManager started")
-
-    def stop(self):
-        """Stop the token refresh thread."""
-        if not self._running:
-            return
-
-        self._running = False
-        if self._refresh_thread:
-            self._refresh_thread.join(timeout=5.0)
-        logger.info(f"[{self.tms_client.user_id}] TokenRefreshManager stopped")
-
-    def _refresh_loop(self):
-        """Main loop for refreshing tokens at regular intervals."""
-        logger.info(
-            f"[{self.tms_client.user_id}] Starting token refresh loop "
-            f"(interval={self.refresh_interval_seconds}s)"
-        )
-
-        # First refresh happens 15 seconds earlier
-        time.sleep(max(0, self.refresh_interval_seconds - 16))
-
-        while self._running:
-            try:
-                if not self._running:
-                    break
-
-                # Refresh tokens
-                logger.info(f"[{self.tms_client.user_id}] Performing scheduled token refresh")
-                success = self.tms_client.refresh_tokens()
-
-                if success:
-                    logger.info(
-                        f"[{self.tms_client.user_id}] Scheduled token refresh successful"
-                    )
-                else:
-                    logger.warning(
-                        f"[{self.tms_client.user_id}] Scheduled token refresh failed"
-                    )
-
-                # Sleep for normal interval after refresh
-                time.sleep(self.refresh_interval_seconds)
-
-            except KeyboardInterrupt:
-                logger.info(f"[{self.tms_client.user_id}] Refresh loop interrupted by user")
-                break
-            except Exception as e:
-                logger.error(
-                    f"[{self.tms_client.user_id}] Error in refresh loop: {str(e)}"
-                )
-
-        logger.info(f"[{self.tms_client.user_id}] Token refresh loop ended")
-
-
-class MultiUserPriceFetcher:
+class ATRADMultiUserPriceFetcher:
     """
     Service for continuously monitoring LTP using multiple fetch users with rotation.
     Rotates between users every N requests to avoid rate limiting while maintaining time coverage.
-    Each fetch user can have a different fetch_security_id based on their host.
+    Each fetch user can have a different symbol based on their host.
     """
 
-    def __init__(self, fetch_users: List[FetchUser],
+    def __init__(self, fetch_users: List[ATRADFetchUser],
                  poll_interval_ms: int = 100, requests_per_user: int = 10,
                  enable_cooldown: bool = True):
         """
         Initialize multi-user price fetcher.
 
         Args:
-            fetch_users: List of FetchUser instances (each with their own fetch_security_id)
+            fetch_users: List of ATRADFetchUser instances (each with their own symbol)
             poll_interval_ms: Polling interval in milliseconds
             requests_per_user: Number of requests per user before rotating
             enable_cooldown: Whether to enable cooldown delays every 5 rotation cycles (default: True)
@@ -262,18 +170,18 @@ class MultiUserPriceFetcher:
         self._requests_with_current_user = 0
         self._rotation_cycles_completed = 0
 
-        user_info = ', '.join(f"{u.name}(sid={u.fetch_security_id})" for u in self.fetch_users)
+        user_info = ', '.join(f"{u.name}(sid={u.symbol})" for u in self.fetch_users)
         logger.info(
-            f"MultiUserPriceFetcher initialized with {len(self.fetch_users)} users: {user_info}, "
+            f"ATRADMultiUserPriceFetcher initialized with {len(self.fetch_users)} users: {user_info}, "
             f"poll_interval={poll_interval_ms}ms, rotation={requests_per_user} requests/user"
         )
 
-    def _get_next_user(self) -> FetchUser:
+    def _get_next_user(self) -> ATRADFetchUser:
         """
         Get the next user in rotation.
 
         Returns:
-            FetchUser object to use for the next request
+            ATRADFetchUser object to use for the next request
         """
         # Check if we should rotate to next user
         if self._requests_with_current_user >= self.requests_per_user:
@@ -294,17 +202,17 @@ class MultiUserPriceFetcher:
     def start(self):
         """Start the price fetching thread."""
         if self._running:
-            logger.warning("MultiUserPriceFetcher already running")
+            logger.warning("ATRADMultiUserPriceFetcher already running")
             return
 
         self._running = True
         self._fetch_thread = threading.Thread(
             target=self._fetch_loop,
-            name="MultiUserPriceFetcher",
+            name="ATRADMultiUserPriceFetcher",
             daemon=True
         )
         self._fetch_thread.start()
-        logger.info("MultiUserPriceFetcher started")
+        logger.info("ATRADMultiUserPriceFetcher started")
 
     def stop(self):
         """Stop the price fetching thread."""
@@ -314,7 +222,7 @@ class MultiUserPriceFetcher:
         self._running = False
         if self._fetch_thread:
             self._fetch_thread.join(timeout=5.0)
-        logger.info("MultiUserPriceFetcher stopped")
+        logger.info("ATRADMultiUserPriceFetcher stopped")
 
     def get_latest_ltp(self) -> Optional[float]:
         """
@@ -356,19 +264,19 @@ class MultiUserPriceFetcher:
                 # Get the user for this request
                 current_user = self._get_next_user()
 
-                # Fetch LTP using the user's specific fetch_security_id
-                ltp = current_user.client.get_ltp(current_user.fetch_security_id)
+                # Fetch LTP using the user's specific symbol
+                ltp = current_user.client.get_ltp(current_user.symbol)
 
                 # Update latest value
                 if ltp is not None:
                     with self._lock:
                         self._latest_ltp = ltp
                     logger.debug(
-                        f"[{current_user.name}] Fetch #{fetch_count}: LTP={ltp} (sid={current_user.fetch_security_id})"
+                        f"[{current_user.name}] Fetch #{fetch_count}: LTP={ltp} (sid={current_user.symbol})"
                     )
                 else:
                     logger.debug(
-                        f"[{current_user.name}] Fetch #{fetch_count}: LTP returned None (sid={current_user.fetch_security_id})"
+                        f"[{current_user.name}] Fetch #{fetch_count}: LTP returned None (sid={current_user.symbol})"
                     )
                     time.sleep(self.delay)
                     continue

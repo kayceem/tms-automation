@@ -345,26 +345,48 @@ class BaseOrderService(ABC):
         # Get poll interval from user config (default to 500ms)
         poll_interval_ms = getattr(self.client.user_config, 'trigger_sell_poll_interval_ms', 500)
 
-        # Resolve fetch_security_id for this specific fetch client if ticker provided
-        if ticker:
-            try:
-                from utils import get_ticker_store
-                ticker_store = get_ticker_store()
-                user_fetch_id = ticker_store.get_fetch_id(ticker, host=fetch_client.user_config.tms_host)
-                if user_fetch_id:
-                    fetch_security_id = user_fetch_id
-                    self.logger.info(
-                        f"[{self.user_id}] Using host-specific fetch_id={fetch_security_id} for ticker {ticker}"
-                    )
-            except Exception as e:
-                self.logger.debug(f"[{self.user_id}] Could not resolve host-specific fetch_id: {e}")
+        # Detect if fetch client is ATRAD or TMS
+        from api import ATRADClient
+        is_atrad_fetch = isinstance(fetch_client, ATRADClient)
 
-        # Create price fetcher for monitoring
-        price_fetcher = PriceFetcher(
-            fetch_client=fetch_client,
-            security_id=fetch_security_id,
-            poll_interval_ms=poll_interval_ms
-        )
+        if is_atrad_fetch:
+            # Use ATRAD price fetcher
+            from services.atrad_price_fetcher import ATRADPriceFetcher
+
+            # ATRAD uses symbol instead of security_id
+            symbol = platform_params.get('symbol')
+            self.logger.info(
+                f"[{self.user_id}] Using ATRAD fetch with symbol={symbol} for trigger sell LTP monitoring"
+            )
+
+            # Create ATRAD price fetcher for monitoring
+            price_fetcher = ATRADPriceFetcher(
+                fetch_client=fetch_client,
+                symbol=symbol,
+                poll_interval_ms=poll_interval_ms
+            )
+        else:
+            # Use TMS price fetcher
+            # Resolve fetch_security_id for this specific fetch client if ticker provided
+            if ticker:
+                try:
+                    from utils import get_ticker_store
+                    ticker_store = get_ticker_store()
+                    user_fetch_id = ticker_store.get_fetch_id(ticker, host=fetch_client.user_config.tms_host)
+                    if user_fetch_id:
+                        fetch_security_id = user_fetch_id
+                        self.logger.info(
+                            f"[{self.user_id}] Using host-specific fetch_id={fetch_security_id} for ticker {ticker}"
+                        )
+                except Exception as e:
+                    self.logger.debug(f"[{self.user_id}] Could not resolve host-specific fetch_id: {e}")
+
+            # Create TMS price fetcher for monitoring
+            price_fetcher = PriceFetcher(
+                fetch_client=fetch_client,
+                security_id=fetch_security_id,
+                poll_interval_ms=poll_interval_ms
+            )
 
         # Start token/session refresh manager to keep main user ready for order placement
         token_manager = self._setup_token_manager([fetch_client])
@@ -592,59 +614,104 @@ class BaseOrderService(ABC):
         # Start price fetcher for monitoring LTP
         poll_interval_ms = self.client.user_config.trigger_mode_poll_interval_ms
 
-        # Use MultiUserPriceFetcher if multiple fetch clients, otherwise single PriceFetcher
-        if len(fetch_clients) > 1:
-            # Multi-user fetch with rotation
-            # Resolve fetch_security_id for each fetch client based on their host
-            fetch_users = []
-            ticker_store = get_ticker_store() if ticker else None
+        # Detect if fetch clients are ATRAD or TMS
+        from api import ATRADClient
+        is_atrad_fetch = len(fetch_clients) > 0 and isinstance(fetch_clients[0], ATRADClient)
 
-            for i, client in enumerate(fetch_clients):
-                # Resolve fetch_id per user based on their host
-                if ticker and ticker_store:
-                    try:
-                        user_fetch_id = ticker_store.get_fetch_id(ticker, host=client.user_config.tms_host)
-                        self.logger.info(
-                            f"[{self.user_id}] FetchUser{i+1} ({client.user_id}) using "
-                            f"fetch_security_id={user_fetch_id} (host={client.user_config.tms_host})"
-                        )
-                    except Exception as e:
-                        # Fallback to provided fetch_security_id or security_id
-                        user_fetch_id = fetch_security_id if fetch_security_id else security_id
-                        self.logger.warning(
-                            f"[{self.user_id}] Could not resolve fetch_id for FetchUser{i+1}, "
-                            f"using fallback: {user_fetch_id}. Error: {e}"
-                        )
-                else:
-                    # Use provided fetch_security_id or security_id
-                    user_fetch_id = fetch_security_id if fetch_security_id else security_id
+        if is_atrad_fetch:
+            # Use ATRAD price fetcher
+            from services.atrad_price_fetcher import ATRADPriceFetcher, ATRADMultiUserPriceFetcher, ATRADFetchUser
 
-                fetch_users.append(
-                    FetchUser(
-                        name=f"FetchUser{i+1}",
-                        client=client,
-                        fetch_security_id=user_fetch_id
+            # Use MultiUserPriceFetcher if multiple fetch clients, otherwise single PriceFetcher
+            if len(fetch_clients) > 1:
+                # Multi-user ATRAD fetch with rotation
+                fetch_users = []
+
+                for i, client in enumerate(fetch_clients):
+                    # ATRAD uses symbol instead of security_id
+                    fetch_users.append(
+                        ATRADFetchUser(
+                            name=f"ATRADFetchUser{i+1}",
+                            client=client,
+                            symbol=symbol
+                        )
                     )
+                    self.logger.info(
+                        f"[{self.user_id}] ATRADFetchUser{i+1} ({client.user_id}) using symbol={symbol}"
+                    )
+
+                requests_per_user = self.client.user_config.trigger_mode_requests_per_fetch_user
+
+                price_fetcher = ATRADMultiUserPriceFetcher(
+                    fetch_users=fetch_users,
+                    poll_interval_ms=poll_interval_ms,
+                    requests_per_user=requests_per_user
                 )
-
-            requests_per_user = self.client.user_config.trigger_mode_requests_per_fetch_user
-
-            price_fetcher = MultiUserPriceFetcher(
-                fetch_users=fetch_users,
-                poll_interval_ms=poll_interval_ms,
-                requests_per_user=requests_per_user
-            )
+            else:
+                # Single ATRAD fetch user
+                self.logger.info(
+                    f"[{self.user_id}] Using ATRAD fetch with symbol={symbol} for LTP monitoring"
+                )
+                price_fetcher = ATRADPriceFetcher(
+                    fetch_client=fetch_clients[0],
+                    symbol=symbol,
+                    poll_interval_ms=poll_interval_ms
+                )
         else:
-            # Single fetch user - use provided fetch_security_id or security_id
-            single_fetch_id = fetch_security_id if fetch_security_id else security_id
-            self.logger.info(
-                f"[{self.user_id}] Using fetch_security_id={single_fetch_id} for LTP monitoring"
-            )
-            price_fetcher = PriceFetcher(
-                fetch_client=fetch_clients[0],
-                security_id=single_fetch_id,
-                poll_interval_ms=poll_interval_ms
-            )
+            # Use TMS price fetcher
+            # Use MultiUserPriceFetcher if multiple fetch clients, otherwise single PriceFetcher
+            if len(fetch_clients) > 1:
+                # Multi-user fetch with rotation
+                # Resolve fetch_security_id for each fetch client based on their host
+                fetch_users = []
+                ticker_store = get_ticker_store() if ticker else None
+
+                for i, client in enumerate(fetch_clients):
+                    # Resolve fetch_id per user based on their host
+                    if ticker and ticker_store:
+                        try:
+                            user_fetch_id = ticker_store.get_fetch_id(ticker, host=client.user_config.tms_host)
+                            self.logger.info(
+                                f"[{self.user_id}] FetchUser{i+1} ({client.user_id}) using "
+                                f"fetch_security_id={user_fetch_id} (host={client.user_config.tms_host})"
+                            )
+                        except Exception as e:
+                            # Fallback to provided fetch_security_id or security_id
+                            user_fetch_id = fetch_security_id if fetch_security_id else security_id
+                            self.logger.warning(
+                                f"[{self.user_id}] Could not resolve fetch_id for FetchUser{i+1}, "
+                                f"using fallback: {user_fetch_id}. Error: {e}"
+                            )
+                    else:
+                        # Use provided fetch_security_id or security_id
+                        user_fetch_id = fetch_security_id if fetch_security_id else security_id
+
+                    fetch_users.append(
+                        FetchUser(
+                            name=f"FetchUser{i+1}",
+                            client=client,
+                            fetch_security_id=user_fetch_id
+                        )
+                    )
+
+                requests_per_user = self.client.user_config.trigger_mode_requests_per_fetch_user
+
+                price_fetcher = MultiUserPriceFetcher(
+                    fetch_users=fetch_users,
+                    poll_interval_ms=poll_interval_ms,
+                    requests_per_user=requests_per_user
+                )
+            else:
+                # Single fetch user - use provided fetch_security_id or security_id
+                single_fetch_id = fetch_security_id if fetch_security_id else security_id
+                self.logger.info(
+                    f"[{self.user_id}] Using fetch_security_id={single_fetch_id} for LTP monitoring"
+                )
+                price_fetcher = PriceFetcher(
+                    fetch_client=fetch_clients[0],
+                    security_id=single_fetch_id,
+                    poll_interval_ms=poll_interval_ms
+                )
 
         price_fetcher.start()
 
@@ -712,8 +779,8 @@ class BaseOrderService(ABC):
                                         f"[{self.user_id}] LTP Rs. {ltp:.1f} < Rs. {switch_threshold:.1f} - "
                                         f"switching to SLOW polling ({slow_poll_ms}ms, cooldown OFF)"
                                     )
-                                    # Update price fetcher settings if using MultiUserPriceFetcher
-                                    if isinstance(price_fetcher, MultiUserPriceFetcher):
+                                    # Update price fetcher settings if using MultiUserPriceFetcher (TMS or ATRAD)
+                                    if hasattr(price_fetcher, 'update_poll_settings'):
                                         price_fetcher.update_poll_settings(slow_poll_ms, enable_cooldown=False)
                                 elif not using_fast_poll and ltp >= switch_threshold:
                                     # Switch back to fast polling permanently (enable cooldown)
@@ -723,8 +790,8 @@ class BaseOrderService(ABC):
                                         f"[{self.user_id}] LTP Rs. {ltp:.1f} >= Rs. {switch_threshold:.1f} - "
                                         f"switching to FAST polling ({fast_poll_ms}ms, cooldown ON) PERMANENTLY"
                                     )
-                                    # Update price fetcher settings if using MultiUserPriceFetcher
-                                    if isinstance(price_fetcher, MultiUserPriceFetcher):
+                                    # Update price fetcher settings if using MultiUserPriceFetcher (TMS or ATRAD)
+                                    if hasattr(price_fetcher, 'update_poll_settings'):
                                         price_fetcher.update_poll_settings(fast_poll_ms, enable_cooldown=True)
 
                         # Sleep based on current polling mode
