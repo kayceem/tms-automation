@@ -45,6 +45,7 @@ class PriceFetcher:
 
         self._latest_ltp: Optional[float] = None
         self._running = False
+        self._paused = False
         self._lock = threading.Lock()
         self._fetch_thread: Optional[threading.Thread] = None
 
@@ -88,6 +89,26 @@ class PriceFetcher:
         with self._lock:
             return self._latest_ltp
 
+    def pause(self):
+        """
+        Pause LTP fetching (thread-safe).
+        Fetch loop will stop fetching but continue running.
+        """
+        with self._lock:
+            if not self._paused:
+                self._paused = True
+                logger.info(f"[{self.fetch_client.user_id}] PriceFetcher paused")
+
+    def resume(self):
+        """
+        Resume LTP fetching (thread-safe).
+        Fetch loop will continue fetching LTP.
+        """
+        with self._lock:
+            if self._paused:
+                self._paused = False
+                logger.info(f"[{self.fetch_client.user_id}] PriceFetcher resumed")
+
     def _fetch_loop(self):
         """Main loop for fetching LTP at regular intervals."""
         logger.info(
@@ -100,20 +121,25 @@ class PriceFetcher:
 
         while self._running:
             try:
-                # Fetch LTP with timeout
-                ltp = self.fetch_client.get_ltp(self.security_id, timeout=timeout)
+                # Check if paused
+                with self._lock:
+                    is_paused = self._paused
 
-                # Update latest value
-                if ltp is not None:
-                    with self._lock:
-                        self._latest_ltp = ltp
-                    logger.debug(
-                        f"[{self.fetch_client.user_id}] Updated LTP: {ltp}"
-                    )
-                else:
-                    logger.debug(
-                        f"[{self.fetch_client.user_id}] LTP fetch returned None"
-                    )
+                if not is_paused:
+                    # Fetch LTP with timeout
+                    ltp = self.fetch_client.get_ltp(self.security_id, timeout=timeout)
+
+                    # Update latest value
+                    if ltp is not None:
+                        with self._lock:
+                            self._latest_ltp = ltp
+                        logger.debug(
+                            f"[{self.fetch_client.user_id}] Updated LTP: {ltp}"
+                        )
+                    else:
+                        logger.debug(
+                            f"[{self.fetch_client.user_id}] LTP fetch returned None"
+                        )
 
             except KeyboardInterrupt:
                 logger.info(f"[{self.fetch_client.user_id}] Fetch loop interrupted by user")
@@ -257,6 +283,7 @@ class MultiUserPriceFetcher:
 
         self._latest_ltp: Optional[float] = None
         self._running = False
+        self._paused = False
         self._lock = threading.Lock()
         self._fetch_thread: Optional[threading.Thread] = None
 
@@ -344,6 +371,26 @@ class MultiUserPriceFetcher:
             self.delay = max(0.01, self.poll_interval_seconds / 2)
             self.enable_cooldown = enable_cooldown
 
+    def pause(self):
+        """
+        Pause LTP fetching (thread-safe).
+        Fetch loop will stop fetching but continue running.
+        """
+        with self._lock:
+            if not self._paused:
+                self._paused = True
+                logger.info("MultiUserPriceFetcher paused")
+
+    def resume(self):
+        """
+        Resume LTP fetching (thread-safe).
+        Fetch loop will continue fetching LTP.
+        """
+        with self._lock:
+            if self._paused:
+                self._paused = False
+                logger.info("MultiUserPriceFetcher resumed")
+
     def _fetch_loop(self):
         """Main loop for fetching LTP at regular intervals with user rotation."""
         logger.info(
@@ -357,27 +404,32 @@ class MultiUserPriceFetcher:
         fetch_count = 0
         while self._running:
             try:
-                fetch_count += 1
+                # Check if paused
+                with self._lock:
+                    is_paused = self._paused
 
-                # Get the user for this request
-                current_user = self._get_next_user()
+                if not is_paused:
+                    fetch_count += 1
 
-                # Fetch LTP using the user's specific fetch_security_id with timeout
-                ltp = current_user.client.get_ltp(current_user.fetch_security_id, timeout=timeout)
+                    # Get the user for this request
+                    current_user = self._get_next_user()
 
-                # Update latest value
-                if ltp is not None:
-                    with self._lock:
-                        self._latest_ltp = ltp
-                    logger.debug(
-                        f"[{current_user.name}] Fetch #{fetch_count}: LTP={ltp} (sid={current_user.fetch_security_id})"
-                    )
-                else:
-                    logger.debug(
-                        f"[{current_user.name}] Fetch #{fetch_count}: LTP returned None (sid={current_user.fetch_security_id})"
-                    )
-                    time.sleep(self.delay)
-                    continue
+                    # Fetch LTP using the user's specific fetch_security_id with timeout
+                    ltp = current_user.client.get_ltp(current_user.fetch_security_id, timeout=timeout)
+
+                    # Update latest value
+                    if ltp is not None:
+                        with self._lock:
+                            self._latest_ltp = ltp
+                        logger.debug(
+                            f"[{current_user.name}] Fetch #{fetch_count}: LTP={ltp} (sid={current_user.fetch_security_id})"
+                        )
+                    else:
+                        logger.debug(
+                            f"[{current_user.name}] Fetch #{fetch_count}: LTP returned None (sid={current_user.fetch_security_id})"
+                        )
+                        time.sleep(self.delay)
+                        continue
 
             except KeyboardInterrupt:
                 logger.info("Multi-user fetch loop interrupted by user")

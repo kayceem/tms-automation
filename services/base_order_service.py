@@ -433,6 +433,9 @@ class BaseOrderService(ABC):
                         if 'side' in sell_params:
                             sell_params['side'] = 'SELL'  # ATRAD: 'SELL'
 
+                        # Pause price fetcher during order placement
+                        price_fetcher.pause()
+
                         # Pass current LTP as market_price for ATRAD orders
                         sell_params['market_price'] = ltp
 
@@ -443,11 +446,16 @@ class BaseOrderService(ABC):
                             **sell_params
                         )
 
+                        # Resume price fetcher after order placement
+                        price_fetcher.resume()
+
                         self.logger.info(f"[{self.user_id}] Sell order placed successfully")
                         order_placed = True
                         last_response = response
 
                     except Exception as e:
+                        # Resume price fetcher on error
+                        price_fetcher.resume()
                         self.logger.error(f"[{self.user_id}] Failed to place sell order: {str(e)}")
                         # Don't retry - raise immediately (400 errors are validation issues)
                         raise
@@ -943,6 +951,9 @@ class BaseOrderService(ABC):
                         self.logger.debug(f"[{self.user_id}] Attempt #{attempt}/{max_attempts}")
 
                     try:
+                        # Pause price fetcher during order placement
+                        price_fetcher.pause()
+
                         # Pass current LTP as market_price for ATRAD orders
                         order_params = {**platform_params, 'market_price': ltp}
 
@@ -978,11 +989,17 @@ class BaseOrderService(ABC):
                                 except KeyboardInterrupt:
                                     self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                                     raise
+                        # Resume price fetcher after order placement
+                        price_fetcher.resume()
 
                     except KeyboardInterrupt:
+                        # Resume price fetcher before raising
+                        price_fetcher.resume()
                         self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                         raise
                     except Exception as e:
+                        # Resume price fetcher on error
+                        price_fetcher.resume()
                         error_msg = str(e)
                         # Handle different error types with appropriate delays
                         if "401" in error_msg or "Unauthorized" in error_msg:
