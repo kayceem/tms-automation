@@ -96,7 +96,7 @@ class PriceFetcher:
         )
 
         # Set timeout to 2x poll interval to prevent blocking
-        timeout = min(self.poll_interval_seconds * 3, 0.1)
+        timeout = min(self.poll_interval_seconds * 2, 0.1)
 
         while self._running:
             try:
@@ -352,7 +352,7 @@ class MultiUserPriceFetcher:
         )
 
         # Set timeout to 2x poll interval to prevent blocking
-        timeout = min(self.poll_interval_seconds * 3, 0.1)
+        timeout = min(self.poll_interval_seconds * 2, 0.1)
 
         fetch_count = 0
         while self._running:
