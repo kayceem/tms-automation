@@ -410,7 +410,7 @@ class ATRADClient:
                 logger.debug(f"[{self.user_id}] Response text: {response.text}")
 
             # Check for session expiry and retry
-            if response.status_code == 401 or (response.status_code == 200 and "session" in response.text.lower()):
+            if response.status_code == 401 or (response.status_code == 200 and ("<html>" in response.text.lower() or "session" in response.text.lower())):
                 logger.warning(f"[{self.user_id}] Session expired, re-authenticating...")
                 self._is_authenticated = False
                 self.login()
@@ -527,10 +527,12 @@ class ATRADClient:
                         return None
 
                     ltp = security.get('tradeprice')
+                    bidqty = security.get('bidqty', '')
+                    bidprice = security.get('bidprice', '')
                     if ltp is not None and ltp != '':
-                        logger.debug(f"[{self.user_id}] LTP={ltp}")
                         # Remove commas if present (e.g., "1,234.56" -> "1234.56")
                         ltp_str = str(ltp).replace(',', '')
+                        logger.debug(f"[{self.user_id}] LTP response: ltp={ltp}, bidqty={bidqty}, bidprice={bidprice}")
                         return float(ltp_str)
                     else:
                         logger.warning(f"[{self.user_id}] No LTP (tradeprice) in security data: {security}")

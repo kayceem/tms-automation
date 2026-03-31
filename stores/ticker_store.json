@@ -110,5 +110,18 @@
             "tms89.nepsetms.com.np": 3107
 
         }
+    },
+    "SKHEL": {
+        "security_id": 3106,
+        "exchange_security_id": 9325,
+        "name": "Super Khudi Hydropower Limited",
+        "fetch_id": {
+            "tms01.nepsetms.com.np": 3106,
+            "tms35.nepsetms.com.np": 3107,
+            "tms56.nepsetms.com.np": 3106,
+            "tms57.nepsetms.com.np": 3106,
+            "tms89.nepsetms.com.np": 3108
+
+        }
     }
 }

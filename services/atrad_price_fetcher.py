@@ -116,8 +116,8 @@ class ATRADPriceFetcher:
             f"(interval={self.poll_interval_ms}ms)"
         )
 
-        # Set timeout to 2x poll interval to prevent blocking
-        timeout = min(self.poll_interval_seconds * 2, 0.1)
+        # Set timeout to 4x poll interval to prevent blocking
+        timeout = min(self.poll_interval_seconds * 4, 0.05)
 
         while self._running:
             try:
@@ -133,9 +133,6 @@ class ATRADPriceFetcher:
                     if ltp is not None:
                         with self._lock:
                             self._latest_ltp = ltp
-                        logger.debug(
-                            f"[{self.fetch_client.user_id}] Updated LTP: {ltp}"
-                        )
                     else:
                         logger.debug(
                             f"[{self.fetch_client.user_id}] LTP fetch returned None"
@@ -185,7 +182,7 @@ class ATRADMultiUserPriceFetcher:
         self._len_fetch_users = len(fetch_users)
         self.poll_interval_ms = poll_interval_ms
         self.poll_interval_seconds = poll_interval_ms / 1000.0
-        self.delay = max(0.01, self.poll_interval_seconds / 2) 
+        self.delay = max(0.005, self.poll_interval_seconds / 2) 
         self.requests_per_user = requests_per_user
         self.enable_cooldown = enable_cooldown
 
@@ -227,7 +224,7 @@ class ATRADMultiUserPriceFetcher:
 
     def _should_add_cooldown_delay(self) -> bool:
         """Check if we should add cooldown delay after every 5 rotation cycles."""
-        return self._rotation_cycles_completed > self._len_fetch_users
+        return self._rotation_cycles_completed > (self._len_fetch_users * 4)
 
     def start(self):
         """Start the price fetching thread."""
@@ -276,7 +273,7 @@ class ATRADMultiUserPriceFetcher:
         with self._lock:
             self.poll_interval_ms = poll_interval_ms
             self.poll_interval_seconds = poll_interval_ms / 1000.0
-            self.delay = max(0.01, self.poll_interval_seconds / 2)
+            self.delay = max(0.005, self.poll_interval_seconds / 2)
             self.enable_cooldown = enable_cooldown
 
     def pause(self):
@@ -306,8 +303,8 @@ class ATRADMultiUserPriceFetcher:
             f"rotation={self.requests_per_user} requests/user)"
         )
 
-        # Set timeout to 2x poll interval to prevent blocking
-        timeout = min(self.poll_interval_seconds * 2, 0.1)
+        # Set timeout to 4x poll interval to prevent blocking
+        timeout = min(self.poll_interval_seconds * 4, 0.05)
 
         fetch_count = 0
         while self._running:
@@ -329,9 +326,6 @@ class ATRADMultiUserPriceFetcher:
                     if ltp is not None:
                         with self._lock:
                             self._latest_ltp = ltp
-                        logger.debug(
-                            f"[{current_user.name}] Fetch #{fetch_count}: LTP={ltp} (sid={current_user.symbol})"
-                        )
                     else:
                         logger.debug(
                             f"[{current_user.name}] Fetch #{fetch_count}: LTP returned None (sid={current_user.symbol})"
@@ -359,7 +353,7 @@ class ATRADMultiUserPriceFetcher:
                         f"Cooldown delay after {self._rotation_cycles_completed} rotation cycles"
                     )
                     time.sleep(self.poll_interval_seconds + self.delay)
-                    if self._rotation_cycles_completed > (self._len_fetch_users * 2) :
+                    if self._rotation_cycles_completed > (self._len_fetch_users * 5):
                         self._rotation_cycles_completed = 0
             except KeyboardInterrupt:
                 logger.info("Multi-user fetch loop interrupted by user")

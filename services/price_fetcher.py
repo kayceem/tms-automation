@@ -116,8 +116,8 @@ class PriceFetcher:
             f"(interval={self.poll_interval_ms}ms)"
         )
 
-        # Set timeout to 2x poll interval to prevent blocking
-        timeout = min(self.poll_interval_seconds * 2, 0.1)
+        # Set timeout to 4x poll interval to prevent blocking
+        timeout = min(self.poll_interval_seconds * 4, 0.05)
 
         while self._running:
             try:
@@ -398,8 +398,8 @@ class MultiUserPriceFetcher:
             f"rotation={self.requests_per_user} requests/user)"
         )
 
-        # Set timeout to 2x poll interval to prevent blocking
-        timeout = min(self.poll_interval_seconds * 2, 0.1)
+        # Set timeout to 4x poll interval to prevent blocking
+        timeout = min(self.poll_interval_seconds * 4, 0.05)
 
         fetch_count = 0
         while self._running:
