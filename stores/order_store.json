@@ -25,9 +25,9 @@
       "queue_id": 1,
       "ticker": "RSML",
       "mode": "ipo-trigger",
-      "quantity": 180,
+      "quantity": 160,
       "base_quantity": 50,
-      "price": 2679.3,
+      "price": 2460,
       "limit": 2679.3,
       "no_ladder": true,
       "double_buy": true,
@@ -40,23 +40,23 @@
       "queue_id": 3,
       "ticker": "HFIN",
       "mode": "ipo-trigger",
-      "quantity": 500,
+      "quantity": 400,
       "base_quantity": 10,
       "price": 316.0,
-      "limit": 318.0,
+      "limit": 349.8,
       "no_ladder": true
     },
     {
       "id": "bjhl_ipo",
-      "execute": false,
-      "success": true,
+      "execute": true,
+      "success": false,
       "queue_id": 4,
       "ticker": "BJHL",
       "mode": "ipo-trigger",
-      "quantity": 150,
+      "quantity": 250,
       "base_quantity": 10,
       "price": 536.0,
-      "limit": 526.0,
+      "limit": 578.6,
       "no_ladder": true
     },
     {
@@ -69,7 +69,7 @@
       "quantity": 200,
       "base_quantity": 10,
       "price": 438.9,
-      "limit": 439.2,
+      "limit": 483.1,
       "no_ladder": true
     },
     {
@@ -79,10 +79,10 @@
       "queue_id": 6,
       "ticker": "RLEL",
       "mode": "ipo-trigger",
-      "quantity": 10,
+      "quantity": 150,
       "base_quantity": 10,
       "price": 370.0,
-      "limit": 363.0,
+      "limit": 399.3,
       "no_ladder": true
     },
     {
@@ -92,10 +92,10 @@
       "queue_id": 7,
       "ticker": "SKHEL",
       "mode": "ipo-trigger",
-      "quantity": 10,
+      "quantity": 50,
       "base_quantity": 10,
       "price": 370.0,
-      "limit": 363.0,
+      "limit": 378.2,
       "no_ladder": true
     }
   ]

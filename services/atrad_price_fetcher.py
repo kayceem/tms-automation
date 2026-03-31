@@ -117,7 +117,7 @@ class ATRADPriceFetcher:
         )
 
         # Set timeout to 4x poll interval to prevent blocking
-        timeout = min(self.poll_interval_seconds * 4, 0.05)
+        timeout = max(min(self.poll_interval_seconds * 4, 0.05), 0.02)
 
         while self._running:
             try:
@@ -273,8 +273,9 @@ class ATRADMultiUserPriceFetcher:
         with self._lock:
             self.poll_interval_ms = poll_interval_ms
             self.poll_interval_seconds = poll_interval_ms / 1000.0
-            self.delay = max(0.005, self.poll_interval_seconds / 2)
-            self.enable_cooldown = enable_cooldown
+            if enable_cooldown:
+                self.delay = 0.002
+            self.enable_cooldown = False
 
     def pause(self):
         """
@@ -304,7 +305,7 @@ class ATRADMultiUserPriceFetcher:
         )
 
         # Set timeout to 4x poll interval to prevent blocking
-        timeout = min(self.poll_interval_seconds * 4, 0.05)
+        timeout = max(min(self.poll_interval_seconds * 4, 0.05), 0.02)
 
         fetch_count = 0
         while self._running:
