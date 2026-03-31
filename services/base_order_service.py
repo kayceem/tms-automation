@@ -952,7 +952,7 @@ class BaseOrderService(ABC):
 
                     try:
                         # Pause price fetcher during order placement
-                        price_fetcher.pause()
+                        # price_fetcher.pause()
 
                         # Pass current LTP as market_price for ATRAD orders
                         order_params = {**platform_params, 'market_price': ltp}
@@ -985,21 +985,21 @@ class BaseOrderService(ABC):
                             # Small delay between orders
                             if current_level_index < len(price_levels):
                                 try:
-                                    time.sleep(0.1)
+                                    time.sleep(0.01)
                                 except KeyboardInterrupt:
                                     self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                                     raise
                         # Resume price fetcher after order placement
-                        price_fetcher.resume()
+                        # price_fetcher.resume()
 
                     except KeyboardInterrupt:
                         # Resume price fetcher before raising
-                        price_fetcher.resume()
+                        # price_fetcher.resume()
                         self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                         raise
                     except Exception as e:
                         # Resume price fetcher on error
-                        price_fetcher.resume()
+                        # price_fetcher.resume()
                         error_msg = str(e)
                         # Handle different error types with appropriate delays
                         if "401" in error_msg or "Unauthorized" in error_msg:

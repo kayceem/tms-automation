@@ -117,7 +117,7 @@ class ATRADPriceFetcher:
         )
 
         # Set timeout to 4x poll interval to prevent blocking
-        timeout = max(min(self.poll_interval_seconds * 4, 0.05), 0.02)
+        timeout = max(min(self.poll_interval_seconds * 4, 0.05), 0.015)
 
         while self._running:
             try:
@@ -305,7 +305,7 @@ class ATRADMultiUserPriceFetcher:
         )
 
         # Set timeout to 4x poll interval to prevent blocking
-        timeout = max(min(self.poll_interval_seconds * 4, 0.05), 0.02)
+        timeout = max(min(self.poll_interval_seconds * 4, 0.05), 0.015)
 
         fetch_count = 0
         while self._running:
