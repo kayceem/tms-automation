@@ -43,7 +43,8 @@ class ATRADUserConfig:
     atrad_login_endpoint: str = '/atsweb/login'
     atrad_order_endpoint: str = '/atsweb/order'
     atrad_watch_endpoint: str = '/atsweb/watch?action=getWatchForSecurity&format=json&exchange=NEPSE&bookDefId=1'
-
+    atrad_market_details_endpoint: str = '/atsweb/marketdetails?action=getOrderBook&format=json&board=1'
+    
     # Session management (populated after login)
     _session_id: Optional[str] = None  # JSESSIONID
     _role: Optional[str] = None  # OnlineUser, Manager, etc.

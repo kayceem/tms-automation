@@ -64,6 +64,7 @@ class ATRADClient:
         self.login_endpoint = f"{self.base_url}{user_config.atrad_login_endpoint}"
         self.order_endpoint = f"{self.base_url}{user_config.atrad_order_endpoint}"
         self.quote_endpoint = f"{self.base_url}{user_config.atrad_watch_endpoint}"
+        self.market_endpoint = f"{self.base_url}{user_config.atrad_market_details_endpoint}"
 
         # Thread-safe session
         self.session = requests.Session()
@@ -544,6 +545,95 @@ class ATRADClient:
             else:
                 logger.warning(
                     f"[{self.user_id}] LTP fetch failed: "
+                    f"{response.status_code} {response.reason}"
+                )
+                return None
+
+    def get_market_details(self, symbol: str, timeout: float = 2.0) -> Optional[Dict[str, str]]:
+        """
+        Fetch market details (bid/ask orderbook) for a security (thread-safe).
+
+        Args:
+            symbol: Symbol to fetch market details for
+            timeout: Request timeout in seconds (default: 2.0)
+
+        Returns:
+            List of bid data dictionaries with 'splits', 'qty', 'price', or None if fetch fails
+
+        Raises:
+            requests.HTTPError: If API request fails with non-401 error
+        """
+        logger.debug(f"[{self.user_id}] Fetching market details for symbol={symbol}")
+
+        epoch_time_ms = lambda: int(round(time.time() * 1000))
+        endpoint = f"{self.market_endpoint}&security={symbol}&dojo.preventCache="
+
+        # Make thread-safe API request with timeout
+        with self._request_lock:
+            try:
+                response = self.session.get(endpoint + str(epoch_time_ms()), timeout=timeout)
+                response.encoding = 'utf-8'
+            except requests.exceptions.Timeout:
+                logger.warning(f"[{self.user_id}] Market details fetch timed out after {timeout}s")
+                return None
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"[{self.user_id}] Market details fetch failed: {e}")
+                return None
+
+            logger.debug(
+                f"[{self.user_id}] Market details fetch response status: {response.status_code}"
+            )
+
+            # If we get 401, try to refresh tokens and retry once
+            if response.status_code == 401 or (response.status_code == 200 and "<html>" in response.text.lower()):
+                logger.debug(f"[{self.user_id}] Session expired, attempting token refresh")
+                self._is_authenticated = False
+                if self.ensure_authenticated():
+                    logger.debug(f"[{self.user_id}] Tokens refreshed, retrying market details fetch")
+
+                    # Retry the request with new tokens
+                    try:
+                        response = self.session.get(endpoint + str(epoch_time_ms()), timeout=timeout)
+                        response.encoding = 'utf-8'
+
+                        logger.debug(
+                            f"[{self.user_id}] Retry market details response status: {response.status_code}"
+                        )
+                    except requests.exceptions.Timeout:
+                        logger.warning(f"[{self.user_id}] Retry market details fetch timed out after {timeout}s")
+                        return None
+                    except requests.exceptions.RequestException as e:
+                        logger.warning(f"[{self.user_id}] Retry market details fetch failed: {e}")
+                        return None
+                else:
+                    logger.error(f"[{self.user_id}] Token refresh failed for market details fetch")
+                    return None
+
+            if response.status_code == 200:
+                try:
+                    data = response.text.strip().replace("'", '"')
+                    data = json.loads(data)
+                    orderbook = data.get('data', {}).get('orderbook', [])
+
+                    if not orderbook or len(orderbook) == 0:
+                        logger.debug(f"[{self.user_id}] No orderbook data in response")
+                        return None
+
+                    bid_data = orderbook[0].get('bid', [])
+                    if not bid_data:
+                        logger.debug(f"[{self.user_id}] No bid data in orderbook")
+                        return None
+                    return bid_data[0]
+
+                except Exception as e:
+                    logger.error(
+                        f"[{self.user_id}] Error parsing market details response: {str(e)}",
+                        exc_info=True
+                    )
+                    return None
+            else:
+                logger.warning(
+                    f"[{self.user_id}] Market details fetch failed: "
                     f"{response.status_code} {response.reason}"
                 )
                 return None

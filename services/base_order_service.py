@@ -824,11 +824,15 @@ class BaseOrderService(ABC):
                                     # Execute just_buy if enabled (before updating poll settings)
                                     if just_buy:
                                         import threading
-                                        
+
                                         self.logger.info(
                                             f"[{self.user_id}] JUST BUY ACTIVATED: Starting aggressive order placement "
                                             f"at Rs. {final_price:.1f} (interval={just_buy_interval_ms}ms, timeout={just_buy_timeout}s)"
                                         )
+
+                                        # Start market details monitoring if ATRAD
+                                        if hasattr(price_fetcher, 'start_market_details'):
+                                            price_fetcher.start_market_details()
 
                                         # Thread-safe flag and result storage
                                         success_flag = threading.Event()
@@ -913,6 +917,10 @@ class BaseOrderService(ABC):
 
                                         for thread in active_threads:
                                             thread.join(timeout=1)  # Wait max 1s per thread
+
+                                        # Stop market details monitoring if ATRAD
+                                        if hasattr(price_fetcher, 'stop_market_details'):
+                                            price_fetcher.stop_market_details()
 
                                         # Check if any thread succeeded
                                         if success_flag.is_set():
