@@ -180,6 +180,23 @@ Examples:
         type=int,
         help='Quantity for the second order in double buy mode (defaults to same as --quantity if not specified)'
     )
+    parser.add_argument(
+        '--just-buy',
+        action='store_true',
+        help='Enable just buy mode (no_ladder only): Aggressively place orders when switch threshold is reached'
+    )
+    parser.add_argument(
+        '--just-buy-interval',
+        type=int,
+        default=100,
+        help='Interval between just buy order attempts in milliseconds (default: 100ms)'
+    )
+    parser.add_argument(
+        '--just-buy-timeout',
+        type=int,
+        default=5,
+        help='Total duration for just buy attempts in seconds (default: 5s)'
+    )
 
     return parser
 
@@ -265,6 +282,18 @@ def validate_args(args: argparse.Namespace):
 
     if args.double_buy_quantity:
         validate_positive_integer(args.double_buy_quantity, 'double-buy-quantity')
+
+    # Validate just-buy parameters
+    if hasattr(args, 'just_buy') and args.just_buy:
+        if not args.ipo_trigger:
+            raise ValueError("--just-buy can only be used with --ipo-trigger mode")
+        # Note: no_ladder validation happens in order store, so we can't validate it here for CLI mode
+
+    if hasattr(args, 'just_buy_interval') and args.just_buy_interval:
+        validate_positive_integer(args.just_buy_interval, 'just-buy-interval')
+
+    if hasattr(args, 'just_buy_timeout') and args.just_buy_timeout:
+        validate_positive_integer(args.just_buy_timeout, 'just-buy-timeout')
 
 
 def load_user_config(args: argparse.Namespace):
@@ -557,6 +586,9 @@ def execute_from_order_store(
             'ticker': order['ticker'],  # Pass ticker for per-user fetch_id resolution
             'double_buy': order['double_buy'],
             'double_buy_quantity': order['double_buy_quantity'],
+            'just_buy': order.get('just_buy', False),
+            'just_buy_interval_ms': order.get('just_buy_interval_ms', 100),
+            'just_buy_timeout': order.get('just_buy_timeout', 5),
             'symbol': order['ticker'].upper()
         }
 
@@ -698,6 +730,9 @@ def main():
                 'ticker': ticker_symbol,  # Pass ticker for per-user fetch_id resolution
                 'double_buy': args.double_buy if hasattr(args, 'double_buy') else False,
                 'double_buy_quantity': args.double_buy_quantity if hasattr(args, 'double_buy_quantity') else None,
+                'just_buy': args.just_buy if hasattr(args, 'just_buy') else False,
+                'just_buy_interval_ms': args.just_buy_interval if hasattr(args, 'just_buy_interval') else 100,
+                'just_buy_timeout': args.just_buy_timeout if hasattr(args, 'just_buy_timeout') else 5,
                 'symbol': ticker_symbol
             }
 

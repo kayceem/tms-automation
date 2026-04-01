@@ -491,6 +491,9 @@ class BaseOrderService(ABC):
         ticker: Optional[str] = None,
         double_buy: bool = False,
         double_buy_quantity: Optional[int] = None,
+        just_buy: bool = False,
+        just_buy_interval_ms: int = 100,
+        just_buy_timeout: int = 5,
         **platform_params
     ) -> Dict[str, Any]:
         """
@@ -504,6 +507,12 @@ class BaseOrderService(ABC):
         - Skip missed levels if LTP jumps ahead
         - Uses base_quantity for all levels except final, which uses order_quantity
 
+        Just Buy Mode (only active when no_ladder=True):
+        - When LTP reaches switch_threshold, starts aggressive multi-threaded order placement
+        - Places orders at final_price every just_buy_interval_ms for just_buy_timeout seconds
+        - If any order succeeds, stops and moves on
+        - If all orders fail after timeout, falls back to normal trigger logic
+
         Args:
             base_price: Starting price
             order_quantity: Number of units for final level
@@ -515,6 +524,9 @@ class BaseOrderService(ABC):
             fetch_security_id: Security ID for fetching LTP (defaults to security_id if not provided)
             base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
             ticker: Ticker symbol for resolving per-user fetch_id (optional)
+            just_buy: Enable aggressive multi-threaded order placement when switch_threshold is met
+            just_buy_interval_ms: Interval between order attempts in milliseconds (default: 100ms)
+            just_buy_timeout: Total duration to keep trying in seconds (default: 5s)
 
         Returns:
             Last API response dictionary
@@ -729,6 +741,10 @@ class BaseOrderService(ABC):
         last_response = None
 
         try:
+            # Validate just_buy only works with no_ladder
+            if just_buy and not no_ladder:
+                raise ValueError("just_buy can only be used with no_ladder=True mode")
+
             # Determine starting index based on skip_first and no_ladder
             current_level_index = 0
 
@@ -761,6 +777,12 @@ class BaseOrderService(ABC):
                         f"[{self.user_id}] Dynamic polling: Fast={fast_poll_ms}ms, Slow={slow_poll_ms}ms, "
                         f"Switch threshold=Rs. {switch_threshold:.1f}"
                     )
+                    if just_buy:
+                        self.logger.info(
+                            f"[{self.user_id}] JUST BUY MODE enabled: Will aggressively place orders "
+                            f"when switch threshold is reached (interval={just_buy_interval_ms}ms, "
+                            f"timeout={just_buy_timeout}s)"
+                        )
 
                     triggered = False
                     slow_sleep_duration = slow_poll_ms / 5000.0
@@ -796,12 +818,123 @@ class BaseOrderService(ABC):
                                     permanently_fast = True
                                     self.logger.info(
                                         f"[{self.user_id}] LTP Rs. {ltp:.1f} >= Rs. {switch_threshold:.1f} - "
-                                        f"switching to FAST polling ({fast_poll_ms}ms, cooldown ON) PERMANENTLY"
+                                        f"switch threshold reached!"
                                     )
-                                    # Update price fetcher settings if using MultiUserPriceFetcher (TMS or ATRAD)
+
+                                    # Execute just_buy if enabled (before updating poll settings)
+                                    if just_buy:
+                                        import threading
+                                        
+                                        self.logger.info(
+                                            f"[{self.user_id}] JUST BUY ACTIVATED: Starting aggressive order placement "
+                                            f"at Rs. {final_price:.1f} (interval={just_buy_interval_ms}ms, timeout={just_buy_timeout}s)"
+                                        )
+
+                                        # Thread-safe flag and result storage
+                                        success_flag = threading.Event()
+                                        success_response = {'response': None}
+                                        threads_lock = threading.Lock()
+                                        active_threads = []
+
+                                        def place_just_buy_order(thread_id: int):
+                                            """Place a single order in a separate thread"""
+                                            try:
+                                                # Check if another thread already succeeded
+                                                if success_flag.is_set():
+                                                    return
+
+                                                self.logger.debug(
+                                                    f"[{self.user_id}] Just Buy Thread #{thread_id}: Placing order at Rs. {final_price:.1f}"
+                                                )
+
+                                                # Prepare order parameters
+                                                order_params = {**platform_params, 'market_price': trigger_price}
+
+                                                # Place order (no retries)
+                                                response = self._place_single_order(
+                                                    price=final_price,
+                                                    quantity=order_quantity,
+                                                    **order_params
+                                                )
+
+                                                # If successful, set success flag
+                                                if response and not success_flag.is_set():
+                                                    success_flag.set()
+                                                    with threads_lock:
+                                                        success_response['response'] = response
+                                                    self.logger.info(
+                                                        f"[{self.user_id}] Just Buy Thread #{thread_id}: "
+                                                        f"SUCCESS! Order placed at Rs. {final_price:.1f}"
+                                                    )
+
+                                            except Exception as e:
+                                                # Log error but don't raise (other threads continue)
+                                                self.logger.debug(
+                                                    f"[{self.user_id}] Just Buy Thread #{thread_id} failed: {str(e)}"
+                                                )
+
+                                        # Start spawning threads
+                                        start_time = time.time()
+                                        thread_counter = 0
+                                        interval_seconds = just_buy_interval_ms / 1000.0
+                                        time.sleep(1.5)
+                                        while (time.time() - start_time) < just_buy_timeout:
+                                            # Check if any thread succeeded
+                                            if success_flag.is_set():
+                                                self.logger.info(
+                                                    f"[{self.user_id}] Just Buy SUCCESS detected, stopping new threads"
+                                                )
+                                                break
+
+                                            # Spawn new thread
+                                            thread_counter += 1
+                                            thread = threading.Thread(
+                                                target=place_just_buy_order,
+                                                args=(thread_counter,),
+                                                daemon=True
+                                            )
+
+                                            with threads_lock:
+                                                active_threads.append(thread)
+
+                                            thread.start()
+
+                                            # Sleep for interval
+                                            try:
+                                                time.sleep(interval_seconds)
+                                            except KeyboardInterrupt:
+                                                self.logger.info(f"[{self.user_id}] Just Buy interrupted by user")
+                                                raise
+
+                                        # Wait for all threads to complete (with timeout)
+                                        self.logger.info(
+                                            f"[{self.user_id}] Just Buy phase ended. Waiting for {len(active_threads)} threads to complete..."
+                                        )
+
+                                        for thread in active_threads:
+                                            thread.join(timeout=1)  # Wait max 1s per thread
+
+                                        # Check if any thread succeeded
+                                        if success_flag.is_set():
+                                            self.logger.info(
+                                                f"[{self.user_id}] Just Buy SUCCEEDED! "
+                                                f"Placed {thread_counter} orders, at least one succeeded"
+                                            )
+                                            triggered = True
+                                            last_response = success_response['response']
+                                            continue  # Skip normal trigger wait
+                                        else:
+                                            self.logger.warning(
+                                                f"[{self.user_id}] Just Buy FAILED after {just_buy_timeout}s "
+                                                f"({thread_counter} attempts). Falling back to normal trigger logic."
+                                            )
+
+                                    # Update poll settings to fast mode (after just_buy completes or if just_buy disabled)
+                                    self.logger.info(
+                                        f"[{self.user_id}] Switching to FAST polling ({fast_poll_ms}ms, cooldown ON) PERMANENTLY"
+                                    )
                                     if hasattr(price_fetcher, 'update_poll_settings'):
                                         price_fetcher.update_poll_settings(fast_poll_ms, enable_cooldown=True)
-
                         # Sleep based on current polling mode
                         try:
                             sleep_duration = (slow_sleep_duration if not using_fast_poll else fast_sleep_duration)
@@ -810,8 +943,15 @@ class BaseOrderService(ABC):
                             self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                             raise
 
-                    # Place only the final order
-                    current_level_index = len(price_levels) - 1
+                    # Place only the final order (unless just_buy already succeeded)
+                    if triggered and last_response is not None:
+                        # Just buy succeeded, skip ladder placement entirely
+                        self.logger.info(f"[{self.user_id}] Just buy succeeded, skipping normal ladder placement")
+                        # Jump to cleanup by setting current_level_index beyond the ladder
+                        current_level_index = len(price_levels)
+                    else:
+                        # Normal path: place final order via ladder logic
+                        current_level_index = len(price_levels) - 1
                 else:
                     # Edge case: Less than 2 levels, just place the only order
                     self.logger.warning(f"[{self.user_id}] Only one level available, placing immediately")
@@ -951,9 +1091,6 @@ class BaseOrderService(ABC):
                         self.logger.debug(f"[{self.user_id}] Attempt #{attempt}/{max_attempts}")
 
                     try:
-                        # Pause price fetcher during order placement
-                        # price_fetcher.pause()
-
                         # Pass current LTP as market_price for ATRAD orders
                         order_params = {**platform_params, 'market_price': ltp}
 
@@ -989,17 +1126,11 @@ class BaseOrderService(ABC):
                                 except KeyboardInterrupt:
                                     self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                                     raise
-                        # Resume price fetcher after order placement
-                        # price_fetcher.resume()
 
                     except KeyboardInterrupt:
-                        # Resume price fetcher before raising
-                        # price_fetcher.resume()
                         self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
                         raise
                     except Exception as e:
-                        # Resume price fetcher on error
-                        # price_fetcher.resume()
                         error_msg = str(e)
                         # Handle different error types with appropriate delays
                         if "401" in error_msg or "Unauthorized" in error_msg:

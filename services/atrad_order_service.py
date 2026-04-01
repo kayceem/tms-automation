@@ -44,6 +44,9 @@ class ATRADOrderService(BaseOrderService):
         no_ladder: bool = False,
         fetch_id: Optional[int] = None,
         ticker: Optional[str] = None,
+        just_buy: bool = False,
+        just_buy_interval_ms: int = 100,
+        just_buy_timeout: int = 5,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -103,6 +106,9 @@ class ATRADOrderService(BaseOrderService):
                 ticker=ticker,
                 double_buy=double_buy,
                 double_buy_quantity=double_buy_quantity,
+                just_buy=just_buy,
+                just_buy_interval_ms=just_buy_interval_ms,
+                just_buy_timeout=just_buy_timeout,
                 **kwargs
             )
 

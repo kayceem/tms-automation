@@ -394,8 +394,6 @@ class ATRADClient:
         with self._request_lock:
             response = self.session.post(self.order_endpoint, data=body)
             response.encoding = 'utf-8'
-            logger.debug(f"[{self.user_id}] Request body: {body}")
-
             logger.debug(
                 f"[{self.user_id}] Response status: {response.status_code}"
             )
@@ -410,10 +408,10 @@ class ATRADClient:
                 logger.debug(f"[{self.user_id}] Response text: {response.text}")
 
             # Check for session expiry and retry
-            if response.status_code == 401 or (response.status_code == 200 and ("<html>" in response.text.lower() or "session" in response.text.lower())):
+            if response.status_code == 401 or "<html>" in response.text.lower():
                 logger.warning(f"[{self.user_id}] Session expired, re-authenticating...")
                 self._is_authenticated = False
-                self.login()
+                self.ensure_authenticated()
 
                 # Retry order placement with the same encoded body
                 response = self.session.post(self.order_endpoint, data=body)
@@ -493,7 +491,7 @@ class ATRADClient:
             # If we get 401, try to refresh tokens and retry once
             if response.status_code == 401 or (response.status_code == 200 and "<html>" in response.text.lower()):
                 logger.debug(f"[{self.user_id}] Session expired, attempting token refresh")
-
+                self._is_authenticated = False
                 if self.ensure_authenticated():
                     logger.debug(f"[{self.user_id}] Tokens refreshed, retrying LTP fetch")
 
