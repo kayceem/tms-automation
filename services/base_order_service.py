@@ -1063,6 +1063,11 @@ class BaseOrderService(ABC):
                                 f"Rs. {trigger_price:.1f}. Placing order at Rs. {target_price:.1f}"
                             )
                             triggered = True
+
+                            # Start market details monitoring if ATRAD (will monitor during order placement)
+                            if hasattr(price_fetcher, 'start_market_details'):
+                                self.logger.info(f"[{self.user_id}] Starting market details monitoring for order placement")
+                                price_fetcher.start_market_details()
                         else:
                             # Small sleep to avoid busy waiting
                             try:
@@ -1114,6 +1119,9 @@ class BaseOrderService(ABC):
                             )
                             order_placed = True
                             last_response = response
+
+                            if hasattr(price_fetcher, 'stop_market_details'):
+                                price_fetcher.stop_market_details()
 
                             # Handle double buy for final level only
                             if double_buy and is_final_level:
@@ -1177,6 +1185,8 @@ class BaseOrderService(ABC):
 
         finally:
             # Stop background services
+            if hasattr(price_fetcher, 'stop_market_details'):
+                price_fetcher.stop_market_details()
             price_fetcher.stop()
             self._cleanup_token_manager(token_manager)
 
