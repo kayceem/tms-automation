@@ -494,6 +494,7 @@ class BaseOrderService(ABC):
         just_buy: bool = False,
         just_buy_interval_ms: int = 100,
         just_buy_timeout: int = 5,
+        just_buy_pre_wait_ms: int = 0,
         **platform_params
     ) -> Dict[str, Any]:
         """
@@ -509,6 +510,7 @@ class BaseOrderService(ABC):
 
         Just Buy Mode (only active when no_ladder=True):
         - When LTP reaches switch_threshold, starts aggressive multi-threaded order placement
+        - Optionally waits just_buy_pre_wait_ms before starting order placement
         - Places orders at final_price every just_buy_interval_ms for just_buy_timeout seconds
         - If any order succeeds, stops and moves on
         - If all orders fail after timeout, falls back to normal trigger logic
@@ -527,6 +529,7 @@ class BaseOrderService(ABC):
             just_buy: Enable aggressive multi-threaded order placement when switch_threshold is met
             just_buy_interval_ms: Interval between order attempts in milliseconds (default: 100ms)
             just_buy_timeout: Total duration to keep trying in seconds (default: 5s)
+            just_buy_pre_wait_ms: Wait time after switch threshold before starting just_buy (default: 0ms)
 
         Returns:
             Last API response dictionary
@@ -877,11 +880,16 @@ class BaseOrderService(ABC):
                                                     f"[{self.user_id}] Just Buy Thread #{thread_id} failed: {str(e)}"
                                                 )
 
+                                        # Wait before starting just_buy if configured
+                                        if just_buy_pre_wait_ms > 0:
+                                            self.logger.info(f"[{self.user_id}] Just Buy pre-wait: {just_buy_pre_wait_ms}ms")
+                                            time.sleep(just_buy_pre_wait_ms / 1000.0)
+
                                         # Start spawning threads
                                         start_time = time.time()
                                         thread_counter = 0
                                         interval_seconds = just_buy_interval_ms / 1000.0
-                                        time.sleep(1.5)
+
                                         while (time.time() - start_time) < just_buy_timeout:
                                             # Check if any thread succeeded
                                             if success_flag.is_set():

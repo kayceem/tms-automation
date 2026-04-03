@@ -529,12 +529,11 @@ class ATRADClient:
                     bidqty = security.get('bidqty', '')
                     bidprice = security.get('bidprice', '')
                     if ltp is not None and ltp != '':
-                        # Remove commas if present (e.g., "1,234.56" -> "1234.56")
                         ltp_str = str(ltp).replace(',', '')
                         logger.debug(f"[{self.user_id}] LTP response: ltp={ltp}, bidqty={bidqty}, bidprice={bidprice}")
                         return float(ltp_str)
                     else:
-                        logger.warning(f"[{self.user_id}] No LTP (tradeprice) in security data: {security}")
+                        logger.warning(f"[{self.user_id}] No LTP (tradeprice) in security data.")
                         return None
                 except Exception as e:
                     logger.error(

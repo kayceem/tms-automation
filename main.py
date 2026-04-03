@@ -197,7 +197,12 @@ Examples:
         default=5,
         help='Total duration for just buy attempts in seconds (default: 5s)'
     )
-
+    parser.add_argument(
+        '--just-buy-pre-wait',
+        type=int,
+        default=0,
+        help='Wait time in milliseconds after switch threshold before starting just buy (default: 0ms)'
+    )
     return parser
 
 
@@ -733,6 +738,7 @@ def main():
                 'just_buy': args.just_buy if hasattr(args, 'just_buy') else False,
                 'just_buy_interval_ms': args.just_buy_interval if hasattr(args, 'just_buy_interval') else 100,
                 'just_buy_timeout': args.just_buy_timeout if hasattr(args, 'just_buy_timeout') else 5,
+                'just_buy_pre_wait_ms': args.just_buy_pre_wait if hasattr(args, 'just_buy_pre_wait') else 0,
                 'symbol': ticker_symbol
             }
 

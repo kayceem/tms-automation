@@ -47,6 +47,7 @@ class ATRADOrderService(BaseOrderService):
         just_buy: bool = False,
         just_buy_interval_ms: int = 100,
         just_buy_timeout: int = 5,
+        just_buy_pre_wait_ms: int = 0,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -109,6 +110,7 @@ class ATRADOrderService(BaseOrderService):
                 just_buy=just_buy,
                 just_buy_interval_ms=just_buy_interval_ms,
                 just_buy_timeout=just_buy_timeout,
+                just_buy_pre_wait_ms=just_buy_pre_wait_ms,
                 **kwargs
             )
 

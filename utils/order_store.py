@@ -214,6 +214,16 @@ class OrderStore:
             except (TypeError, ValueError) as e:
                 raise ValueError(f"Order '{order_id}' has invalid just_buy_timeout: {order['just_buy_timeout']}")
 
+        # Validate just_buy_pre_wait_ms if provided
+        just_buy_pre_wait_ms = 0  # Default
+        if 'just_buy_pre_wait_ms' in order and order['just_buy_pre_wait_ms'] is not None:
+            try:
+                just_buy_pre_wait_ms = int(order['just_buy_pre_wait_ms'])
+                if just_buy_pre_wait_ms < 0:
+                    raise ValueError(f"Order '{order_id}' has invalid just_buy_pre_wait_ms: {just_buy_pre_wait_ms}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid just_buy_pre_wait_ms: {order['just_buy_pre_wait_ms']}")
+
         # Validate just_buy only works with no_ladder
         just_buy = bool(order.get('just_buy', False))
         no_ladder = bool(order.get('no_ladder', False))
@@ -252,7 +262,8 @@ class OrderStore:
             'double_buy_quantity': double_buy_quantity,
             'just_buy': just_buy,
             'just_buy_interval_ms': just_buy_interval_ms,
-            'just_buy_timeout': just_buy_timeout
+            'just_buy_timeout': just_buy_timeout,
+            'just_buy_pre_wait_ms': just_buy_pre_wait_ms,
         }
 
         logger.debug(f"Order '{order_id}' validated successfully")

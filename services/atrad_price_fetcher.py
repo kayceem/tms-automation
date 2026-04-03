@@ -431,7 +431,7 @@ class ATRADMultiUserPriceFetcher:
         )
 
         timeout = max(min(self.poll_interval_seconds * 4, 0.05), 0.02)
-        sleep_duration = 0.02
+        sleep_duration = min((self.poll_interval_seconds * 2), 0.01)
 
         while self._market_details_running:
             try:
@@ -440,11 +440,13 @@ class ATRADMultiUserPriceFetcher:
 
                 # Fetch market details from client
                 bid = current_user.client.get_market_details(current_user.symbol, timeout=timeout)
-
-                splits = bid.get('splits', 'N/A')
-                qty = bid.get('qty', 'N/A')
-                price = bid.get('price', 'N/A')
-                logger.info(f"[{current_user.name}] Price={price}, Qty={qty}, Splits={splits}")
+                if not bid:
+                    logger.info(f"[{current_user.name}] Market Details for {current_user.symbol}: No data available")
+                else:    
+                    splits = bid.get('splits', 'N/A')
+                    qty = bid.get('qty', 'N/A')
+                    price = bid.get('price', 'N/A')
+                    logger.info(f"[{current_user.name}] Price={price}, Qty={qty}, Splits={splits}")
 
             except KeyboardInterrupt:
                 logger.info("Multi-user market details loop interrupted by user")
