@@ -7,13 +7,12 @@ A command-line tool for automating order placement on NEPSE TMS.
 
 import argparse
 import sys
-from pathlib import Path
-from typing import List, Dict, Any
+from typing import Dict, Any
 
 from config import UserConfig, ATRADUserConfig
 from api import TMSClient, ATRADClient
 from services import OrderService, OrderScheduler, ATRADOrderService
-from utils import validate_positive_number, validate_positive_integer, setup_logger, lookup_ticker, OrderStore, detect_system_from_config
+from utils import validate_positive_number, validate_positive_integer, setup_logger, OrderStore, detect_system_from_config
 
 logger = setup_logger(
     name='main',
@@ -47,6 +46,9 @@ Examples:
 
   # IPO trigger mode with multi-user fetch (reduces rate limiting)
   python main.py --user-config users/user1.json --fetch-users users/fetch1.json users/fetch2.json --ticker EXAMPLE --price 1000 --quantity 10 --ipo-trigger --limit 1050
+
+  # IPO trigger mode with ATRAD fetch users
+  python main.py --user-config users/atrad_user1.json --fetch-users users/atrad_fetch1.json users/atrad_fetch2.json --atrad-fetch --ticker EXAMPLE --price 1000 --quantity 10 --ipo-trigger --limit 1050
 
   # IPO trigger mode with skip-first
   python main.py --user-config users/user1.json --fetch-user users/fetch_user.json --ticker EXAMPLE --price 1000 --quantity 10 --ipo-trigger --skip-first --limit 1050
@@ -147,6 +149,11 @@ Examples:
         help='Paths to multiple fetch user JSON files for multi-user rotation. Reduces rate limiting during LTP monitoring.'
     )
     parser.add_argument(
+        '--atrad-fetch',
+        action='store_true',
+        help='Use ATRAD fetch users instead of TMS fetch users. Fetch users will use ATRAD client for LTP monitoring.'
+    )
+    parser.add_argument(
         '--skip-first',
         action='store_true',
         help='Skip the first ladder level in IPO trigger mode. Places first order when LTP reaches ladder[0], starting from ladder[1].'
@@ -173,7 +180,29 @@ Examples:
         type=int,
         help='Quantity for the second order in double buy mode (defaults to same as --quantity if not specified)'
     )
-
+    parser.add_argument(
+        '--just-buy',
+        action='store_true',
+        help='Enable just buy mode (no_ladder only): Aggressively place orders when switch threshold is reached'
+    )
+    parser.add_argument(
+        '--just-buy-interval',
+        type=int,
+        default=100,
+        help='Interval between just buy order attempts in milliseconds (default: 100ms)'
+    )
+    parser.add_argument(
+        '--just-buy-timeout',
+        type=int,
+        default=5,
+        help='Total duration for just buy attempts in seconds (default: 5s)'
+    )
+    parser.add_argument(
+        '--just-buy-pre-wait',
+        type=int,
+        default=0,
+        help='Wait time in milliseconds after switch threshold before starting just buy (default: 0ms)'
+    )
     return parser
 
 
@@ -259,6 +288,18 @@ def validate_args(args: argparse.Namespace):
     if args.double_buy_quantity:
         validate_positive_integer(args.double_buy_quantity, 'double-buy-quantity')
 
+    # Validate just-buy parameters
+    if hasattr(args, 'just_buy') and args.just_buy:
+        if not args.ipo_trigger:
+            raise ValueError("--just-buy can only be used with --ipo-trigger mode")
+        # Note: no_ladder validation happens in order store, so we can't validate it here for CLI mode
+
+    if hasattr(args, 'just_buy_interval') and args.just_buy_interval:
+        validate_positive_integer(args.just_buy_interval, 'just-buy-interval')
+
+    if hasattr(args, 'just_buy_timeout') and args.just_buy_timeout:
+        validate_positive_integer(args.just_buy_timeout, 'just-buy-timeout')
+
 
 def load_user_config(args: argparse.Namespace):
     """
@@ -295,24 +336,34 @@ def load_user_config(args: argparse.Namespace):
     return user_config
 
 
-def load_fetch_user_configs(args: argparse.Namespace) -> List[UserConfig]:
+def load_fetch_user_configs(args: argparse.Namespace):
     """
     Load fetch user configurations based on command-line arguments.
+    Supports both TMS and ATRAD fetch users.
 
     Args:
         args: Parsed arguments
 
     Returns:
-        List of UserConfig instances for fetch users (empty list if none specified)
+        Tuple of (fetch_user_configs, is_atrad_fetch) where:
+        - fetch_user_configs: List of UserConfig or ATRADUserConfig instances
+        - is_atrad_fetch: Boolean indicating if ATRAD fetch users are being used
     """
     fetch_user_configs = []
+    is_atrad_fetch = args.atrad_fetch if hasattr(args, 'atrad_fetch') else False
 
     if args.fetch_user:
         # Single fetch user mode
         logger.info(f"Loading single fetch user configuration from {args.fetch_user}")
-        fetch_user_config = UserConfig.from_file(args.fetch_user)
+
+        if is_atrad_fetch:
+            fetch_user_config = ATRADUserConfig.from_file(args.fetch_user)
+            logger.info(f"Loaded ATRAD fetch user: {fetch_user_config.user_id}")
+        else:
+            fetch_user_config = UserConfig.from_file(args.fetch_user)
+            logger.info(f"Loaded TMS fetch user: {fetch_user_config.user_id}")
+
         fetch_user_configs.append(fetch_user_config)
-        logger.info(f"Loaded fetch user: {fetch_user_config.user_id}")
 
     elif args.fetch_users:
         # Multi-fetch user mode
@@ -320,9 +371,14 @@ def load_fetch_user_configs(args: argparse.Namespace) -> List[UserConfig]:
 
         for idx, fetch_user_file in enumerate(args.fetch_users, 1):
             try:
-                fetch_user_config = UserConfig.from_file(fetch_user_file)
+                if is_atrad_fetch:
+                    fetch_user_config = ATRADUserConfig.from_file(fetch_user_file)
+                    logger.info(f"Loaded ATRAD fetch user {idx}: {fetch_user_config.user_id}")
+                else:
+                    fetch_user_config = UserConfig.from_file(fetch_user_file)
+                    logger.info(f"Loaded TMS fetch user {idx}: {fetch_user_config.user_id}")
+
                 fetch_user_configs.append(fetch_user_config)
-                logger.info(f"Loaded fetch user {idx}: {fetch_user_config.user_id}")
             except Exception as e:
                 logger.warning(f"Failed to load fetch user from {fetch_user_file}: {e}")
 
@@ -330,16 +386,18 @@ def load_fetch_user_configs(args: argparse.Namespace) -> List[UserConfig]:
             raise ValueError("No valid fetch user configurations loaded")
 
     if fetch_user_configs:
-        logger.info(f"Total fetch users loaded: {len(fetch_user_configs)}")
+        system_type = "ATRAD" if is_atrad_fetch else "TMS"
+        logger.info(f"Total {system_type} fetch users loaded: {len(fetch_user_configs)}")
 
-    return fetch_user_configs
+    return fetch_user_configs, is_atrad_fetch
 
 
 def execute_order_for_user(
     user_config,  # UserConfig or ATRADUserConfig
     order_params: Dict[str, Any],
     scheduled_time: str = None,
-    fetch_user_configs: List[UserConfig] = None
+    fetch_user_configs = None,  # List[UserConfig] or List[ATRADUserConfig]
+    is_atrad_fetch: bool = False
 ) -> Dict[str, Any]:
     """
     Execute an order for a single user (supports both TMS and ATRAD).
@@ -348,7 +406,8 @@ def execute_order_for_user(
         user_config: UserConfig or ATRADUserConfig instance
         order_params: Order parameters dictionary
         scheduled_time: Optional scheduled time string
-        fetch_user_configs: Optional list of fetch user configurations for trigger mode (TMS only)
+        fetch_user_configs: Optional list of fetch user configurations for trigger mode
+        is_atrad_fetch: Whether fetch users are ATRAD users (default: False = TMS)
 
     Returns:
         API response dictionary
@@ -364,12 +423,22 @@ def execute_order_for_user(
         # Create fetch clients if provided
         fetch_clients = None
         if fetch_user_configs:
-            fetch_clients = [TMSClient(cfg) for cfg in fetch_user_configs]
-            if len(fetch_clients) == 1:
-                logger.info(f"[{user_id}] Fetch client initialized: {fetch_user_configs[0].user_id}")
+            if is_atrad_fetch:
+                # Create ATRAD fetch clients
+                fetch_clients = [ATRADClient(cfg) for cfg in fetch_user_configs]
+                if len(fetch_clients) == 1:
+                    logger.info(f"[{user_id}] ATRAD fetch client initialized: {fetch_user_configs[0].user_id}")
+                else:
+                    user_ids = ', '.join(cfg.user_id for cfg in fetch_user_configs)
+                    logger.info(f"[{user_id}] Multi-user ATRAD fetch initialized: {len(fetch_clients)} users ({user_ids})")
             else:
-                user_ids = ', '.join(cfg.user_id for cfg in fetch_user_configs)
-                logger.info(f"[{user_id}] Multi-user fetch initialized: {len(fetch_clients)} users ({user_ids})")
+                # Create TMS fetch clients
+                fetch_clients = [TMSClient(cfg) for cfg in fetch_user_configs]
+                if len(fetch_clients) == 1:
+                    logger.info(f"[{user_id}] TMS fetch client initialized: {fetch_user_configs[0].user_id}")
+                else:
+                    user_ids = ', '.join(cfg.user_id for cfg in fetch_user_configs)
+                    logger.info(f"[{user_id}] Multi-user TMS fetch initialized: {len(fetch_clients)} users ({user_ids})")
 
         if is_atrad:
             # ATRAD user - create ATRAD client and service
@@ -410,7 +479,8 @@ def execute_order_for_user(
 def execute_from_order_store(
     user_config,  # UserConfig or ATRADUserConfig
     order_store_path: str,
-    fetch_user_configs: List[UserConfig] = None
+    fetch_user_configs = None,  # List[UserConfig] or List[ATRADUserConfig]
+    is_atrad_fetch: bool = False
 ) -> Dict[str, Any]:
     """
     Execute orders from the order store queue.
@@ -420,6 +490,7 @@ def execute_from_order_store(
         user_config: UserConfig or ATRADUserConfig instance
         order_store_path: Path to order store JSON file
         fetch_user_configs: Optional list of fetch user configurations for trigger mode
+        is_atrad_fetch: Whether fetch users are ATRAD users (default: False = TMS)
 
     Returns:
         API response dictionary from the last executed order
@@ -461,8 +532,12 @@ def execute_from_order_store(
             ticker_store = get_ticker_store()
             security_id, exchange_security_id = ticker_store.lookup(order['ticker'])
 
-            # Get fetch_id with host-specific lookup if fetch_user is available
-            fetch_host = fetch_user_configs[0].tms_host if fetch_user_configs else None
+            # Get fetch_id with host-specific lookup if fetch_user is available (TMS only)
+            fetch_host = None
+            if fetch_user_configs and not is_atrad_fetch:
+                # Only TMS users have tms_host attribute
+                fetch_host = fetch_user_configs[0].tms_host
+
             fetch_id = ticker_store.get_fetch_id(order['ticker'], host=fetch_host)
 
             logger.info(
@@ -516,6 +591,9 @@ def execute_from_order_store(
             'ticker': order['ticker'],  # Pass ticker for per-user fetch_id resolution
             'double_buy': order['double_buy'],
             'double_buy_quantity': order['double_buy_quantity'],
+            'just_buy': order.get('just_buy', False),
+            'just_buy_interval_ms': order.get('just_buy_interval_ms', 100),
+            'just_buy_timeout': order.get('just_buy_timeout', 5),
             'symbol': order['ticker'].upper()
         }
 
@@ -541,7 +619,8 @@ def execute_from_order_store(
                 user_config=user_config,
                 order_params=order_params,
                 scheduled_time=order['time'],
-                fetch_user_configs=fetch_user_configs
+                fetch_user_configs=fetch_user_configs,
+                is_atrad_fetch=is_atrad_fetch
             )
 
             # Mark order as successful
@@ -602,7 +681,7 @@ def main():
         user_config = load_user_config(args)
 
         # Load fetch user configurations if provided
-        fetch_user_configs = load_fetch_user_configs(args)
+        fetch_user_configs, is_atrad_fetch = load_fetch_user_configs(args)
 
         # For backward compatibility, keep fetch_user_config as the first fetch user
         fetch_user_config = fetch_user_configs[0] if fetch_user_configs else None
@@ -610,7 +689,7 @@ def main():
         # Check if using order store mode
         if args.order_store:
             # Order store mode
-            execute_from_order_store(user_config, args.order_store, fetch_user_configs)
+            execute_from_order_store(user_config, args.order_store, fetch_user_configs, is_atrad_fetch)
         else:
             # Manual order mode
             # Determine buy or sell
@@ -622,11 +701,16 @@ def main():
             ticker_symbol = None
             if args.ticker:
                 ticker_symbol = args.ticker.upper()
-                # Resolve fetch_id for logging purposes (using first fetch user's host if available)
+                # Resolve fetch_id for logging purposes (using first fetch user's host if available, TMS only)
                 try:
                     from utils import get_ticker_store
                     ticker_store = get_ticker_store()
-                    fetch_host = fetch_user_config.tms_host if fetch_user_config else None
+
+                    # Only TMS users have tms_host attribute
+                    fetch_host = None
+                    if fetch_user_config and not is_atrad_fetch:
+                        fetch_host = fetch_user_config.tms_host
+
                     fetch_id = ticker_store.get_fetch_id(args.ticker, host=fetch_host)
                     logger.info(f"Fetch ID for '{args.ticker}': {fetch_id}")
                     if fetch_host:
@@ -651,6 +735,10 @@ def main():
                 'ticker': ticker_symbol,  # Pass ticker for per-user fetch_id resolution
                 'double_buy': args.double_buy if hasattr(args, 'double_buy') else False,
                 'double_buy_quantity': args.double_buy_quantity if hasattr(args, 'double_buy_quantity') else None,
+                'just_buy': args.just_buy if hasattr(args, 'just_buy') else False,
+                'just_buy_interval_ms': args.just_buy_interval if hasattr(args, 'just_buy_interval') else 100,
+                'just_buy_timeout': args.just_buy_timeout if hasattr(args, 'just_buy_timeout') else 5,
+                'just_buy_pre_wait_ms': args.just_buy_pre_wait if hasattr(args, 'just_buy_pre_wait') else 0,
                 'symbol': ticker_symbol
             }
 
@@ -687,7 +775,8 @@ def main():
                 user_config=user_config,
                 order_params=order_params,
                 scheduled_time=args.time,
-                fetch_user_configs=fetch_user_configs
+                fetch_user_configs=fetch_user_configs,
+                is_atrad_fetch=is_atrad_fetch
             )
 
         logger.info("="*60)

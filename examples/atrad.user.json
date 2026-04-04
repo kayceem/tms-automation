@@ -1,0 +1,31 @@
+{
+  "user_id": "atrad_user1",
+  "atrad_base_url": "https://tms.xxxxxxxxxxxxxx.com.np",
+  "atrad_host": "tms.xxxxxxxxxxxxxx.com.np",
+  "username": "xxxxxxxxxxxxxx",
+  "password": "xxxxxxxxxxxxxx",
+  "account_id": "xxxxxxxxxxxxxx",
+  "client_account": "xxxxxxxxxxxxxx",
+  "broker_code": "xxxxxxxxxxxxxx",
+  "contra_broker": 0,
+  "client_data": null,
+  "default_asset_select": "1",
+  "default_board": "1",
+  "default_order_type": "16",
+  "default_type_of_order": "1",
+  "default_product": "web",
+  "trigger_mode_poll_interval_ms": 30,
+  "trigger_mode_refresh_interval_seconds": 60,
+  "trigger_sell_poll_interval_ms": 500,
+  "trigger_mode_slow_poll_interval_ms": 500,
+  "trigger_mode_requests_per_fetch_user": 2,
+  "_cookies": {
+    "JSESSIONID": "xxxxxxxxxxxxxx",
+    "role": "OnlineUser",
+    "broker_code": "xxxxxxxxxxxxxx",
+    "max_basket_limit": "100",
+    "watchID": "xxxxxxxxxxxxxx",
+    "is_dvp_enabled": "true",
+    "theme": "black"
+  }
+}

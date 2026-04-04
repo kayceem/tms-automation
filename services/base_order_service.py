@@ -37,9 +37,6 @@ class BaseOrderService(ABC):
         self.user_id = user_id
         self.logger = get_logger(__name__)
 
-    # =========================================================================
-    # Abstract Methods (Must be implemented by subclasses)
-    # =========================================================================
 
     @abstractmethod
     def _place_single_order(self, price: float, quantity: int, **params) -> Dict[str, Any]:
@@ -102,9 +99,6 @@ class BaseOrderService(ABC):
         """
         pass
 
-    # =========================================================================
-    # Helper Methods (Shared across all platforms)
-    # =========================================================================
 
     def _calculate_price_levels(
         self,
@@ -214,9 +208,6 @@ class BaseOrderService(ABC):
         else:
             return order_quantity
 
-    # =========================================================================
-    # Template Methods (Shared logic using abstract methods)
-    # =========================================================================
 
     def _execute_double_buy(
         self,
@@ -345,26 +336,48 @@ class BaseOrderService(ABC):
         # Get poll interval from user config (default to 500ms)
         poll_interval_ms = getattr(self.client.user_config, 'trigger_sell_poll_interval_ms', 500)
 
-        # Resolve fetch_security_id for this specific fetch client if ticker provided
-        if ticker:
-            try:
-                from utils import get_ticker_store
-                ticker_store = get_ticker_store()
-                user_fetch_id = ticker_store.get_fetch_id(ticker, host=fetch_client.user_config.tms_host)
-                if user_fetch_id:
-                    fetch_security_id = user_fetch_id
-                    self.logger.info(
-                        f"[{self.user_id}] Using host-specific fetch_id={fetch_security_id} for ticker {ticker}"
-                    )
-            except Exception as e:
-                self.logger.debug(f"[{self.user_id}] Could not resolve host-specific fetch_id: {e}")
+        # Detect if fetch client is ATRAD or TMS
+        from api import ATRADClient
+        is_atrad_fetch = isinstance(fetch_client, ATRADClient)
 
-        # Create price fetcher for monitoring
-        price_fetcher = PriceFetcher(
-            fetch_client=fetch_client,
-            security_id=fetch_security_id,
-            poll_interval_ms=poll_interval_ms
-        )
+        if is_atrad_fetch:
+            # Use ATRAD price fetcher
+            from services.atrad_price_fetcher import ATRADPriceFetcher
+
+            # ATRAD uses symbol instead of security_id
+            symbol = platform_params.get('symbol')
+            self.logger.info(
+                f"[{self.user_id}] Using ATRAD fetch with symbol={symbol} for trigger sell LTP monitoring"
+            )
+
+            # Create ATRAD price fetcher for monitoring
+            price_fetcher = ATRADPriceFetcher(
+                fetch_client=fetch_client,
+                symbol=symbol,
+                poll_interval_ms=poll_interval_ms
+            )
+        else:
+            # Use TMS price fetcher
+            # Resolve fetch_security_id for this specific fetch client if ticker provided
+            if ticker:
+                try:
+                    from utils import get_ticker_store
+                    ticker_store = get_ticker_store()
+                    user_fetch_id = ticker_store.get_fetch_id(ticker, host=fetch_client.user_config.tms_host)
+                    if user_fetch_id:
+                        fetch_security_id = user_fetch_id
+                        self.logger.info(
+                            f"[{self.user_id}] Using host-specific fetch_id={fetch_security_id} for ticker {ticker}"
+                        )
+                except Exception as e:
+                    self.logger.debug(f"[{self.user_id}] Could not resolve host-specific fetch_id: {e}")
+
+            # Create TMS price fetcher for monitoring
+            price_fetcher = PriceFetcher(
+                fetch_client=fetch_client,
+                security_id=fetch_security_id,
+                poll_interval_ms=poll_interval_ms
+            )
 
         # Start token/session refresh manager to keep main user ready for order placement
         token_manager = self._setup_token_manager([fetch_client])
@@ -411,6 +424,12 @@ class BaseOrderService(ABC):
                         if 'side' in sell_params:
                             sell_params['side'] = 'SELL'  # ATRAD: 'SELL'
 
+                        # Pause price fetcher during order placement
+                        price_fetcher.pause()
+
+                        # Pass current LTP as market_price for ATRAD orders
+                        sell_params['market_price'] = ltp
+
                         # No retry - validation errors (400) won't resolve on retry
                         response = self._place_single_order(
                             price=sell_price,
@@ -418,11 +437,16 @@ class BaseOrderService(ABC):
                             **sell_params
                         )
 
+                        # Resume price fetcher after order placement
+                        price_fetcher.resume()
+
                         self.logger.info(f"[{self.user_id}] Sell order placed successfully")
                         order_placed = True
                         last_response = response
 
                     except Exception as e:
+                        # Resume price fetcher on error
+                        price_fetcher.resume()
                         self.logger.error(f"[{self.user_id}] Failed to place sell order: {str(e)}")
                         # Don't retry - raise immediately (400 errors are validation issues)
                         raise
@@ -444,121 +468,163 @@ class BaseOrderService(ABC):
         self.logger.info(f"[{self.user_id}] TRIGGER SELL COMPLETE")
         return last_response
 
-    def _execute_ipo_trigger(
+
+    def _setup_price_fetcher(
         self,
-        base_price: float,
-        order_quantity: int,
         fetch_clients: List[Any],
-        limit_price: Optional[float] = None,
-        skip_first: bool = False,
-        skip_second_last: bool = False,
-        no_ladder: bool = False,
-        fetch_security_id: Optional[int] = None,
-        base_quantity: Optional[int] = None,
-        ticker: Optional[str] = None,
-        double_buy: bool = False,
-        double_buy_quantity: Optional[int] = None,
-        **platform_params
-    ) -> Dict[str, Any]:
+        fetch_security_id: Optional[int],
+        symbol: Optional[str],
+        ticker: Optional[str],
+        poll_interval_ms: int
+    ) -> Any:
         """
-        Execute IPO trigger mode: Monitor LTP and place orders when LTP reaches ladder levels.
-
-        New trigger logic:
-        - When LTP >= ladder[i], place order at ladder[i+1]
-        - If skip_first=True, skip ladder[0] and start from ladder[1]
-        - If skip_second_last=True, skip the second-to-last ladder level
-        - If no_ladder=True, skip ALL ladder levels and only place final order when LTP >= second-to-last
-        - Skip missed levels if LTP jumps ahead
-        - Uses base_quantity for all levels except final, which uses order_quantity
-
-        Args:
-            base_price: Starting price
-            order_quantity: Number of units for final level
-            fetch_clients: List of client instances for fetching LTP with rotation
-            limit_price: Optional upper limit price for calculations
-            skip_first: Skip the first ladder level
-            skip_second_last: Skip the second-to-last ladder level
-            no_ladder: Skip ALL ladder levels, only place final order at limit+10%
-            fetch_security_id: Security ID for fetching LTP (defaults to security_id if not provided)
-            base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
-            ticker: Ticker symbol for resolving per-user fetch_id (optional)
+        Setup and start the appropriate price fetcher (TMS or ATRAD, single or multi-user).
 
         Returns:
-            Last API response dictionary
+            Started price fetcher instance
         """
+        from api import ATRADClient
+
+        # Detect platform type
+        is_atrad = len(fetch_clients) > 0 and isinstance(fetch_clients[0], ATRADClient)
+
+        if is_atrad:
+            price_fetcher = self._setup_atrad_price_fetcher(
+                fetch_clients, symbol, poll_interval_ms
+            )
+        else:
+            price_fetcher = self._setup_tms_price_fetcher(
+                fetch_clients, fetch_security_id, ticker, poll_interval_ms
+            )
+
+        price_fetcher.start()
+        return price_fetcher
+
+    def _setup_atrad_price_fetcher(
+        self,
+        fetch_clients: List[Any],
+        symbol: str,
+        poll_interval_ms: int
+    ) -> Any:
+        """Setup ATRAD price fetcher (single or multi-user)."""
+        from services.atrad_price_fetcher import ATRADPriceFetcher, ATRADMultiUserPriceFetcher, ATRADFetchUser
+
+        if len(fetch_clients) > 1:
+            # Multi-user ATRAD
+            fetch_users = [
+                ATRADFetchUser(
+                    name=f"ATRADFetchUser{i+1}",
+                    client=client,
+                    symbol=symbol
+                )
+                for i, client in enumerate(fetch_clients)
+            ]
+
+            for i, client in enumerate(fetch_clients):
+                self.logger.info(
+                    f"[{self.user_id}] ATRADFetchUser{i+1} ({client.user_id}) using symbol={symbol}"
+                )
+
+            requests_per_user = self.client.user_config.trigger_mode_requests_per_fetch_user
+            return ATRADMultiUserPriceFetcher(
+                fetch_users=fetch_users,
+                poll_interval_ms=poll_interval_ms,
+                requests_per_user=requests_per_user
+            )
+        else:
+            # Single ATRAD user
+            self.logger.info(
+                f"[{self.user_id}] Using ATRAD fetch with symbol={symbol} for LTP monitoring"
+            )
+            return ATRADPriceFetcher(
+                fetch_client=fetch_clients[0],
+                symbol=symbol,
+                poll_interval_ms=poll_interval_ms
+            )
+
+    def _setup_tms_price_fetcher(
+        self,
+        fetch_clients: List[Any],
+        fetch_security_id: Optional[int],
+        ticker: Optional[str],
+        poll_interval_ms: int
+    ) -> Any:
+        """Setup TMS price fetcher (single or multi-user)."""
         from services.price_fetcher import PriceFetcher, MultiUserPriceFetcher, FetchUser
         from utils import get_ticker_store
 
-        # Get platform-specific identifiers
-        security_id = platform_params.get('security_id')
-        symbol = platform_params.get('symbol')
-        
-        # Use fetch_security_id if provided, otherwise fall back to security_id or symbol
-        if fetch_security_id is None:
-            fetch_security_id = security_id or symbol
-        if fetch_security_id is None:
-            fetch_security_id = security_id
+        if len(fetch_clients) > 1:
+            # Multi-user TMS
+            fetch_users = []
+            ticker_store = get_ticker_store() if ticker else None
 
-        # Pre-calculate all price levels (same as ipo_mode)
-        price_increments = [0, 2, 2, 2, 2, 2]
-        price_levels: List[float] = []
-        actual_increments: List[int] = []
+            for i, client in enumerate(fetch_clients):
+                # Resolve fetch_id per user based on their host
+                user_fetch_id = self._resolve_fetch_id_for_client(
+                    client, ticker, ticker_store, fetch_security_id, i
+                )
 
-        # Calculate standard ladder prices
-        current_price = base_price
-        for increment in price_increments:
-            new_price = current_price * (1 + increment / 100)
-            floored_price = math.floor(new_price * 10) / 10
-            current_price = floored_price
-            price_levels.append(floored_price)
-            actual_increments.append(increment)
-
-        # If limit_price is provided, calculate +10% of limit and adjust ladder
-        if limit_price is not None:
-            max_limit_price = limit_price * 1.10
-            max_limit_price = math.floor(max_limit_price * 10) / 10
-
-            self.logger.info(
-                f"[{self.user_id}] Limit price provided: Rs. {limit_price:.1f}, "
-                f"+10% = Rs. {max_limit_price:.1f}"
-            )
-
-            # Filter out price levels that exceed the limit
-            filtered_levels: List[float] = []
-            filtered_increments: List[int] = []
-
-            for price, increment in zip(price_levels, actual_increments):
-                if price <= max_limit_price:
-                    filtered_levels.append(price)
-                    filtered_increments.append(increment)
-                else:
-                    self.logger.debug(
-                        f"[{self.user_id}] Removing level +{increment}% "
-                        f"(Rs. {price:.1f}) - exceeds limit"
+                fetch_users.append(
+                    FetchUser(
+                        name=f"FetchUser{i+1}",
+                        client=client,
+                        fetch_security_id=user_fetch_id
                     )
-
-            # Check if max_limit_price should be added as final order
-            if max_limit_price > price_levels[-1]:
-                filtered_levels.append(max_limit_price)
-                filtered_increments.append(-1)
-                self.logger.info(
-                    f"[{self.user_id}] Adding limit-based price Rs. {max_limit_price:.1f} "
-                    f"as final order (11th level)"
-                )
-            elif filtered_levels and filtered_levels[-1] != max_limit_price:
-                filtered_levels.append(max_limit_price)
-                filtered_increments.append(-1)
-                self.logger.info(
-                    f"[{self.user_id}] Adding limit-based price Rs. {max_limit_price:.1f} "
-                    f"as final order"
                 )
 
-            self.logger.info(
-                f"[{self.user_id}] Final price levels after applying limit: {filtered_levels}"
+            requests_per_user = self.client.user_config.trigger_mode_requests_per_fetch_user
+            return MultiUserPriceFetcher(
+                fetch_users=fetch_users,
+                poll_interval_ms=poll_interval_ms,
+                requests_per_user=requests_per_user
             )
-            price_levels = filtered_levels
-            actual_increments = filtered_increments
+        else:
+            # Single TMS user
+            single_fetch_id = fetch_security_id
+            self.logger.info(
+                f"[{self.user_id}] Using fetch_security_id={single_fetch_id} for LTP monitoring"
+            )
+            return PriceFetcher(
+                fetch_client=fetch_clients[0],
+                security_id=single_fetch_id,
+                poll_interval_ms=poll_interval_ms
+            )
 
+    def _resolve_fetch_id_for_client(
+        self,
+        client: Any,
+        ticker: Optional[str],
+        ticker_store: Any,
+        fallback_fetch_id: Optional[int],
+        client_index: int
+    ) -> int:
+        """Resolve fetch_id for a specific client based on ticker and host."""
+        if ticker and ticker_store:
+            try:
+                user_fetch_id = ticker_store.get_fetch_id(ticker, host=client.user_config.tms_host)
+                self.logger.info(
+                    f"[{self.user_id}] FetchUser{client_index+1} ({client.user_id}) using "
+                    f"fetch_security_id={user_fetch_id} (host={client.user_config.tms_host})"
+                )
+                return user_fetch_id
+            except Exception as e:
+                self.logger.warning(
+                    f"[{self.user_id}] Could not resolve fetch_id for FetchUser{client_index+1}, "
+                    f"using fallback: {fallback_fetch_id}. Error: {e}"
+                )
+
+        return fallback_fetch_id
+
+    def _log_ipo_trigger_config(
+        self,
+        price_levels: List[float],
+        security_id: Any,
+        order_quantity: int,
+        skip_first: bool,
+        skip_second_last: bool,
+        no_ladder: bool
+    ) -> None:
+        """Log IPO trigger configuration."""
         self.logger.info(
             f"[{self.user_id}] IPO TRIGGER MODE: {len(price_levels)} levels, "
             f"Security={security_id}, Qty={order_quantity}, "
@@ -566,12 +632,19 @@ class BaseOrderService(ABC):
             f"Skip first: {skip_first}, Skip second-last: {skip_second_last}, No ladder: {no_ladder}"
         )
 
-        # Determine which level is second-to-last (index before final level)
-        second_last_index = len(price_levels) - 2 if len(price_levels) >= 2 else -1
-
+    def _log_ladder_levels(
+        self,
+        price_levels: List[float],
+        actual_increments: List[int],
+        second_last_index: int,
+        skip_first: bool,
+        skip_second_last: bool
+    ) -> None:
+        """Log all ladder levels with skip markers."""
         for i, price in enumerate(price_levels):
             increment = actual_increments[i]
             skip_marker = ""
+
             if i == 0 and skip_first:
                 skip_marker = " [SKIP]"
             elif i == second_last_index and skip_second_last:
@@ -586,380 +659,770 @@ class BaseOrderService(ABC):
                     f"[{self.user_id}] Level {i+1}: Rs. {price:.1f} (+{increment}%){skip_marker}"
                 )
 
-        # Start price fetcher for monitoring LTP
-        poll_interval_ms = self.client.user_config.trigger_mode_poll_interval_ms
+    def _execute_just_buy(
+        self,
+        final_price: float,
+        trigger_price: float,
+        order_quantity: int,
+        just_buy_interval_ms: int,
+        just_buy_timeout: int,
+        just_buy_pre_wait_ms: int,
+        price_fetcher: Any,
+        platform_params: Dict[str, Any]
+    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
+        """
+        Execute just_buy mode: aggressively place orders in multiple threads.
 
-        # Use MultiUserPriceFetcher if multiple fetch clients, otherwise single PriceFetcher
-        if len(fetch_clients) > 1:
-            # Multi-user fetch with rotation
-            # Resolve fetch_security_id for each fetch client based on their host
-            fetch_users = []
-            ticker_store = get_ticker_store() if ticker else None
+        Returns:
+            Tuple of (success: bool, response: Optional[Dict])
+        """
+        import threading
 
-            for i, client in enumerate(fetch_clients):
-                # Resolve fetch_id per user based on their host
-                if ticker and ticker_store:
-                    try:
-                        user_fetch_id = ticker_store.get_fetch_id(ticker, host=client.user_config.tms_host)
-                        self.logger.info(
-                            f"[{self.user_id}] FetchUser{i+1} ({client.user_id}) using "
-                            f"fetch_security_id={user_fetch_id} (host={client.user_config.tms_host})"
-                        )
-                    except Exception as e:
-                        # Fallback to provided fetch_security_id or security_id
-                        user_fetch_id = fetch_security_id if fetch_security_id else security_id
-                        self.logger.warning(
-                            f"[{self.user_id}] Could not resolve fetch_id for FetchUser{i+1}, "
-                            f"using fallback: {user_fetch_id}. Error: {e}"
-                        )
-                else:
-                    # Use provided fetch_security_id or security_id
-                    user_fetch_id = fetch_security_id if fetch_security_id else security_id
+        self.logger.info(
+            f"[{self.user_id}] JUST BUY ACTIVATED: Starting aggressive order placement "
+            f"at Rs. {final_price:.1f} (interval={just_buy_interval_ms}ms, timeout={just_buy_timeout}s)"
+        )
 
-                fetch_users.append(
-                    FetchUser(
-                        name=f"FetchUser{i+1}",
-                        client=client,
-                        fetch_security_id=user_fetch_id
-                    )
-                )
-
-            requests_per_user = self.client.user_config.trigger_mode_requests_per_fetch_user
-
-            price_fetcher = MultiUserPriceFetcher(
-                fetch_users=fetch_users,
-                poll_interval_ms=poll_interval_ms,
-                requests_per_user=requests_per_user
-            )
-        else:
-            # Single fetch user - use provided fetch_security_id or security_id
-            single_fetch_id = fetch_security_id if fetch_security_id else security_id
-            self.logger.info(
-                f"[{self.user_id}] Using fetch_security_id={single_fetch_id} for LTP monitoring"
-            )
-            price_fetcher = PriceFetcher(
-                fetch_client=fetch_clients[0],
-                security_id=single_fetch_id,
-                poll_interval_ms=poll_interval_ms
-            )
-
-        price_fetcher.start()
-
-        # Start token refresh manager to keep main user ready
-        token_manager = self._setup_token_manager()
-
-        last_response = None
+        # Start market details monitoring if ATRAD
+        if hasattr(price_fetcher, 'start_market_details'):
+            price_fetcher.start_market_details()
 
         try:
-            # Determine starting index based on skip_first and no_ladder
-            current_level_index = 0
+            # Pre-wait if configured
+            if just_buy_pre_wait_ms > 0:
+                self.logger.info(f"[{self.user_id}] Just Buy pre-wait: {just_buy_pre_wait_ms}ms")
+                time.sleep(just_buy_pre_wait_ms / 1000.0)
 
-            # Handle no_ladder mode: Skip all levels except final
-            if no_ladder:
-                # Calculate second-to-last level index for trigger
-                second_last_index = len(price_levels) - 2 if len(price_levels) >= 2 else -1
+            # Thread coordination
+            success_flag = threading.Event()
+            success_response = {'response': None}
+            threads_lock = threading.Lock()
+            active_threads = []
 
-                if second_last_index >= 0:
-                    trigger_price = price_levels[second_last_index]
-                    final_price = price_levels[-1]
+            def place_just_buy_order(thread_id: int):
+                """Place a single order in a separate thread"""
+                try:
+                    if success_flag.is_set():
+                        return
 
-                    # Calculate third-last level for slow/fast polling switch
-                    third_last_index = len(price_levels) - 3 if len(price_levels) >= 3 else -1
-                    switch_threshold = price_levels[third_last_index] if third_last_index >= 0 else price_levels[0]
-
-                    # Get polling intervals from user config
-                    fast_poll_ms = self.client.user_config.trigger_mode_poll_interval_ms
-                    slow_poll_ms = self.client.user_config.trigger_mode_slow_poll_interval_ms
-
-                    # Dynamic polling state
-                    using_fast_poll = True  # Start with fast polling
-                    permanently_fast = False  # Once we switch back to fast, stay fast forever
-
-                    self.logger.info(
-                        f"[{self.user_id}] NO LADDER MODE: Waiting for LTP >= Rs. {trigger_price:.1f} "
-                        f"to place FINAL order at Rs. {final_price:.1f}"
-                    )
-                    self.logger.info(
-                        f"[{self.user_id}] Dynamic polling: Fast={fast_poll_ms}ms, Slow={slow_poll_ms}ms, "
-                        f"Switch threshold=Rs. {switch_threshold:.1f}"
+                    self.logger.debug(
+                        f"[{self.user_id}] Just Buy Thread #{thread_id}: Placing order at Rs. {final_price:.1f}"
                     )
 
-                    triggered = False
-                    slow_sleep_duration = slow_poll_ms / 5000.0
-                    fast_sleep_duration = fast_poll_ms / 5000.0
-                    while not triggered:
-                        ltp = price_fetcher.get_latest_ltp()
+                    order_params = {**platform_params, 'market_price': trigger_price}
+                    response = self._place_single_order(
+                        price=final_price,
+                        quantity=order_quantity,
+                        **order_params
+                    )
 
-                        if ltp is not None:
-                            # Check trigger condition
-                            if ltp >= trigger_price:
-                                self.logger.info(
-                                    f"[{self.user_id}] TRIGGERED! LTP={ltp:.1f} >= Rs. {trigger_price:.1f}. "
-                                    f"Placing final order at Rs. {final_price:.1f}"
-                                )
-                                triggered = True
-                                continue
-
-                            # Dynamic polling optimization (only if not permanently fast)
-                            if not permanently_fast:
-                                if using_fast_poll and ltp < switch_threshold:
-                                    # Switch to slow polling (disable cooldown)
-                                    using_fast_poll = False
-                                    self.logger.info(
-                                        f"[{self.user_id}] LTP Rs. {ltp:.1f} < Rs. {switch_threshold:.1f} - "
-                                        f"switching to SLOW polling ({slow_poll_ms}ms, cooldown OFF)"
-                                    )
-                                    # Update price fetcher settings if using MultiUserPriceFetcher
-                                    if isinstance(price_fetcher, MultiUserPriceFetcher):
-                                        price_fetcher.update_poll_settings(slow_poll_ms, enable_cooldown=False)
-                                elif not using_fast_poll and ltp >= switch_threshold:
-                                    # Switch back to fast polling permanently (enable cooldown)
-                                    using_fast_poll = True
-                                    permanently_fast = True
-                                    self.logger.info(
-                                        f"[{self.user_id}] LTP Rs. {ltp:.1f} >= Rs. {switch_threshold:.1f} - "
-                                        f"switching to FAST polling ({fast_poll_ms}ms, cooldown ON) PERMANENTLY"
-                                    )
-                                    # Update price fetcher settings if using MultiUserPriceFetcher
-                                    if isinstance(price_fetcher, MultiUserPriceFetcher):
-                                        price_fetcher.update_poll_settings(fast_poll_ms, enable_cooldown=True)
-
-                        # Sleep based on current polling mode
-                        try:
-                            sleep_duration = (slow_sleep_duration if not using_fast_poll else fast_sleep_duration)
-                            time.sleep(sleep_duration)
-                        except KeyboardInterrupt:
-                            self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
-                            raise
-
-                    # Place only the final order
-                    current_level_index = len(price_levels) - 1
-                else:
-                    # Edge case: Less than 2 levels, just place the only order
-                    self.logger.warning(f"[{self.user_id}] Only one level available, placing immediately")
-                    current_level_index = 0
-
-            # Wait for initial trigger if skip_first (and not no_ladder)
-            elif skip_first:
-                self.logger.info(
-                    f"[{self.user_id}] Skip-first enabled: waiting for LTP >= Rs. {price_levels[0]:.1f}"
-                )
-                sleep_duration = self.client.user_config.trigger_mode_slow_poll_interval_ms / 5000.0
-                triggered = False
-                while not triggered:
-                    ltp = price_fetcher.get_latest_ltp()
-
-                    if ltp is not None and ltp >= price_levels[0]:
+                    if response and not success_flag.is_set():
+                        success_flag.set()
+                        with threads_lock:
+                            success_response['response'] = response
                         self.logger.info(
-                            f"[{self.user_id}] Initial trigger reached! LTP={ltp:.1f} >= "
-                            f"Rs. {price_levels[0]:.1f}. Starting from level 2."
+                            f"[{self.user_id}] Just Buy Thread #{thread_id}: "
+                            f"SUCCESS! Order placed at Rs. {final_price:.1f}"
                         )
-                        triggered = True
-                        current_level_index = 1  # Start placing from ladder[1]
-                    else:
-                        try:
-                            time.sleep(sleep_duration)
-                        except KeyboardInterrupt:
-                            self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
-                            raise
 
-            # Execute orders based on LTP triggers
-            # We place orders starting from current_level_index
-            # For each level, we wait until LTP >= price_levels[level_index - 1]
+                except Exception as e:
+                    self.logger.debug(
+                        f"[{self.user_id}] Just Buy Thread #{thread_id} failed: {str(e)}"
+                    )
 
-            # Determine which level is second-to-last
-            second_last_level_index = len(price_levels) - 2 if len(price_levels) >= 2 else -1
+            # Spawn threads at intervals
+            start_time = time.time()
+            thread_counter = 0
+            interval_seconds = just_buy_interval_ms / 1000.0
 
-            while current_level_index < len(price_levels):
-                # Check if we should skip this level
-                if current_level_index == second_last_level_index and skip_second_last:
+            while (time.time() - start_time) < just_buy_timeout:
+                if success_flag.is_set():
+                    self.logger.info(
+                        f"[{self.user_id}] Just Buy SUCCESS detected, stopping new threads"
+                    )
+                    break
+
+                thread_counter += 1
+                thread = threading.Thread(
+                    target=place_just_buy_order,
+                    args=(thread_counter,),
+                    daemon=True
+                )
+
+                with threads_lock:
+                    active_threads.append(thread)
+
+                thread.start()
+
+                try:
+                    time.sleep(interval_seconds)
+                except KeyboardInterrupt:
+                    self.logger.info(f"[{self.user_id}] Just Buy interrupted by user")
+                    raise
+
+            # Wait for all threads to complete
+            self.logger.info(
+                f"[{self.user_id}] Just Buy phase ended. Waiting for {len(active_threads)} threads to complete..."
+            )
+            for thread in active_threads:
+                thread.join(timeout=1)
+
+            # Check result
+            if success_flag.is_set():
+                self.logger.info(
+                    f"[{self.user_id}] Just Buy SUCCEEDED! "
+                    f"Placed {thread_counter} orders, at least one succeeded"
+                )
+                return True, success_response['response']
+            else:
+                self.logger.warning(
+                    f"[{self.user_id}] Just Buy FAILED after {just_buy_timeout}s "
+                    f"({thread_counter} attempts). Falling back to normal trigger logic."
+                )
+                return False, None
+
+        finally:
+            # Stop market details monitoring if ATRAD
+            if hasattr(price_fetcher, 'stop_market_details'):
+                price_fetcher.stop_market_details()
+
+    def _wait_for_no_ladder_trigger(
+        self,
+        price_fetcher: Any,
+        trigger_price: float,
+        final_price: float,
+        switch_threshold: float,
+        fast_poll_ms: int,
+        slow_poll_ms: int,
+        just_buy: bool,
+        just_buy_params: Dict[str, Any],
+        platform_params: Dict[str, Any]
+    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
+        """
+        Wait for no_ladder trigger with dynamic polling and optional just_buy.
+
+        Returns:
+            Tuple of (triggered: bool, response: Optional[Dict])
+        """
+        self.logger.info(
+            f"[{self.user_id}] NO LADDER MODE: Waiting for LTP >= Rs. {trigger_price:.1f} "
+            f"to place FINAL order at Rs. {final_price:.1f}"
+        )
+        self.logger.info(
+            f"[{self.user_id}] Dynamic polling: Fast={fast_poll_ms}ms, Slow={slow_poll_ms}ms, "
+            f"Switch threshold=Rs. {switch_threshold:.1f}"
+        )
+        if just_buy:
+            self.logger.info(
+                f"[{self.user_id}] JUST BUY MODE enabled: Will aggressively place orders "
+                f"when switch threshold is reached"
+            )
+
+        # Polling state
+        using_fast_poll = True
+        permanently_fast = False
+        slow_sleep = slow_poll_ms / 5000.0
+        fast_sleep = fast_poll_ms / 5000.0
+
+        while True:
+            ltp = price_fetcher.get_latest_ltp()
+
+            if ltp is not None:
+                # Check if triggered
+                if ltp >= trigger_price:
+                    self.logger.info(
+                        f"[{self.user_id}] TRIGGERED! LTP={ltp:.1f} >= Rs. {trigger_price:.1f}. "
+                        f"Placing final order at Rs. {final_price:.1f}"
+                    )
+                    return True, None
+
+                # Dynamic polling optimization
+                if not permanently_fast:
+                    if using_fast_poll and ltp < switch_threshold:
+                        # Switch to slow polling
+                        using_fast_poll = False
+                        self.logger.info(
+                            f"[{self.user_id}] LTP Rs. {ltp:.1f} < Rs. {switch_threshold:.1f} - "
+                            f"switching to SLOW polling ({slow_poll_ms}ms, cooldown OFF)"
+                        )
+                        if hasattr(price_fetcher, 'update_poll_settings'):
+                            price_fetcher.update_poll_settings(slow_poll_ms, enable_cooldown=False)
+
+                    elif not using_fast_poll and ltp >= switch_threshold:
+                        # Switch to fast polling permanently
+                        using_fast_poll = True
+                        permanently_fast = True
+                        self.logger.info(
+                            f"[{self.user_id}] LTP Rs. {ltp:.1f} >= Rs. {switch_threshold:.1f} - "
+                            f"switch threshold reached!"
+                        )
+
+                        # Execute just_buy if enabled
+                        if just_buy:
+                            success, response = self._execute_just_buy(
+                                final_price=final_price,
+                                trigger_price=trigger_price,
+                                order_quantity=just_buy_params['order_quantity'],
+                                just_buy_interval_ms=just_buy_params['interval_ms'],
+                                just_buy_timeout=just_buy_params['timeout'],
+                                just_buy_pre_wait_ms=just_buy_params['pre_wait_ms'],
+                                price_fetcher=price_fetcher,
+                                platform_params=platform_params
+                            )
+
+                            if success:
+                                return True, response
+
+                        # Update to fast polling
+                        self.logger.info(
+                            f"[{self.user_id}] Switching to FAST polling ({fast_poll_ms}ms, cooldown ON) PERMANENTLY"
+                        )
+                        if hasattr(price_fetcher, 'update_poll_settings'):
+                            price_fetcher.update_poll_settings(fast_poll_ms, enable_cooldown=True)
+
+            # Sleep based on current polling mode
+            try:
+                sleep_duration = slow_sleep if not using_fast_poll else fast_sleep
+                time.sleep(sleep_duration)
+            except KeyboardInterrupt:
+                self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                raise
+
+    def _wait_for_skip_first_trigger(
+        self,
+        price_fetcher: Any,
+        first_price: float,
+        slow_poll_ms: int
+    ) -> None:
+        """Wait for initial trigger when skip_first is enabled."""
+        self.logger.info(
+            f"[{self.user_id}] Skip-first enabled: waiting for LTP >= Rs. {first_price:.1f}"
+        )
+
+        sleep_duration = slow_poll_ms / 5000.0
+
+        while True:
+            ltp = price_fetcher.get_latest_ltp()
+
+            if ltp is not None and ltp >= first_price:
+                self.logger.info(
+                    f"[{self.user_id}] Initial trigger reached! LTP={ltp:.1f} >= "
+                    f"Rs. {first_price:.1f}. Starting from level 2."
+                )
+                return
+
+            try:
+                time.sleep(sleep_duration)
+            except KeyboardInterrupt:
+                self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                raise
+
+    def _wait_for_ladder_trigger(
+        self,
+        price_fetcher: Any,
+        trigger_price: float,
+        increment_pct: int,
+        current_level_index: int,
+        price_levels: List[float],
+        actual_increments: List[int],
+        second_last_index: int,
+        skip_second_last: bool
+    ) -> Tuple[Optional[float], int]:
+        """
+        Wait for LTP to reach trigger price, handling level skips if LTP jumps ahead.
+
+        Returns:
+            Tuple of (current_ltp: float, updated_level_index: int)
+        """
+        target_price = price_levels[current_level_index]
+
+        if increment_pct == -1:
+            self.logger.info(
+                f"[{self.user_id}] Waiting for LTP >= Rs. {trigger_price:.1f} "
+                f"to place order at Rs. {target_price:.1f} (Limit +10%)"
+            )
+        else:
+            self.logger.info(
+                f"[{self.user_id}] Waiting for LTP >= Rs. {trigger_price:.1f} "
+                f"to place order at Rs. {target_price:.1f} (+{increment_pct}%)"
+            )
+
+        while True:
+            ltp = price_fetcher.get_latest_ltp()
+
+            if ltp is not None and ltp >= trigger_price:
+                # Check for level skips (LTP jumped ahead)
+                while current_level_index < len(price_levels) - 1 and ltp >= price_levels[current_level_index]:
+                    self.logger.warning(
+                        f"[{self.user_id}] LTP={ltp:.1f} >= Rs. {price_levels[current_level_index]:.1f}, "
+                        f"skipping missed level {current_level_index + 1}"
+                    )
+                    current_level_index += 1
+
+                # Skip second-to-last if needed
+                if current_level_index == second_last_index and skip_second_last:
                     self.logger.info(
                         f"[{self.user_id}] Skipping second-to-last level {current_level_index + 1} "
                         f"(Rs. {price_levels[current_level_index]:.1f}) as requested"
                     )
                     current_level_index += 1
-                    continue
-
-                target_price = price_levels[current_level_index]
-                increment_pct = actual_increments[current_level_index]
-
-                # Determine trigger price (the ladder level before this one)
-                if current_level_index == 0:
-                    # First order - place immediately without waiting
-                    trigger_price = 0
-                    self.logger.info(
-                        f"[{self.user_id}] Placing first order at Rs. {target_price:.1f}"
-                    )
-                else:
-                    # Wait for LTP >= previous ladder price
-                    trigger_price = price_levels[current_level_index - 1]
-
-                    if increment_pct == -1:
-                        self.logger.info(
-                            f"[{self.user_id}] Waiting for LTP >= Rs. {trigger_price:.1f} "
-                            f"to place order at Rs. {target_price:.1f} (Limit +10%)"
-                        )
-                    else:
-                        self.logger.info(
-                            f"[{self.user_id}] Waiting for LTP >= Rs. {trigger_price:.1f} "
-                            f"to place order at Rs. {target_price:.1f} (+{increment_pct}%)"
-                        )
-
-                    # Wait for trigger
-                    triggered = False
-                    while not triggered:
-                        ltp = price_fetcher.get_latest_ltp()
-
-                        if ltp is not None and ltp >= trigger_price:
-                            # Check for edge case: LTP jumped past multiple levels
-                            # Find the next level to place based on current LTP
-                            while current_level_index < len(price_levels) - 1 and ltp >= price_levels[current_level_index]:
-                                self.logger.warning(
-                                    f"[{self.user_id}] LTP={ltp:.1f} >= Rs. {price_levels[current_level_index]:.1f}, "
-                                    f"skipping missed level {current_level_index + 1}"
-                                )
-                                current_level_index += 1
-
-                            # If we ended up at second-to-last level and should skip it, move to final level
-                            if current_level_index == second_last_level_index and skip_second_last:
-                                self.logger.info(
-                                    f"[{self.user_id}] Skipping second-to-last level {current_level_index + 1} "
-                                    f"(Rs. {price_levels[current_level_index]:.1f}) as requested"
-                                )
-                                current_level_index += 1
-
-                            # Update target price after potential skips
-                            target_price = price_levels[current_level_index]
-                            increment_pct = actual_increments[current_level_index]
-
-                            self.logger.info(
-                                f"[{self.user_id}] TRIGGERED! LTP={ltp:.1f} >= "
-                                f"Rs. {trigger_price:.1f}. Placing order at Rs. {target_price:.1f}"
-                            )
-                            triggered = True
-                        else:
-                            # Small sleep to avoid busy waiting
-                            try:
-                                time.sleep(0.05)
-                            except KeyboardInterrupt:
-                                self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
-                                raise
-
-                # Place order at target price, retry up to 3 times then skip
-                level_display = current_level_index + 1
-
-                # Determine quantity for this level
-                # Use base_quantity for all levels except final level
-                is_final_level = (current_level_index == len(price_levels) - 1)
-                if is_final_level:
-                    qty_for_level = order_quantity
-                elif base_quantity is not None:
-                    qty_for_level = base_quantity
-                else:
-                    qty_for_level = order_quantity
 
                 self.logger.info(
-                    f"[{self.user_id}] Placing order level {level_display}/{len(price_levels)} "
-                    f"at Rs. {target_price:.1f}, Qty={qty_for_level}"
+                    f"[{self.user_id}] TRIGGERED! LTP={ltp:.1f} >= "
+                    f"Rs. {trigger_price:.1f}. Placing order at Rs. {price_levels[current_level_index]:.1f}"
                 )
 
-                order_placed = False
-                attempt = 0
-                max_attempts = 3
+                # Start market details for normal trigger
+                if hasattr(price_fetcher, 'start_market_details'):
+                    self.logger.info(f"[{self.user_id}] Starting market details monitoring for order placement")
+                    price_fetcher.start_market_details()
 
-                while not order_placed and attempt < max_attempts:
-                    attempt += 1
-                    if attempt > 1:
-                        self.logger.debug(f"[{self.user_id}] Attempt #{attempt}/{max_attempts}")
+                return ltp, current_level_index
 
-                    try:
-                        response = self._place_single_order(
-                            price=target_price,
-                            quantity=qty_for_level,
-                            **platform_params
-                        )
+            try:
+                time.sleep(0.05)
+            except KeyboardInterrupt:
+                self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                raise
 
-                        if response:
-                            self.logger.info(
-                                f"[{self.user_id}] Order level {level_display} placed successfully"
-                            )
-                            order_placed = True
-                            last_response = response
+    def _place_order_with_retries(
+        self,
+        price_fetcher: Any,
+        target_price: float,
+        quantity: int,
+        level_display: int,
+        total_levels: int,
+        ltp: Optional[float],
+        platform_params: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Place order with retry logic (up to 3 attempts).
 
-                            # Handle double buy for final level only
-                            if double_buy and is_final_level:
-                                self._execute_double_buy(
-                                    price=target_price,
-                                    quantity=qty_for_level,
-                                    double_buy_quantity=double_buy_quantity,
-                                    **platform_params
-                                )
+        Returns:
+            Order response if successful, None if all attempts failed
+        """
+        self.logger.info(
+            f"[{self.user_id}] Placing order level {level_display}/{total_levels} "
+            f"at Rs. {target_price:.1f}, Qty={quantity}"
+        )
 
-                            # Move to next level
-                            current_level_index += 1
+        for attempt in range(1, 4):
+            if attempt > 1:
+                self.logger.debug(f"[{self.user_id}] Attempt #{attempt}/3")
 
-                            # Small delay between orders
-                            if current_level_index < len(price_levels):
-                                try:
-                                    time.sleep(0.1)
-                                except KeyboardInterrupt:
-                                    self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
-                                    raise
+            try:
+                order_params = {**platform_params, 'market_price': ltp}
+                response = self._place_single_order(
+                    price=target_price,
+                    quantity=quantity,
+                    **order_params
+                )
 
-                    except KeyboardInterrupt:
-                        self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
-                        raise
-                    except Exception as e:
-                        error_msg = str(e)
-                        # Handle different error types with appropriate delays
-                        if "401" in error_msg or "Unauthorized" in error_msg:
-                            self.logger.debug(f"[{self.user_id}] Token issue, retrying")
-                            try:
-                                time.sleep(1)
-                            except KeyboardInterrupt:
-                                self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
-                                raise
-                        elif "400" in error_msg or "Bad Request" in error_msg:
-                            self.logger.warning(
-                                f"[{self.user_id}] Error placing order level {level_display}: {error_msg}"
-                            )
-                            try:
-                                time.sleep(1)
-                            except KeyboardInterrupt:
-                                self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
-                                raise
-                        else:
-                            self.logger.error(
-                                f"[{self.user_id}] Error placing order level {level_display}: {error_msg}"
-                            )
-                            try:
-                                time.sleep(1)
-                            except KeyboardInterrupt:
-                                self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
-                                raise
-
-                # If order failed after max attempts, skip to next level
-                if not order_placed:
-                    self.logger.warning(
-                        f"[{self.user_id}] Failed to place order at Rs. {target_price:.1f} "
-                        f"after {max_attempts} attempts. Skipping to next level."
+                if response:
+                    self.logger.info(
+                        f"[{self.user_id}] Order level {level_display} placed successfully"
                     )
-                    current_level_index += 1
+
+                    # Stop market details after successful placement
+                    if hasattr(price_fetcher, 'stop_market_details'):
+                        price_fetcher.stop_market_details()
+
+                    return response
+
+            except KeyboardInterrupt:
+                self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                raise
+            except Exception as e:
+                error_msg = str(e)
+
+                # Log based on error type
+                if "401" in error_msg or "Unauthorized" in error_msg:
+                    self.logger.debug(f"[{self.user_id}] Token issue, retrying")
+                elif "400" in error_msg or "Bad Request" in error_msg:
+                    self.logger.warning(
+                        f"[{self.user_id}] Error placing order level {level_display}: {error_msg}"
+                    )
+                else:
+                    self.logger.error(
+                        f"[{self.user_id}] Error placing order level {level_display}: {error_msg}"
+                    )
+
+                # Retry delay
+                try:
+                    time.sleep(1)
+                except KeyboardInterrupt:
+                    self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                    raise
+
+        return None
+
+    def _place_ladder_order(
+        self,
+        price_fetcher: Any,
+        current_level_index: int,
+        price_levels: List[float],
+        actual_increments: List[int],
+        order_quantity: int,
+        base_quantity: Optional[int],
+        second_last_index: int,
+        skip_second_last: bool,
+        double_buy: bool,
+        double_buy_quantity: Optional[int],
+        platform_params: Dict[str, Any]
+    ) -> Tuple[bool, Optional[Dict[str, Any]], int]:
+        """
+        Place a single ladder order at the specified level.
+
+        Returns:
+            Tuple of (success: bool, response: Optional[Dict], next_level_index: int)
+        """
+        # Check if should skip this level
+        if current_level_index == second_last_index and skip_second_last:
+            self.logger.info(
+                f"[{self.user_id}] Skipping second-to-last level {current_level_index + 1} "
+                f"(Rs. {price_levels[current_level_index]:.1f}) as requested"
+            )
+            return True, None, current_level_index + 1
+
+        target_price = price_levels[current_level_index]
+        increment_pct = actual_increments[current_level_index]
+
+        # Wait for trigger if not first order
+        if current_level_index > 0:
+            trigger_price = price_levels[current_level_index - 1]
+            ltp, current_level_index = self._wait_for_ladder_trigger(
+                price_fetcher, trigger_price, increment_pct,
+                current_level_index, price_levels, actual_increments,
+                second_last_index, skip_second_last
+            )
+
+            # Update target after potential level skips
+            target_price = price_levels[current_level_index]
+            increment_pct = actual_increments[current_level_index]
+        else:
+            # First order - place immediately
+            self.logger.info(
+                f"[{self.user_id}] Placing first order at Rs. {target_price:.1f}"
+            )
+            ltp = None
+
+        # Determine quantity
+        is_final = (current_level_index == len(price_levels) - 1)
+        qty = order_quantity if is_final else (base_quantity or order_quantity)
+
+        # Place order with retries
+        response = self._place_order_with_retries(
+            price_fetcher, target_price, qty, current_level_index + 1,
+            len(price_levels), ltp, platform_params
+        )
+
+        if response:
+            # Handle double buy for final level
+            if double_buy and is_final:
+                order_params = {**platform_params, 'market_price': ltp}
+                self._execute_double_buy(
+                    price=target_price,
+                    quantity=qty,
+                    double_buy_quantity=double_buy_quantity,
+                    **order_params
+                )
+
+            # Small delay between orders
+            if current_level_index + 1 < len(price_levels):
+                try:
+                    time.sleep(0.01)
+                except KeyboardInterrupt:
+                    self.logger.info(f"[{self.user_id}] IPO trigger interrupted by user")
+                    raise
+
+            return True, response, current_level_index + 1
+        else:
+            # Failed after retries
+            self.logger.warning(
+                f"[{self.user_id}] Failed to place order at Rs. {target_price:.1f} "
+                f"after 3 attempts. Skipping to next level."
+            )
+            return False, None, current_level_index + 1
+
+    def _execute_no_ladder_mode(
+        self,
+        price_fetcher: Any,
+        price_levels: List[float],
+        order_quantity: int,
+        just_buy: bool,
+        just_buy_interval_ms: int,
+        just_buy_timeout: int,
+        just_buy_pre_wait_ms: int,
+        platform_params: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Execute no-ladder mode: wait for trigger, optionally use just_buy, then place final order.
+
+        Returns:
+            Order response if successful, None otherwise
+        """
+        second_last_index = len(price_levels) - 2 if len(price_levels) >= 2 else -1
+
+        if second_last_index < 0:
+            # Edge case: only one level
+            self.logger.warning(f"[{self.user_id}] Only one level available, placing immediately")
+            try:
+                return self._place_single_order(
+                    price=price_levels[0],
+                    quantity=order_quantity,
+                    **platform_params
+                )
+            except Exception as e:
+                self.logger.error(f"[{self.user_id}] Failed to place immediate order: {e}")
+                return None
+
+        trigger_price = price_levels[second_last_index]
+        final_price = price_levels[-1]
+        
+        # Calculate switch threshold (third-last level or first level)
+        third_last_index = len(price_levels) - 3 if len(price_levels) >= 3 else -1
+        switch_threshold = price_levels[third_last_index] if third_last_index >= 0 else price_levels[0]
+
+        # Get polling intervals
+        fast_poll_ms = self.client.user_config.trigger_mode_poll_interval_ms
+        slow_poll_ms = self.client.user_config.trigger_mode_slow_poll_interval_ms
+
+        # Package just_buy parameters
+        just_buy_params = {
+            'order_quantity': order_quantity,
+            'interval_ms': just_buy_interval_ms,
+            'timeout': just_buy_timeout,
+            'pre_wait_ms': just_buy_pre_wait_ms
+        }
+
+        # Wait for trigger (handles just_buy internally)
+        triggered, just_buy_response = self._wait_for_no_ladder_trigger(
+            price_fetcher=price_fetcher,
+            trigger_price=trigger_price,
+            final_price=final_price,
+            switch_threshold=switch_threshold,
+            fast_poll_ms=fast_poll_ms,
+            slow_poll_ms=slow_poll_ms,
+            just_buy=just_buy,
+            just_buy_params=just_buy_params,
+            platform_params=platform_params
+        )
+
+        # If just_buy succeeded, we're done
+        if just_buy_response:
+            self.logger.info(f"[{self.user_id}] Just buy succeeded, skipping normal ladder placement")
+            return just_buy_response
+
+        # Place final order normally
+        ltp = price_fetcher.get_latest_ltp()
+        order_params = {**platform_params, 'market_price': ltp}
+
+        # Start market details for normal trigger
+        if hasattr(price_fetcher, 'start_market_details'):
+            self.logger.info(f"[{self.user_id}] Starting market details monitoring for order placement")
+            price_fetcher.start_market_details()
+
+        response = self._place_order_with_retries(
+            price_fetcher=price_fetcher,
+            target_price=final_price,
+            quantity=order_quantity,
+            level_display=len(price_levels),
+            total_levels=len(price_levels),
+            ltp=ltp,
+            platform_params=order_params
+        )
+
+        return response
+
+    def _execute_ladder_mode(
+        self,
+        price_fetcher: Any,
+        price_levels: List[float],
+        actual_increments: List[int],
+        order_quantity: int,
+        base_quantity: Optional[int],
+        skip_first: bool,
+        skip_second_last: bool,
+        second_last_index: int,
+        double_buy: bool,
+        double_buy_quantity: Optional[int],
+        platform_params: Dict[str, Any]
+    ) -> Tuple[int, Optional[Dict[str, Any]]]:
+        """
+        Execute ladder mode: place orders at each ladder level.
+
+        Returns:
+            Tuple of (orders_placed: int, last_response: Optional[Dict])
+        """
+        # Wait for initial trigger if skip_first
+        if skip_first:
+            self._wait_for_skip_first_trigger(
+                price_fetcher,
+                price_levels[0],
+                self.client.user_config.trigger_mode_slow_poll_interval_ms
+            )
+            current_level_index = 1
+        else:
+            current_level_index = 0
+
+        # Place orders level by level
+        last_response = None
+
+        while current_level_index < len(price_levels):
+            success, response, next_index = self._place_ladder_order(
+                price_fetcher=price_fetcher,
+                current_level_index=current_level_index,
+                price_levels=price_levels,
+                actual_increments=actual_increments,
+                order_quantity=order_quantity,
+                base_quantity=base_quantity,
+                second_last_index=second_last_index,
+                skip_second_last=skip_second_last,
+                double_buy=double_buy,
+                double_buy_quantity=double_buy_quantity,
+                platform_params=platform_params
+            )
+
+            if response:
+                last_response = response
+
+            current_level_index = next_index
+
+        return current_level_index, last_response
+
+
+    def _execute_ipo_trigger(
+        self,
+        base_price: float,
+        order_quantity: int,
+        fetch_clients: List[Any],
+        limit_price: Optional[float] = None,
+        skip_first: bool = False,
+        skip_second_last: bool = False,
+        no_ladder: bool = False,
+        fetch_security_id: Optional[int] = None,
+        base_quantity: Optional[int] = None,
+        ticker: Optional[str] = None,
+        double_buy: bool = False,
+        double_buy_quantity: Optional[int] = None,
+        just_buy: bool = False,
+        just_buy_interval_ms: int = 100,
+        just_buy_timeout: int = 5,
+        just_buy_pre_wait_ms: int = 0,
+        **platform_params
+    ) -> Dict[str, Any]:
+        """
+        Execute IPO trigger mode: Monitor LTP and place orders when LTP reaches ladder levels.
+
+        New trigger logic:
+        - When LTP >= ladder[i], place order at ladder[i+1]
+        - If skip_first=True, skip ladder[0] and start from ladder[1]
+        - If skip_second_last=True, skip the second-to-last ladder level
+        - If no_ladder=True, skip ALL ladder levels and only place final order when LTP >= second-to-last
+        - Skip missed levels if LTP jumps ahead
+        - Uses base_quantity for all levels except final, which uses order_quantity
+
+        Just Buy Mode (only active when no_ladder=True):
+        - When LTP reaches switch_threshold, starts aggressive multi-threaded order placement
+        - Optionally waits just_buy_pre_wait_ms before starting order placement
+        - Places orders at final_price every just_buy_interval_ms for just_buy_timeout seconds
+        - If any order succeeds, stops and moves on
+        - If all orders fail after timeout, falls back to normal trigger logic
+
+        Args:
+            base_price: Starting price
+            order_quantity: Number of units for final level
+            fetch_clients: List of client instances for fetching LTP with rotation
+            limit_price: Optional upper limit price for calculations
+            skip_first: Skip the first ladder level
+            skip_second_last: Skip the second-to-last ladder level
+            no_ladder: Skip ALL ladder levels, only place final order at limit+10%
+            fetch_security_id: Security ID for fetching LTP (defaults to security_id if not provided)
+            base_quantity: Quantity for all ladder levels except final (defaults to order_quantity for all levels)
+            ticker: Ticker symbol for resolving per-user fetch_id (optional)
+            just_buy: Enable aggressive multi-threaded order placement when switch_threshold is met
+            just_buy_interval_ms: Interval between order attempts in milliseconds (default: 100ms)
+            just_buy_timeout: Total duration to keep trying in seconds (default: 5s)
+            just_buy_pre_wait_ms: Wait time after switch threshold before starting just_buy (default: 0ms)
+
+        Returns:
+            Last API response dictionary
+        """
+
+        # Extract identifiers
+        security_id = platform_params.get('security_id')
+        symbol = platform_params.get('symbol')
+        fetch_security_id = fetch_security_id or security_id or symbol
+
+        # Calculate price ladder
+        price_levels, actual_increments = self._calculate_price_levels(
+            base_price, limit_price
+        )
+
+        # Log configuration
+        second_last_index = len(price_levels) - 2 if len(price_levels) >= 2 else -1
+        self._log_ipo_trigger_config(
+            price_levels, security_id, order_quantity,
+            skip_first, skip_second_last, no_ladder
+        )
+        self._log_ladder_levels(
+            price_levels, actual_increments, second_last_index,
+            skip_first, skip_second_last
+        )
+
+        # Setup price fetcher
+        poll_interval_ms = self.client.user_config.trigger_mode_poll_interval_ms
+        price_fetcher = self._setup_price_fetcher(
+            fetch_clients, fetch_security_id, symbol, ticker, poll_interval_ms
+        )
+
+        # Setup token refresh
+        token_manager = self._setup_token_manager()
+
+        last_response = None
+
+        try:
+            # Validate configuration
+            if just_buy and not no_ladder:
+                raise ValueError("just_buy can only be used with no_ladder=True mode")
+
+            if no_ladder:
+                # No-ladder mode: wait for trigger, optionally use just_buy
+                last_response = self._execute_no_ladder_mode(
+                    price_fetcher=price_fetcher,
+                    price_levels=price_levels,
+                    order_quantity=order_quantity,
+                    just_buy=just_buy,
+                    just_buy_interval_ms=just_buy_interval_ms,
+                    just_buy_timeout=just_buy_timeout,
+                    just_buy_pre_wait_ms=just_buy_pre_wait_ms,
+                    platform_params=platform_params
+                )
+                orders_placed = 1 if last_response else 0
+
+            else:
+                # Ladder mode: place orders at each level
+                orders_placed, last_response = self._execute_ladder_mode(
+                    price_fetcher=price_fetcher,
+                    price_levels=price_levels,
+                    actual_increments=actual_increments,
+                    order_quantity=order_quantity,
+                    base_quantity=base_quantity,
+                    skip_first=skip_first,
+                    skip_second_last=skip_second_last,
+                    second_last_index=second_last_index,
+                    double_buy=double_buy,
+                    double_buy_quantity=double_buy_quantity,
+                    platform_params=platform_params
+                )
 
         finally:
-            # Stop background services
+            if hasattr(price_fetcher, 'stop_market_details'):
+                price_fetcher.stop_market_details()
             price_fetcher.stop()
             self._cleanup_token_manager(token_manager)
 
-        total_placed = current_level_index
         self.logger.info(
-            f"[{self.user_id}] IPO TRIGGER COMPLETE: {total_placed} orders placed"
+            f"[{self.user_id}] IPO TRIGGER COMPLETE: {orders_placed} orders placed"
         )
         return last_response
-
-
-    # The following method will be implemented in Phase 4:
-    # - _execute_ipo_trigger() (Phase 4)
-    #
-    # This will be extracted from the existing service files and placed here,
-    # using the abstract methods defined above for platform-specific operations.

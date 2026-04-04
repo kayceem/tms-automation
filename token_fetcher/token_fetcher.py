@@ -3,12 +3,6 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 from playwright.sync_api import sync_playwright, Page, Browser
-import pytesseract
-from PIL import Image, ImageEnhance, ImageFilter
-import io
-import cv2
-import numpy as np
-
 
 class TokenFetcher:
     """
@@ -65,7 +59,7 @@ class TokenFetcher:
         cred_file = self.users_dir / f"user_cred{user_number}.json"
 
         if not cred_file.exists():
-            raise FileNotFoundError(f"Credentials file not found: {cred_file}")
+            return False
 
         with open(cred_file, 'r') as f:
             return json.load(f)
@@ -82,7 +76,11 @@ class TokenFetcher:
             Dictionary containing tokens and cookies
         """
         credentials = self.load_credentials(user_number)
-
+        if not credentials:
+            return {
+                'success': False,
+                'error': f"Credentials file for user {user_number} not found"
+            }
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=self.headless)
             context = browser.new_context()
@@ -128,15 +126,15 @@ class TokenFetcher:
                     # Click login button
                     login_button_xpath = "/html/body/app-root/app-login/div/div/div[2]/form/div[4]/input"
 
-                    # Setup response listener to capture tokens
-                    tokens = {}
+                    # Setup response listener to capture headers
+                    headers = {}
 
                     def handle_response(response):
-                        nonlocal tokens
-                        # Capture cookies from response headers
-                        set_cookie_header = response.headers.get('set-cookie', '')
-                        if set_cookie_header:
-                            tokens['set_cookie_raw'] = set_cookie_header
+                        nonlocal headers
+                        # Capture headers from response
+                        if '/tmsapi/dashboard/businessDate' in response.url and response.status == 200:
+                            headers['host_session_id'] = response.request.headers.get('host-session-id', '')
+                            headers['request_owner'] = response.request.headers.get('request-owner', '')
 
                     page.on('response', handle_response)
 
@@ -145,7 +143,7 @@ class TokenFetcher:
 
                     # Wait for navigation or error
                     try:
-                        time.sleep(0.5)
+                        time.sleep(2)
                         page.wait_for_load_state('networkidle', timeout=10000)
                     except Exception:
                         pass
@@ -156,7 +154,7 @@ class TokenFetcher:
                     # Extract specific cookies
                     cookie_dict = {}
                     for cookie in cookies:
-                        if cookie['name'] in ['_rid', '_aid', 'XSRF-TOKEN', 'XSRF-TOKKEN']:
+                        if cookie['name'] in ['_rid', '_aid', 'XSRF-TOKEN']:
                             cookie_dict[cookie['name']] = cookie['value']
 
                     # Check if login was successful by verifying we have cookies
@@ -164,7 +162,7 @@ class TokenFetcher:
                         print(f"Login successful for user {user_number}")
 
                         # Save tokens to user file
-                        self.save_tokens(user_number, credentials, cookie_dict, cookies)
+                        self.save_tokens(user_number, credentials, cookie_dict, cookies, headers)
 
                         browser.close()
                         return {
@@ -191,7 +189,7 @@ class TokenFetcher:
                     'error': str(e)
                 }
 
-    def save_tokens(self, user_number: int, credentials: Dict, cookies: Dict, all_cookies: list):
+    def save_tokens(self, user_number: int, credentials: Dict, cookies: Dict, all_cookies: list, headers: Dict):
         """
         Save tokens to user JSON file.
 
@@ -200,6 +198,7 @@ class TokenFetcher:
             credentials: User credentials dictionary
             cookies: Dictionary of specific cookies
             all_cookies: List of all cookies
+            headers: Dictionary of captured headers
         """
         output_file = self.output_dir / f"user{user_number}.json"
 
@@ -222,9 +221,12 @@ class TokenFetcher:
             user_data['rid_cookie'] = cookies['_rid']
         if '_aid' in cookies:
             user_data['access_token'] = cookies['_aid']
-        if 'XSRF-TOKEN' in cookies or 'XSRF-TOKKEN' in cookies:
-            user_data['xsrf_token'] = cookies.get('XSRF-TOKEN', cookies.get('XSRF-TOKKEN'))
-
+        if 'XSRF-TOKEN' in cookies:
+            user_data['xsrf_token'] = cookies.get('XSRF-TOKEN', "")
+        if 'host_session_id' in headers:
+            user_data['host_session_id'] = headers['host_session_id']
+        if 'request_owner' in headers:
+            user_data['request_owner'] = headers['request_owner']
         # Save to file
         with open(output_file, 'w') as f:
             json.dump(user_data, f, indent=2)
@@ -254,7 +256,7 @@ class TokenFetcher:
                 print(f"✗ User {user_num}: Failed - {result.get('error', 'Unknown error')}")
 
             # Small delay between users
-            time.sleep(2)
+            time.sleep(1)
 
         return results
 

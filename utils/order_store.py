@@ -194,6 +194,44 @@ class OrderStore:
             except (TypeError, ValueError) as e:
                 raise ValueError(f"Order '{order_id}' has invalid double_buy_quantity: {order['double_buy_quantity']}")
 
+        # Validate just_buy_interval_ms if provided
+        just_buy_interval_ms = 100  # Default
+        if 'just_buy_interval_ms' in order and order['just_buy_interval_ms'] is not None:
+            try:
+                just_buy_interval_ms = int(order['just_buy_interval_ms'])
+                if just_buy_interval_ms <= 0:
+                    raise ValueError(f"Order '{order_id}' has invalid just_buy_interval_ms: {just_buy_interval_ms}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid just_buy_interval_ms: {order['just_buy_interval_ms']}")
+
+        # Validate just_buy_timeout if provided
+        just_buy_timeout = 5  # Default
+        if 'just_buy_timeout' in order and order['just_buy_timeout'] is not None:
+            try:
+                just_buy_timeout = int(order['just_buy_timeout'])
+                if just_buy_timeout <= 0:
+                    raise ValueError(f"Order '{order_id}' has invalid just_buy_timeout: {just_buy_timeout}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid just_buy_timeout: {order['just_buy_timeout']}")
+
+        # Validate just_buy_pre_wait_ms if provided
+        just_buy_pre_wait_ms = 0  # Default
+        if 'just_buy_pre_wait_ms' in order and order['just_buy_pre_wait_ms'] is not None:
+            try:
+                just_buy_pre_wait_ms = int(order['just_buy_pre_wait_ms'])
+                if just_buy_pre_wait_ms < 0:
+                    raise ValueError(f"Order '{order_id}' has invalid just_buy_pre_wait_ms: {just_buy_pre_wait_ms}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid just_buy_pre_wait_ms: {order['just_buy_pre_wait_ms']}")
+
+        # Validate just_buy only works with no_ladder
+        just_buy = bool(order.get('just_buy', False))
+        no_ladder = bool(order.get('no_ladder', False))
+        if just_buy and not no_ladder:
+            raise ValueError(
+                f"Order '{order_id}': just_buy can only be used with no_ladder=true"
+            )
+
         # Validate queue_id if provided
         queue_id = 999  # Default
         if 'queue_id' in order and order['queue_id'] is not None:
@@ -219,9 +257,13 @@ class OrderStore:
             'sell': bool(order.get('sell', False)),
             'skip_first': bool(order.get('skip_first', False)),
             'skip_second_last': bool(order.get('skip_second_last', False)),
-            'no_ladder': bool(order.get('no_ladder', False)),
+            'no_ladder': no_ladder,
             'double_buy': bool(order.get('double_buy', False)),
-            'double_buy_quantity': double_buy_quantity
+            'double_buy_quantity': double_buy_quantity,
+            'just_buy': just_buy,
+            'just_buy_interval_ms': just_buy_interval_ms,
+            'just_buy_timeout': just_buy_timeout,
+            'just_buy_pre_wait_ms': just_buy_pre_wait_ms,
         }
 
         logger.debug(f"Order '{order_id}' validated successfully")

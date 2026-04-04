@@ -1,0 +1,28 @@
+[
+    {
+        "url": "https://tms.stockhouse.com.np/atsweb/marketdetails?action=getOrderBook&format=json&security=RSML&board=1&dojo.preventCache=1774806420216"
+    },
+    {
+        "code": "0",
+        "description": "success",
+        "data": {
+            "orderbook": [
+                {
+                    "totalask": "0",
+                    "totalbids": "3961",
+                    "ask": [],
+                    "bid": [
+                        { "splits": "22", "qty": "3461", "price": "2214.4" },
+                        { "splits": "1", "qty": "10", "price": "2210.0" },
+                        { "splits": "6", "qty": "440", "price": "2013.1" },
+                        { "splits": "1", "qty": "50", "price": "2013.0" }
+                    ],
+                    "AONSide": "null",
+                    "AONStatus": "null",
+                    "AONDATE": "null"
+                }
+            ],
+            "size": [{ "size": "1" }]
+        }
+    }
+]

@@ -17,6 +17,11 @@ class ATRADUserConfig:
     password: str
     account_id: str  # UCC/Account ID for order placement
 
+    # Additional account information
+    client_account: Optional[str] = None  # Client account display string
+    broker_code: Optional[str] = None  # Broker code (e.g., "NSH")
+    contra_broker: Optional[str] = None
+
     # Client data (user's broker account information) - for compatibility
     client_data: Optional[Dict[str, Any]] = None
 
@@ -24,6 +29,7 @@ class ATRADUserConfig:
     default_asset_select: str = '1'  # 1=EQUITY
     default_board: str = '1'  # 1=Regular board
     default_order_type: str = '16'  # 16=Day order
+    default_type_of_order: str = '1'  # 1 day validity
     default_product: str = 'web'
 
     # Trigger mode settings (same as TMS for consistency)
@@ -36,7 +42,9 @@ class ATRADUserConfig:
     # ATRAD API endpoints
     atrad_login_endpoint: str = '/atsweb/login'
     atrad_order_endpoint: str = '/atsweb/order'
-
+    atrad_watch_endpoint: str = '/atsweb/watch?action=getWatchForSecurity&format=json&exchange=NEPSE&bookDefId=1'
+    atrad_market_details_endpoint: str = '/atsweb/marketdetails?action=getOrderBook&format=json&board=1'
+    
     # Session management (populated after login)
     _session_id: Optional[str] = None  # JSESSIONID
     _role: Optional[str] = None  # OnlineUser, Manager, etc.
@@ -68,10 +76,14 @@ class ATRADUserConfig:
             'username': self.username,
             'password': self.password,
             'account_id': self.account_id,
+            'client_account': self.client_account,
+            'broker_code': self.broker_code,
+            'contra_broker': self.contra_broker,
             'client_data': self.client_data,
             'default_asset_select': self.default_asset_select,
             'default_board': self.default_board,
             'default_order_type': self.default_order_type,
+            'default_type_of_order': self.default_type_of_order,
             'default_product': self.default_product,
             'trigger_mode_poll_interval_ms': self.trigger_mode_poll_interval_ms,
             'trigger_mode_refresh_interval_seconds': self.trigger_mode_refresh_interval_seconds,

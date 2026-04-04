@@ -51,7 +51,11 @@ class OrderService(BaseOrderService):
         skip_second_last: bool = False,
         no_ladder: bool = False,
         fetch_id: Optional[int] = None,
-        ticker: Optional[str] = None
+        ticker: Optional[str] = None,
+        just_buy: bool = False,
+        just_buy_interval_ms: int = 100,
+        just_buy_timeout: int = 5,
+        just_buy_pre_wait_ms: int = 0,
     ) -> Dict[str, Any]:
         """
         Execute an order immediately.
@@ -113,7 +117,11 @@ class OrderService(BaseOrderService):
                 base_quantity=base_quantity,
                 ticker=ticker,
                 double_buy=double_buy,
-                double_buy_quantity=double_buy_quantity
+                double_buy_quantity=double_buy_quantity,
+                just_buy=just_buy,
+                just_buy_interval_ms=just_buy_interval_ms,
+                just_buy_timeout=just_buy_timeout,
+                just_buy_pre_wait_ms=just_buy_pre_wait_ms,
             )
 
         # Trigger Sell Mode: Monitor LTP and sell when price drops to trigger level

@@ -48,7 +48,7 @@ Examples:
     parser.add_argument(
         '--count',
         type=int,
-        default=6,
+        default=10,
         help='Number of users to process when using --all (default: 6)'
     )
 

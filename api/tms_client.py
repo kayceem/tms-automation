@@ -3,12 +3,47 @@
 import requests
 import json
 import threading
+import socket
 from pathlib import Path
 from typing import Dict, Any, Optional
 from config.user_config import UserConfig
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+# Force IPv4 for faster connections (NEPSE servers don't support IPv6)
+def create_ipv4_connection(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None, socket_options=None):
+    """Create socket connection using IPv4 only."""
+    host, port = address
+    err = None
+    for res in socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM):
+        af, socktype, proto, _, sa = res
+        sock = None
+        try:
+            sock = socket.socket(af, socktype, proto)
+            if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            if socket_options:
+                for opt in socket_options:
+                    sock.setsockopt(*opt)
+            sock.connect(sa)
+            return sock
+        except socket.error as _:
+            err = _
+            if sock is not None:
+                sock.close()
+    if err is not None:
+        raise err
+    else:
+        raise socket.error("getaddrinfo returns an empty list")
+
+
+# Monkey-patch urllib3 to use IPv4 only
+urllib3_connection = __import__('urllib3.util.connection', fromlist=['connection'])
+urllib3_connection.create_connection = create_ipv4_connection
 
 
 class TMSClient:
@@ -249,15 +284,16 @@ class TMSClient:
                 f"[{self.user_id}] Could not save cookies: {str(e)}"
             )
 
-    def get_ltp(self, security_id: int) -> Optional[float]:
+    def get_ltp(self, security_id: int, timeout: float = 0.1) -> Optional[float]:
         """
         Fetch the Last Traded Price (LTP) for a security (thread-safe).
 
         Args:
             security_id: Security ID to fetch LTP for
+            timeout: Request timeout in seconds (default: 5.0)
 
         Returns:
-            LTP as float, or None if fetch fails
+            LTP as float, or None if fetch fails or times out
 
         Raises:
             requests.HTTPError: If API request fails with non-401 error
@@ -266,14 +302,21 @@ class TMSClient:
 
         endpoint = f"{self.quote_endpoint}{security_id}"
 
-        # Make thread-safe API request
+        # Make thread-safe API request with timeout
         with self._request_lock:
-            response = self.session.get(endpoint)
-            response.encoding = 'utf-8'
+            try:
+                response = self.session.get(endpoint, timeout=timeout)
+                response.encoding = 'utf-8'
 
-            logger.debug(
-                f"[{self.user_id}] LTP fetch response status: {response.status_code}"
-            )
+                logger.debug(
+                    f"[{self.user_id}] LTP fetch response status: {response.status_code}"
+                )
+            except requests.exceptions.Timeout:
+                logger.warning(f"[{self.user_id}] LTP fetch timed out after {timeout}s")
+                return None
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"[{self.user_id}] LTP fetch failed: {e}")
+                return None
 
             # If we get 401, try to refresh tokens and retry once
             if response.status_code == 401:
@@ -283,12 +326,19 @@ class TMSClient:
                     logger.debug(f"[{self.user_id}] Tokens refreshed, retrying LTP fetch")
 
                     # Retry the request with new tokens
-                    response = self.session.get(endpoint)
-                    response.encoding = 'utf-8'
+                    try:
+                        response = self.session.get(endpoint, timeout=timeout)
+                        response.encoding = 'utf-8'
 
-                    logger.debug(
-                        f"[{self.user_id}] Retry LTP response status: {response.status_code}"
-                    )
+                        logger.debug(
+                            f"[{self.user_id}] Retry LTP response status: {response.status_code}"
+                        )
+                    except requests.exceptions.Timeout:
+                        logger.warning(f"[{self.user_id}] Retry LTP fetch timed out after {timeout}s")
+                        return None
+                    except requests.exceptions.RequestException as e:
+                        logger.warning(f"[{self.user_id}] Retry LTP fetch failed: {e}")
+                        return None
                 else:
                     logger.error(f"[{self.user_id}] Token refresh failed for LTP fetch")
                     return None
