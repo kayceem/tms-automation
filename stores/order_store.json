@@ -31,15 +31,11 @@
       "queue_id": 1,
       "ticker": "RSML",
       "mode": "ipo-trigger",
-      "quantity": 10,
+      "quantity": 40,
       "base_quantity": 50,
-      "price": 3006.1,
-      "limit": 2947.2,
-      "no_ladder": true,
-      "just_buy": true,
-      "just_buy_pre_wait_ms": 1500,
-      "just_buy_interval_ms": 5,
-      "just_buy_timeout": 5
+      "price": 3241.9,
+      "limit": 3241.9,
+      "no_ladder": true
     },
     {
       "id": "bjhl_ipo",
@@ -49,7 +45,7 @@
       "ticker": "BJHL",
       "mode": "ipo-trigger",
       "quantity": 625,
-      "price": 700.0,
+      "price": 640.0,
       "limit": 700.0,
       "no_ladder": true,
       "just_buy": true,
@@ -64,14 +60,14 @@
       "queue_id": 4,
       "ticker": "HFIN",
       "mode": "ipo-trigger",
-      "quantity": 1100,
-      "price": 384.7,
-      "limit": 381.7,
+      "quantity": 1050,
+      "price": 423.1,
+      "limit": 423.1,
       "no_ladder": true,
       "just_buy": true,
-      "just_buy_pre_wait_ms": 5000,
+      "just_buy_pre_wait_ms": 2000,
       "just_buy_interval_ms": 5,
-      "just_buy_timeout": 60
+      "just_buy_timeout": 40
     },
     {
       "id": "skhl_ipo",
@@ -80,14 +76,14 @@
       "queue_id": 3,
       "ticker": "SKHL",
       "mode": "ipo-trigger",
-      "quantity": 800,
-      "price": 531.4,
-      "limit": 531.4,
+      "quantity": 750,
+      "price": 584.5,
+      "limit": 584.5,
       "no_ladder": true,
       "just_buy": true,
-      "just_buy_pre_wait_ms": 20000,
+      "just_buy_pre_wait_ms": 5000,
       "just_buy_interval_ms": 5,
-      "just_buy_timeout": 120
+      "just_buy_timeout": 40
     },
     {
       "id": "rlel_ipo",

@@ -528,7 +528,7 @@ class ATRADClient:
                     ltp = security.get('tradeprice')
                     bidqty = security.get('bidqty', '')
                     bidprice = security.get('bidprice', '')
-                    if ltp is not None and ltp != '':
+                    if ltp and ltp != '':
                         ltp_str = str(ltp).replace(',', '')
                         logger.debug(f"[{self.user_id}] LTP response: ltp={ltp}, bidqty={bidqty}, bidprice={bidprice}")
                         return float(ltp_str)
