@@ -7,7 +7,7 @@ A command-line tool for automating order placement on NEPSE TMS.
 
 import argparse
 import sys
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from config import UserConfig, ATRADUserConfig
 from api import TMSClient, ATRADClient
@@ -476,6 +476,103 @@ def execute_order_for_user(
         raise
 
 
+def execute_multi_queue_group(
+    user_config,  # UserConfig or ATRADUserConfig
+    orders: List[Dict[str, Any]],
+    order_store,
+    fetch_user_configs = None,  # List[UserConfig] or List[ATRADUserConfig]
+    is_atrad_fetch: bool = False
+) -> Dict[str, Any]:
+    """
+    Execute a multi-queue order group.
+
+    Args:
+        user_config: Main user configuration
+        orders: List of orders in the multi-queue group
+        order_store: OrderStore instance
+        fetch_user_configs: List of fetch user configurations
+        is_atrad_fetch: True if using ATRAD fetch clients
+
+    Returns:
+        Last order response
+    """
+    from api import TMSClient, ATRADClient
+    from services import OrderService, ATRADOrderService
+
+    logger.info(f"Preparing multi-queue execution for {len(orders)} orders:")
+    for order in orders:
+        logger.info(f"  - {order['id']} ({order['ticker']})")
+
+    # Create main client
+    if hasattr(user_config, 'atrad_base_url'):
+        # ATRAD
+        main_client = ATRADClient(user_config)
+        order_service = ATRADOrderService(main_client)
+    else:
+        # TMS
+        main_client = TMSClient(user_config)
+        order_service = OrderService(main_client)
+
+    # Create fetch clients
+    if not fetch_user_configs:
+        raise ValueError("Fetch user configs required for multi-queue mode")
+
+    fetch_clients = []
+    for fetch_config in fetch_user_configs:
+        if is_atrad_fetch:
+            fetch_clients.append(ATRADClient(fetch_config))
+        else:
+            fetch_clients.append(TMSClient(fetch_config))
+
+    # Resolve tickers and add to orders
+    from utils import get_ticker_store
+    ticker_store = get_ticker_store()
+
+    for order in orders:
+        try:
+            security_id, exchange_security_id = ticker_store.lookup(order['ticker'])
+
+            # Get fetch_id
+            fetch_host = None
+            if fetch_user_configs and not is_atrad_fetch:
+                fetch_host = fetch_user_configs[0].tms_host
+
+            fetch_id = ticker_store.get_fetch_id(order['ticker'], host=fetch_host)
+
+            # Add resolved IDs to order
+            order['security_id'] = security_id
+            order['exchange_security_id'] = exchange_security_id
+            order['fetch_id'] = fetch_id
+            order['symbol'] = order['ticker'].upper()
+
+            logger.info(
+                f"  {order['id']}: security_id={security_id}, "
+                f"exchange_security_id={exchange_security_id}, fetch_id={fetch_id}"
+            )
+
+        except Exception as e:
+            raise ValueError(f"Ticker lookup failed for '{order['ticker']}': {e}")
+
+    # Execute multi-queue
+    try:
+        responses = order_service._execute_multi_queue_ipo_trigger(
+            orders=orders,
+            fetch_clients=fetch_clients
+        )
+
+        # Mark all orders as successful
+        for order in orders:
+            order_store.mark_success(order['id'])
+            logger.info(f"Order '{order['id']}' marked as successful in store")
+
+        logger.info(f"Multi-queue group completed successfully")
+        return responses[-1] if responses else None
+
+    except Exception as e:
+        logger.error(f"Multi-queue execution failed: {str(e)}")
+        raise
+
+
 def execute_from_order_store(
     user_config,  # UserConfig or ATRADUserConfig
     order_store_path: str,
@@ -516,132 +613,174 @@ def execute_from_order_store(
 
     last_result = None
 
-    # Execute each order in queue order
-    for idx, order in enumerate(orders, 1):
-        # Validate order
-        order = order_store.validate_order(order)
-        order_id = order['id']
-        queue_id = order['queue_id']
+    # Group orders by queue_id and multi_queue status
+    from collections import defaultdict
+    queue_groups = defaultdict(list)
+    for order in orders:
+        validated_order = order_store.validate_order(order)
+        queue_id = validated_order['queue_id']
+        queue_groups[queue_id].append(validated_order)
 
-        logger.info(f"Executing order {idx}/{len(orders)} (Queue ID: {queue_id}): {order_id}")
-        logger.info("="*70)
+    # Execute each queue group
+    total_executed = 0
+    for queue_id in sorted(queue_groups.keys()):
+        group_orders = queue_groups[queue_id]
 
-        # Resolve ticker to IDs
-        try:
-            from utils import get_ticker_store
-            ticker_store = get_ticker_store()
-            security_id, exchange_security_id = ticker_store.lookup(order['ticker'])
+        # Check if this is a multi_queue group
+        is_multi_queue = group_orders[0].get('multi_queue', False)
 
-            # Get fetch_id with host-specific lookup if fetch_user is available (TMS only)
-            fetch_host = None
-            if fetch_user_configs and not is_atrad_fetch:
-                # Only TMS users have tms_host attribute
-                fetch_host = fetch_user_configs[0].tms_host
+        if is_multi_queue and len(group_orders) > 1:
+            # Multi-queue mode: execute all orders in this group concurrently
+            logger.info(f"")
+            logger.info(f"Queue {queue_id}: MULTI-QUEUE MODE ({len(group_orders)} orders)")
+            logger.info("="*70)
 
-            fetch_id = ticker_store.get_fetch_id(order['ticker'], host=fetch_host)
+            try:
+                # Execute multi-queue group
+                last_result = execute_multi_queue_group(
+                    user_config=user_config,
+                    orders=group_orders,
+                    order_store=order_store,
+                    fetch_user_configs=fetch_user_configs,
+                    is_atrad_fetch=is_atrad_fetch
+                )
+                total_executed += len(group_orders)
 
-            logger.info(
-                f"Ticker '{order['ticker']}' resolved to "
-                f"security_id={security_id}, exchange_security_id={exchange_security_id}, fetch_id={fetch_id}"
-            )
-            if fetch_host:
-                logger.debug(f"Fetch ID resolved for host: {fetch_host}")
+            except Exception as e:
+                logger.error(f"Multi-queue group (Queue {queue_id}) failed: {str(e)}")
+                # Mark all orders in group as failed
+                for order in group_orders:
+                    order_store.mark_failed(order['id'])
+                # Continue to next queue group
+                logger.warning(f"Continuing to next queue group despite failure...")
+                continue
 
-        except (FileNotFoundError, ValueError) as e:
-            order_store.mark_failed(order_id)
-            raise ValueError(f"Ticker lookup failed for '{order['ticker']}': {e}")
+        else:
+            # Normal mode: execute orders sequentially
+            for idx, order in enumerate(group_orders, 1):
+                # Order already validated in grouping phase
+                order_id = order['id']
+                total_executed += 1
 
-        # Determine mode flags
-        ipo_trigger_mode = order['mode'] == 'ipo-trigger'
-        trigger_sell_mode = order['mode'] == 'trigger-sell'
-        buy_or_sell = 2 if order['sell'] else 1
+                logger.info(f"Executing order {total_executed}/{len(orders)} (Queue ID: {queue_id}): {order_id}")
+            logger.info("="*70)
 
-        # Validate fetch_user requirement for trigger modes
-        if ipo_trigger_mode and not fetch_user_configs:
-            order_store.mark_failed(order_id)
-            raise ValueError(
-                "Fetch user configuration is required for 'ipo-trigger' mode. "
-                "Use --fetch-user or --fetch-users argument to specify fetch user JSON file(s)."
-            )
+            # Resolve ticker to IDs
+            try:
+                from utils import get_ticker_store
+                ticker_store = get_ticker_store()
+                security_id, exchange_security_id = ticker_store.lookup(order['ticker'])
 
-        if trigger_sell_mode and not fetch_user_configs:
-            order_store.mark_failed(order_id)
-            raise ValueError(
-                "Fetch user configuration is required for 'trigger-sell' mode. "
-                "Use --fetch-user argument to specify fetch user JSON file."
-            )
+                # Get fetch_id with host-specific lookup if fetch_user is available (TMS only)
+                fetch_host = None
+                if fetch_user_configs and not is_atrad_fetch:
+                    # Only TMS users have tms_host attribute
+                    fetch_host = fetch_user_configs[0].tms_host
 
-        # Prepare order parameters
-        order_params = {
-            'security_id': security_id,
-            'exchange_security_id': exchange_security_id,
-            'order_price': order['price'],
-            'order_quantity': order['quantity'],
-            'buy_or_sell': buy_or_sell,
-            'order_type': None,  # Use defaults from user config
-            'order_validity': None,
-            'ipo_trigger_mode': ipo_trigger_mode,
-            'trigger_sell_mode': trigger_sell_mode,
-            'limit_price': order['limit'],
-            'skip_first': order['skip_first'],
-            'skip_second_last': order['skip_second_last'],
-            'no_ladder': order['no_ladder'],
-            'fetch_id': fetch_id,
-            'base_quantity': order['base_quantity'],
-            'ticker': order['ticker'],  # Pass ticker for per-user fetch_id resolution
-            'double_buy': order['double_buy'],
-            'double_buy_quantity': order['double_buy_quantity'],
-            'just_buy': order.get('just_buy', False),
-            'just_buy_interval_ms': order.get('just_buy_interval_ms', 100),
-            'just_buy_timeout': order.get('just_buy_timeout', 5),
-            'symbol': order['ticker'].upper()
-        }
+                fetch_id = ticker_store.get_fetch_id(order['ticker'], host=fetch_host)
 
-        # Log execution details
-        mode_str = order['mode'].upper()
-        logger.info(f"Execution Mode: {mode_str}")
-        logger.info(f"User: {user_config.user_id}")
-        logger.info(f"Order: {'SELL' if order['sell'] else 'BUY'}")
-        logger.info(f"Ticker: {order['ticker']}")
-        logger.info(f"Security ID: {security_id}")
-        logger.info(f"Exchange Security ID: {exchange_security_id}")
-        logger.info(f"Price: {order['price']}, Quantity: {order['quantity']}")
-        if order['limit']:
-            logger.info(f"Limit: {order['limit']}")
-        if order['time']:
-            logger.info(f"Scheduled Time: {order['time']}")
-        logger.info(f"Token Refresh: {order['refresh_before']}s before execution")
-        logger.info("="*70)
+                logger.info(
+                    f"Ticker '{order['ticker']}' resolved to "
+                    f"security_id={security_id}, exchange_security_id={exchange_security_id}, fetch_id={fetch_id}"
+                )
+                if fetch_host:
+                    logger.debug(f"Fetch ID resolved for host: {fetch_host}")
 
-        try:
-            # Execute order
-            result = execute_order_for_user(
-                user_config=user_config,
-                order_params=order_params,
-                scheduled_time=order['time'],
-                fetch_user_configs=fetch_user_configs,
-                is_atrad_fetch=is_atrad_fetch
-            )
+            except (FileNotFoundError, ValueError) as e:
+                order_store.mark_failed(order_id)
+                raise ValueError(f"Ticker lookup failed for '{order['ticker']}': {e}")
 
-            # Mark order as successful
-            order_store.mark_success(order_id)
-            logger.info(f"Order '{order_id}' marked as successful in store")
-            last_result = result
+            # Determine mode flags
+            ipo_trigger_mode = order['mode'] == 'ipo-trigger'
+            trigger_sell_mode = order['mode'] == 'trigger-sell'
+            buy_or_sell = 2 if order['sell'] else 1
 
-            # If there are more orders in queue, add a small delay before next order
-            if idx < len(orders):
-                logger.info(f"Order {idx}/{len(orders)} completed. Proceeding to next order in queue...")
-                logger.info("")
+            # Validate fetch_user requirement for trigger modes
+            if ipo_trigger_mode and not fetch_user_configs:
+                order_store.mark_failed(order_id)
+                raise ValueError(
+                    "Fetch user configuration is required for 'ipo-trigger' mode. "
+                    "Use --fetch-user or --fetch-users argument to specify fetch user JSON file(s)."
+                )
 
-        except Exception as e:
-            order_store.mark_failed(order_id)
-            logger.error(f"Order '{order_id}' failed: {str(e)}")
-            # Continue with next order in queue instead of stopping
-            if idx < len(orders):
-                logger.warning(f"Continuing to next order in queue despite failure...")
-                logger.info("")
-            else:
-                raise
+            if trigger_sell_mode and not fetch_user_configs:
+                order_store.mark_failed(order_id)
+                raise ValueError(
+                    "Fetch user configuration is required for 'trigger-sell' mode. "
+                    "Use --fetch-user argument to specify fetch user JSON file."
+                )
+
+            # Prepare order parameters
+            order_params = {
+                'security_id': security_id,
+                'exchange_security_id': exchange_security_id,
+                'order_price': order['price'],
+                'order_quantity': order['quantity'],
+                'buy_or_sell': buy_or_sell,
+                'order_type': None,  # Use defaults from user config
+                'order_validity': None,
+                'ipo_trigger_mode': ipo_trigger_mode,
+                'trigger_sell_mode': trigger_sell_mode,
+                'limit_price': order['limit'],
+                'skip_first': order['skip_first'],
+                'skip_second_last': order['skip_second_last'],
+                'no_ladder': order['no_ladder'],
+                'fetch_id': fetch_id,
+                'base_quantity': order['base_quantity'],
+                'ticker': order['ticker'],  # Pass ticker for per-user fetch_id resolution
+                'double_buy': order['double_buy'],
+                'double_buy_quantity': order['double_buy_quantity'],
+                'just_buy': order.get('just_buy', False),
+                'just_buy_interval_ms': order.get('just_buy_interval_ms', 100),
+                'just_buy_timeout': order.get('just_buy_timeout', 5),
+                'symbol': order['ticker'].upper()
+            }
+
+            # Log execution details
+            mode_str = order['mode'].upper()
+            logger.info(f"Execution Mode: {mode_str}")
+            logger.info(f"User: {user_config.user_id}")
+            logger.info(f"Order: {'SELL' if order['sell'] else 'BUY'}")
+            logger.info(f"Ticker: {order['ticker']}")
+            logger.info(f"Security ID: {security_id}")
+            logger.info(f"Exchange Security ID: {exchange_security_id}")
+            logger.info(f"Price: {order['price']}, Quantity: {order['quantity']}")
+            if order['limit']:
+                logger.info(f"Limit: {order['limit']}")
+            if order['time']:
+                logger.info(f"Scheduled Time: {order['time']}")
+            logger.info(f"Token Refresh: {order['refresh_before']}s before execution")
+            logger.info("="*70)
+
+            try:
+                # Execute order
+                result = execute_order_for_user(
+                    user_config=user_config,
+                    order_params=order_params,
+                    scheduled_time=order['time'],
+                    fetch_user_configs=fetch_user_configs,
+                    is_atrad_fetch=is_atrad_fetch
+                )
+
+                # Mark order as successful
+                order_store.mark_success(order_id)
+                logger.info(f"Order '{order_id}' marked as successful in store")
+                last_result = result
+
+                # If there are more orders in queue, add a small delay before next order
+                if idx < len(orders):
+                    logger.info(f"Order {idx}/{len(orders)} completed. Proceeding to next order in queue...")
+                    logger.info("")
+
+            except Exception as e:
+                order_store.mark_failed(order_id)
+                logger.error(f"Order '{order_id}' failed: {str(e)}")
+                # Continue with next order in queue instead of stopping
+                if idx < len(orders):
+                    logger.warning(f"Continuing to next order in queue despite failure...")
+                    logger.info("")
+                else:
+                    raise
 
     # All orders in queue completed
     logger.info("="*70)

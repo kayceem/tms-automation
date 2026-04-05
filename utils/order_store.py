@@ -88,6 +88,9 @@ class OrderStore:
         queue_ids = [f"{o.get('id', 'unknown')} (queue:{o.get('queue_id', 999)})" for o in executable_orders]
         logger.info(f"Found {len(executable_orders)} executable order(s): {', '.join(queue_ids)}")
 
+        # Validate multi_queue consistency across queue groups
+        self._validate_multi_queue_consistency(executable_orders)
+
         return executable_orders
 
     def get_executable_order(self) -> Optional[Dict[str, Any]]:
@@ -232,6 +235,20 @@ class OrderStore:
                 f"Order '{order_id}': just_buy can only be used with no_ladder=true"
             )
 
+        # Validate multi_queue
+        multi_queue = bool(order.get('multi_queue', False))
+        if multi_queue:
+            # multi_queue requires no_ladder
+            if not no_ladder:
+                raise ValueError(
+                    f"Order '{order_id}': multi_queue requires no_ladder=true"
+                )
+            # multi_queue requires ipo-trigger mode
+            if mode != 'ipo-trigger':
+                raise ValueError(
+                    f"Order '{order_id}': multi_queue requires mode='ipo-trigger'"
+                )
+
         # Validate queue_id if provided
         queue_id = 999  # Default
         if 'queue_id' in order and order['queue_id'] is not None:
@@ -264,10 +281,55 @@ class OrderStore:
             'just_buy_interval_ms': just_buy_interval_ms,
             'just_buy_timeout': just_buy_timeout,
             'just_buy_pre_wait_ms': just_buy_pre_wait_ms,
+            'multi_queue': multi_queue
         }
 
         logger.debug(f"Order '{order_id}' validated successfully")
         return normalized
+
+    def _validate_multi_queue_consistency(self, orders: List[Dict[str, Any]]) -> None:
+        """
+        Validate that all orders with the same queue_id have consistent multi_queue values.
+
+        Args:
+            orders: List of validated orders
+
+        Raises:
+            ValueError: If multi_queue values are inconsistent within a queue group
+        """
+        from collections import defaultdict
+
+        # Group orders by queue_id
+        queue_groups = defaultdict(list)
+        for order in orders:
+            queue_id = order.get('queue_id', 999)
+            queue_groups[queue_id].append(order)
+
+        # Check each queue group for consistency
+        for queue_id, group_orders in queue_groups.items():
+            if len(group_orders) <= 1:
+                continue  # Single order, no consistency check needed
+
+            # Check if all orders have the same multi_queue value
+            multi_queue_values = {order.get('multi_queue', False) for order in group_orders}
+
+            if len(multi_queue_values) > 1:
+                # Inconsistent multi_queue values
+                order_ids = [order.get('id', 'unknown') for order in group_orders]
+                raise ValueError(
+                    f"Orders in queue {queue_id} have inconsistent multi_queue values: {', '.join(order_ids)}\n"
+                    f"All orders with the same queue_id must have the same multi_queue setting."
+                )
+
+            # If multi_queue is true, validate requirements
+            if True in multi_queue_values:
+                # Check minimum 2 orders for multi_queue
+                if len(group_orders) < 2:
+                    order_id = group_orders[0].get('id', 'unknown')
+                    logger.warning(
+                        f"Order '{order_id}' has multi_queue=true but is alone in queue {queue_id}. "
+                        f"Multi-queue requires at least 2 orders."
+                    )
 
     def mark_success(self, order_id: str):
         """

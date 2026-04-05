@@ -34,6 +34,7 @@ class ATRADUserConfig:
 
     # Trigger mode settings (same as TMS for consistency)
     trigger_mode_poll_interval_ms: int = 100
+    multi_fetch_poll_interval_ms: int = 100
     trigger_mode_refresh_interval_seconds: int = 60
     trigger_sell_poll_interval_ms: int = 500
     trigger_mode_slow_poll_interval_ms: int = 500
