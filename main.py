@@ -553,12 +553,53 @@ def execute_multi_queue_group(
         except Exception as e:
             raise ValueError(f"Ticker lookup failed for '{order['ticker']}': {e}")
 
+    # Check if any order has a scheduled time (use first order's time for the group)
+    scheduled_time = orders[0].get('time') if orders else None
+
+    # Warn if orders have different time values
+    if scheduled_time:
+        different_times = [order['id'] for order in orders if order.get('time') != scheduled_time]
+        if different_times:
+            logger.warning(
+                f"Multi-queue group has orders with different scheduled times. "
+                f"Using first order's time ({scheduled_time}). "
+                f"Orders with different times: {', '.join(different_times)}"
+            )
+        logger.info(f"Multi-queue group has scheduled time: {scheduled_time}")
+        logger.info(f"All orders in this group will execute at: {scheduled_time}")
+
     # Execute multi-queue
     try:
-        responses = order_service._execute_multi_queue_ipo_trigger(
-            orders=orders,
-            fetch_clients=fetch_clients
-        )
+        if scheduled_time:
+            # Scheduled execution using OrderScheduler
+            def execute_multi_queue(**kwargs):
+                """Wrapper function for scheduled multi-queue execution."""
+                # Use fetch_clients from kwargs if provided (refreshed by scheduler)
+                # Otherwise use the ones we created
+                active_fetch_clients = kwargs.get('fetch_clients', fetch_clients)
+                return order_service._execute_multi_queue_ipo_trigger(
+                    orders=orders,
+                    fetch_clients=active_fetch_clients
+                )
+
+            # Use OrderScheduler to schedule multi-queue execution
+            responses = OrderScheduler.schedule_order(
+                time_str=scheduled_time,
+                order_func=execute_multi_queue,
+                tms_client=main_client,
+                fetch_clients=fetch_clients,
+                user_id=user_config.user_id
+            )
+
+            # Ensure responses is a list (multi-queue returns list)
+            if not isinstance(responses, list):
+                responses = [responses] if responses else []
+        else:
+            # Immediate execution
+            responses = order_service._execute_multi_queue_ipo_trigger(
+                orders=orders,
+                fetch_clients=fetch_clients
+            )
 
         # Mark all orders as successful
         for order in orders:

@@ -136,6 +136,7 @@ class ATRADOrderService(BaseOrderService):
                 fetch_client=actual_fetch_client,
                 fetch_security_id=fetch_id,
                 ticker=ticker,
+                limit_price=limit_price,
                 **kwargs
             )
 

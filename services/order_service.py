@@ -150,7 +150,8 @@ class OrderService(BaseOrderService):
                 order_validity=order_validity,
                 fetch_client=actual_fetch_client,
                 fetch_security_id=fetch_security_id,
-                ticker=ticker
+                ticker=ticker,
+                limit_price=limit_price
             )
 
         # Normal single order execution

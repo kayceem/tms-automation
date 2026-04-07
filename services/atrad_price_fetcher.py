@@ -431,7 +431,7 @@ class ATRADMultiUserPriceFetcher:
         )
 
         timeout = max(min(self.poll_interval_seconds * 4, 0.05), 0.02)
-        sleep_duration = min((self.poll_interval_seconds * 2), 0.01)
+        sleep_duration = min((self.poll_interval_seconds * 2), 0.005)
 
         while self._market_details_running:
             try:

@@ -76,9 +76,14 @@ class MultiSymbolSequentialPriceFetcher:
         # Priority symbol (first to reach switch threshold)
         self._priority_symbol: Optional[str] = None
 
+        # Client rotation state (for multi-user fetch)
+        self._current_client_index = 0
+        self._num_clients = len(fetch_clients)
+
+        client_info = f"{len(fetch_clients)} fetch client(s)" if len(fetch_clients) > 1 else "1 fetch client"
         logger.info(
             f"[{self.user_id}] Multi-symbol fetcher initialized: "
-            f"{len(symbols_config)} symbols, interval={poll_interval_ms}ms"
+            f"{len(symbols_config)} symbols, interval={poll_interval_ms}ms, {client_info} (rotation enabled)"
         )
 
     def start(self):
@@ -188,6 +193,21 @@ class MultiSymbolSequentialPriceFetcher:
                 logger.error(f"[{self.user_id}] Error in multi-symbol monitoring loop: {e}")
                 time.sleep(interval_seconds*2)
 
+    def _get_next_client(self) -> Any:
+        """
+        Get the next fetch client in rotation.
+
+        Returns:
+            Next client to use for fetching
+        """
+        if self._num_clients == 1:
+            return self.fetch_clients[0]
+
+        # Round-robin rotation through clients
+        client = self.fetch_clients[self._current_client_index]
+        self._current_client_index = (self._current_client_index + 1) % self._num_clients
+        return client
+
     def _fetch_ltp_for_symbol(self, config: SymbolConfig) -> Optional[float]:
         """
         Fetch LTP for a single symbol.
@@ -215,8 +235,8 @@ class MultiSymbolSequentialPriceFetcher:
 
     def _fetch_tms_ltp(self, security_id: int) -> Optional[float]:
         """Fetch LTP from TMS."""
-        # Use first fetch client (all clients are same for multi_queue)
-        client = self.fetch_clients[0]
+        # Rotate through fetch clients
+        client = self._get_next_client()
 
         try:
             response = client.get_ltp(security_id)
@@ -241,8 +261,8 @@ class MultiSymbolSequentialPriceFetcher:
 
     def _fetch_atrad_ltp(self, symbol: str) -> Optional[float]:
         """Fetch LTP from ATRAD."""
-        # Use first fetch client (all clients are same for multi_queue)
-        client = self.fetch_clients[0]
+        # Rotate through fetch clients
+        client = self._get_next_client()
 
         try:
             return client.get_ltp(symbol)

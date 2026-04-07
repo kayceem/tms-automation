@@ -5,7 +5,8 @@
     "success": "Automatically set to true after successful execution",
     "queue_id": "(Optional) Queue position for execution (1, 2, 3, etc.). Orders with execute=true are executed in ascending queue_id order. If not specified, defaults to 999.",
     "ticker": "Ticker symbol from ticker_store.json",
-    "price": "Sell price per unit (trigger price calculated as price / 1.02, floored to 1 decimal)",
+    "price": "Base/current sell price. If limit provided: starting price for ladder calculation. If no limit: sell price (trigger = price / 1.02)",
+    "limit": "(Optional) Lower limit price for ladder mode. If provided: calculates ladder from price down to limit, triggers at 2nd-last level, places order at limit+10%. If not provided: uses legacy 2% trigger mode.",
     "quantity": "Number of units to sell",
     "mode": "Must be 'trigger-sell' for sell orders",
     "time": "(Optional) Scheduled execution time in HH:MM or HH:MM:SS format",
@@ -13,15 +14,16 @@
   },
   "orders": [
     {
-      "id": "sabbl_sell",
+      "id": "bjhl_sell",
       "execute": false,
-      "success": true,
+      "success": false,
       "queue_id": 1,
-      "ticker": "SABBL",
+      "ticker": "BJHL",
       "mode": "trigger-sell",
-      "quantity": 0,
+      "quantity": 10,
       "price": 0,
-      "sell": false
+      "limit": 0,
+      "sell": true
     }
   ]
 }

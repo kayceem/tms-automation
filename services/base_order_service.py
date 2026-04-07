@@ -281,12 +281,19 @@ class BaseOrderService(ABC):
         fetch_client: Any,
         fetch_security_id: Optional[int] = None,
         ticker: Optional[str] = None,
+        limit_price: Optional[float] = None,
         **platform_params
     ) -> Dict[str, Any]:
         """
         Execute trigger sell mode: Monitor LTP and place sell order when price rises to trigger level.
 
-        Logic:
+        Logic (with limit):
+        - Calculate ladder levels from sell_price to limit
+        - Remove levels above limit + 10%
+        - Trigger when LTP >= second-to-last level
+        - Place sell order at limit + 10%
+
+        Logic (without limit - legacy):
         - Calculate trigger_price from sell_price: trigger_price = sell_price / 1.02 (floored to 1 decimal)
         - Monitor LTP continuously with less aggressive polling (default 500ms)
         - When LTP >= trigger_price, place sell order at sell_price
@@ -296,11 +303,12 @@ class BaseOrderService(ABC):
         below the sell price (about 2% lower) so the sell order is placed before the price drops.
 
         Args:
-            sell_price: The price at which to place the sell order
+            sell_price: The base/starting price for sell (current price expectation)
             order_quantity: Number of units to sell
             fetch_client: Client instance for fetching LTP (TMSClient or ATRADClient)
             fetch_security_id: Security ID/symbol for fetching LTP (optional, defaults to order security)
             ticker: Ticker symbol for resolving per-user fetch_id (optional)
+            limit_price: Optional lower limit price for ladder calculation (like buy IPO mode)
 
         Returns:
             Order placement response dictionary
@@ -319,19 +327,64 @@ class BaseOrderService(ABC):
             # Try to extract security_id or symbol from platform_params
             fetch_security_id = platform_params.get('security_id') or platform_params.get('symbol')
 
-        # Calculate trigger price from sell price: trigger_price * 1.02 = sell_price
-        # So: trigger_price = sell_price / 1.02
-        trigger_price = sell_price / 1.02
-        trigger_price = math.floor(trigger_price * 10) / 10
+        # Calculate trigger and final sell price based on limit
+        if limit_price:
+            # Limit mode: Calculate ladder levels like IPO buy mode
+            self.logger.info(
+                f"[{self.user_id}] TRIGGER SELL MODE (with limit): "
+                f"{identifier}, Qty={order_quantity}, "
+                f"Base price: Rs. {sell_price}, Limit: Rs. {limit_price}"
+            )
 
-        self.logger.info(
-            f"[{self.user_id}] TRIGGER SELL MODE: "
-            f"{identifier}, Qty={order_quantity}, "
-            f"Sell price: Rs. {sell_price}, Trigger price: Rs. {trigger_price}"
-        )
-        self.logger.info(
-            f"[{self.user_id}] Will place sell order at Rs. {sell_price} when LTP >= Rs. {trigger_price}"
-        )
+            # Calculate ladder levels from sell_price down to limit
+            price_levels, actual_increments = self._calculate_price_levels(
+                sell_price, limit_price
+            )
+
+            # Log ladder levels
+            self.logger.info(f"[{self.user_id}] Calculated {len(price_levels)} ladder levels:")
+            for i, price in enumerate(price_levels):
+                increment = actual_increments[i] if i < len(actual_increments) else -1
+                if increment == -1:
+                    self.logger.debug(f"[{self.user_id}] Level {i+1}: Rs. {price} (Limit +10%)")
+                else:
+                    self.logger.debug(f"[{self.user_id}] Level {i+1}: Rs. {price} (+{increment}%)")
+
+            # Get second-to-last level as trigger (like buy IPO mode)
+            second_last_index = len(price_levels) - 2 if len(price_levels) >= 2 else -1
+            if second_last_index >= 0:
+                trigger_price = price_levels[second_last_index]
+            else:
+                # Edge case: only one level, use it as trigger
+                trigger_price = price_levels[0]
+
+            # Final sell price is limit + 10%
+            final_sell_price = price_levels[-1]
+
+            self.logger.info(
+                f"[{self.user_id}] Will monitor for LTP >= Rs. {trigger_price} (level {second_last_index + 1})"
+            )
+            self.logger.info(
+                f"[{self.user_id}] Will place sell order at Rs. {final_sell_price} when triggered"
+            )
+
+        else:
+            # Legacy mode: Simple 2% trigger (no limit)
+            # Calculate trigger price from sell price: trigger_price * 1.02 = sell_price
+            # So: trigger_price = sell_price / 1.02
+            # Use ceil to ensure trigger_price * 1.02 >= sell_price (within 2% limit)
+            trigger_price = sell_price / 1.02
+            trigger_price = math.ceil(trigger_price * 10) / 10
+            final_sell_price = sell_price
+
+            self.logger.info(
+                f"[{self.user_id}] TRIGGER SELL MODE (legacy): "
+                f"{identifier}, Qty={order_quantity}, "
+                f"Sell price: Rs. {sell_price}, Trigger price: Rs. {trigger_price}"
+            )
+            self.logger.info(
+                f"[{self.user_id}] Will place sell order at Rs. {final_sell_price} when LTP >= Rs. {trigger_price}"
+            )
 
         # Get poll interval from user config (default to 500ms)
         poll_interval_ms = getattr(self.client.user_config, 'trigger_sell_poll_interval_ms', 500)
@@ -379,8 +432,7 @@ class BaseOrderService(ABC):
                 poll_interval_ms=poll_interval_ms
             )
 
-        # Start token/session refresh manager to keep main user ready for order placement
-        token_manager = self._setup_token_manager([fetch_client])
+        token_manager = self._setup_token_manager()
         if token_manager:
             refresh_interval = self.client.user_config.trigger_mode_refresh_interval_seconds
             self.logger.info(
@@ -412,7 +464,7 @@ class BaseOrderService(ABC):
                         f"[{self.user_id}] TRIGGER ACTIVATED: LTP Rs. {ltp} >= Trigger Rs. {trigger_price}"
                     )
                     self.logger.info(
-                        f"[{self.user_id}] Placing sell order at Rs. {sell_price} x {order_quantity}"
+                        f"[{self.user_id}] Placing sell order at Rs. {final_sell_price} x {order_quantity}"
                     )
 
                     try:
@@ -432,7 +484,7 @@ class BaseOrderService(ABC):
 
                         # No retry - validation errors (400) won't resolve on retry
                         response = self._place_single_order(
-                            price=sell_price,
+                            price=final_sell_price,
                             quantity=order_quantity,
                             **sell_params
                         )
@@ -668,20 +720,31 @@ class BaseOrderService(ABC):
         just_buy_timeout: int,
         just_buy_pre_wait_ms: int,
         price_fetcher: Any,
-        platform_params: Dict[str, Any]
+        platform_params: Dict[str, Any],
+        just_buy_max_requests: Optional[int] = None
     ) -> Tuple[bool, Optional[Dict[str, Any]]]:
         """
         Execute just_buy mode: aggressively place orders in multiple threads.
+
+        Args:
+            just_buy_max_requests: Maximum number of order attempts (None = use timeout only)
 
         Returns:
             Tuple of (success: bool, response: Optional[Dict])
         """
         import threading
 
-        self.logger.info(
-            f"[{self.user_id}] JUST BUY ACTIVATED: Starting aggressive order placement "
-            f"at Rs. {final_price} (interval={just_buy_interval_ms}ms, timeout={just_buy_timeout}s)"
-        )
+        # Log configuration
+        if just_buy_max_requests:
+            self.logger.info(
+                f"[{self.user_id}] JUST BUY ACTIVATED: Starting aggressive order placement "
+                f"at Rs. {final_price} (interval={just_buy_interval_ms}ms, max_requests={just_buy_max_requests})"
+            )
+        else:
+            self.logger.info(
+                f"[{self.user_id}] JUST BUY ACTIVATED: Starting aggressive order placement "
+                f"at Rs. {final_price} (interval={just_buy_interval_ms}ms, timeout={just_buy_timeout}s)"
+            )
 
         # Start market details monitoring if ATRAD
         if hasattr(price_fetcher, 'start_market_details'):
@@ -735,30 +798,64 @@ class BaseOrderService(ABC):
             thread_counter = 0
             interval_seconds = just_buy_interval_ms / 1000.0
 
-            while (time.time() - start_time) < just_buy_timeout:
-                if success_flag.is_set():
-                    self.logger.info(
-                        f"[{self.user_id}] Just Buy SUCCESS detected, stopping new threads"
+            # Determine stopping condition
+            if just_buy_max_requests:
+                # Use max_requests as stopping condition
+                while thread_counter < just_buy_max_requests:
+                    if success_flag.is_set():
+                        self.logger.info(
+                            f"[{self.user_id}] Just Buy SUCCESS detected, stopping new threads"
+                        )
+                        break
+
+                    thread_counter += 1
+                    thread = threading.Thread(
+                        target=place_just_buy_order,
+                        args=(thread_counter,),
+                        daemon=True
                     )
-                    break
 
-                thread_counter += 1
-                thread = threading.Thread(
-                    target=place_just_buy_order,
-                    args=(thread_counter,),
-                    daemon=True
+                    with threads_lock:
+                        active_threads.append(thread)
+
+                    thread.start()
+
+                    try:
+                        time.sleep(interval_seconds)
+                    except KeyboardInterrupt:
+                        self.logger.info(f"[{self.user_id}] Just Buy interrupted by user")
+                        raise
+
+                self.logger.info(
+                    f"[{self.user_id}] Just Buy max_requests ({just_buy_max_requests}) reached. "
+                    f"Waiting for threads to complete..."
                 )
+            else:
+                # Use timeout as stopping condition
+                while (time.time() - start_time) < just_buy_timeout:
+                    if success_flag.is_set():
+                        self.logger.info(
+                            f"[{self.user_id}] Just Buy SUCCESS detected, stopping new threads"
+                        )
+                        break
 
-                with threads_lock:
-                    active_threads.append(thread)
+                    thread_counter += 1
+                    thread = threading.Thread(
+                        target=place_just_buy_order,
+                        args=(thread_counter,),
+                        daemon=True
+                    )
 
-                thread.start()
+                    with threads_lock:
+                        active_threads.append(thread)
 
-                try:
-                    time.sleep(interval_seconds)
-                except KeyboardInterrupt:
-                    self.logger.info(f"[{self.user_id}] Just Buy interrupted by user")
-                    raise
+                    thread.start()
+
+                    try:
+                        time.sleep(interval_seconds)
+                    except KeyboardInterrupt:
+                        self.logger.info(f"[{self.user_id}] Just Buy interrupted by user")
+                        raise
 
             # Wait for all threads to complete
             self.logger.info(
@@ -775,10 +872,16 @@ class BaseOrderService(ABC):
                 )
                 return True, success_response['response']
             else:
-                self.logger.warning(
-                    f"[{self.user_id}] Just Buy FAILED after {just_buy_timeout}s "
-                    f"({thread_counter} attempts). Falling back to normal trigger logic."
-                )
+                if just_buy_max_requests:
+                    self.logger.warning(
+                        f"[{self.user_id}] Just Buy FAILED after {thread_counter} attempts "
+                        f"(max_requests={just_buy_max_requests}). Falling back to normal trigger logic."
+                    )
+                else:
+                    self.logger.warning(
+                        f"[{self.user_id}] Just Buy FAILED after {just_buy_timeout}s "
+                        f"({thread_counter} attempts). Falling back to normal trigger logic."
+                    )
                 return False, None
 
         finally:
@@ -819,17 +922,15 @@ class BaseOrderService(ABC):
                 just_buy_timeout=just_buy_params['timeout'],
                 just_buy_pre_wait_ms=just_buy_params['pre_wait_ms'],
                 price_fetcher=price_fetcher,
-                platform_params=platform_params
+                platform_params=platform_params,
+                just_buy_max_requests=just_buy_params['max_requests']
             )
             if success:
                 return True, response
             else:
-                # Just buy failed, fall through to normal trigger logic
-                self.logger.warning(
-                    f"[{self.user_id}] Just buy failed after timeout. "
-                    f"Continuing with normal trigger logic."
-                )
-                return True, None
+                # Just buy failed during multi-queue trigger return and move to next order
+                self.logger.warning(f"[{self.user_id}] Just buy failed.")
+                return False, None
 
         self.logger.info(
             f"[{self.user_id}] NO LADDER MODE: Waiting for LTP >= Rs. {trigger_price} "
@@ -894,7 +995,8 @@ class BaseOrderService(ABC):
                                 just_buy_timeout=just_buy_params['timeout'],
                                 just_buy_pre_wait_ms=just_buy_params['pre_wait_ms'],
                                 price_fetcher=price_fetcher,
-                                platform_params=platform_params
+                                platform_params=platform_params,
+                                just_buy_max_requests=just_buy_params['max_requests']
                             )
 
                             if success:
@@ -1180,6 +1282,7 @@ class BaseOrderService(ABC):
         just_buy_interval_ms: int,
         just_buy_timeout: int,
         just_buy_pre_wait_ms: int,
+        just_buy_max_requests: int,
         platform_params: Dict[str, Any],
         already_triggered: bool = False
     ) -> Optional[Dict[str, Any]]:
@@ -1220,7 +1323,8 @@ class BaseOrderService(ABC):
             'order_quantity': order_quantity,
             'interval_ms': just_buy_interval_ms,
             'timeout': just_buy_timeout,
-            'pre_wait_ms': just_buy_pre_wait_ms
+            'pre_wait_ms': just_buy_pre_wait_ms,
+            'max_requests': just_buy_max_requests
         }
 
         # Wait for trigger (handles just_buy internally)
@@ -1242,6 +1346,10 @@ class BaseOrderService(ABC):
             self.logger.info(f"[{self.user_id}] Just buy succeeded, skipping normal ladder placement")
             return just_buy_response
 
+        if not triggered:
+            self.logger.warning(f"[{self.user_id}] Skipping for already triggered order in multi-queue priority")
+            return None
+        
         # Place final order normally
         ltp = price_fetcher.get_latest_ltp()
         order_params = {**platform_params, 'market_price': ltp}
@@ -1338,6 +1446,7 @@ class BaseOrderService(ABC):
         just_buy_interval_ms: int = 100,
         just_buy_timeout: int = 5,
         just_buy_pre_wait_ms: int = 0,
+        just_buy_max_requests: Optional[int] = None,
         already_triggered: bool = False,
         **platform_params
     ) -> Dict[str, Any]:
@@ -1372,8 +1481,9 @@ class BaseOrderService(ABC):
             ticker: Ticker symbol for resolving per-user fetch_id (optional)
             just_buy: Enable aggressive multi-threaded order placement when switch_threshold is met
             just_buy_interval_ms: Interval between order attempts in milliseconds (default: 100ms)
-            just_buy_timeout: Total duration to keep trying in seconds (default: 5s)
+            just_buy_timeout: Total duration to keep trying in seconds (default: 5s, ignored if max_requests set)
             just_buy_pre_wait_ms: Wait time after switch threshold before starting just_buy (default: 0ms)
+            just_buy_max_requests: Max number of order attempts (None = use timeout instead)
             already_triggered: True if called from multi-queue with switch threshold already reached (default: False)
 
         Returns:
@@ -1427,6 +1537,7 @@ class BaseOrderService(ABC):
                     just_buy_interval_ms=just_buy_interval_ms,
                     just_buy_timeout=just_buy_timeout,
                     just_buy_pre_wait_ms=just_buy_pre_wait_ms,
+                    just_buy_max_requests=just_buy_max_requests,
                     platform_params=platform_params,
                     already_triggered=already_triggered
                 )
@@ -1575,7 +1686,7 @@ class BaseOrderService(ABC):
         responses = []
 
         self.logger.info(f"[{self.user_id}] Executing priority order: {priority_order['id']}")
-        response = self._execute_single_ipo_order(priority_order, fetch_clients)
+        response = self._execute_single_ipo_order(priority_order, fetch_clients, True)
         responses.append(response)
 
         # Execute remaining orders in order_store.json order
@@ -1584,7 +1695,7 @@ class BaseOrderService(ABC):
             self.logger.info(
                 f"[{self.user_id}] Executing remaining order: {remaining_order['id']} ({remaining_symbol})"
             )
-            response = self._execute_single_ipo_order(remaining_order, fetch_clients)
+            response = self._execute_single_ipo_order(remaining_order, fetch_clients, False)
             responses.append(response)
 
         self.logger.info(
@@ -1596,7 +1707,8 @@ class BaseOrderService(ABC):
     def _execute_single_ipo_order(
         self,
         order: Dict[str, Any],
-        fetch_clients: List[Any]
+        fetch_clients: List[Any],
+        already_triggered: bool = False
     ) -> Dict[str, Any]:
         """
         Execute a single IPO trigger order (helper for multi-queue).
@@ -1604,6 +1716,7 @@ class BaseOrderService(ABC):
         Args:
             order: Order dictionary
             fetch_clients: List of fetch clients
+            already_triggered: True if switch threshold already reached in multi-queue monitoring (default: False)
 
         Returns:
             Order response
@@ -1628,7 +1741,7 @@ class BaseOrderService(ABC):
                 'order_validity': 'DAY'
             }
 
-        # Execute IPO trigger (already_triggered=True since called from multi-queue priority)
+        # Execute IPO trigger
         return self._execute_ipo_trigger(
             base_price=order['price'],
             order_quantity=order['quantity'],
@@ -1646,6 +1759,7 @@ class BaseOrderService(ABC):
             just_buy_interval_ms=order.get('just_buy_interval_ms', 100),
             just_buy_timeout=order.get('just_buy_timeout', 5),
             just_buy_pre_wait_ms=order.get('just_buy_pre_wait_ms', 0),
-            already_triggered=True,
+            just_buy_max_requests=order.get('just_buy_max_requests'),
+            already_triggered=already_triggered,
             **platform_params
         )

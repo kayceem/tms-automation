@@ -123,5 +123,13 @@
             "tms89.nepsetms.com.np": 3108
 
         }
+    },
+    "ILI": {
+        "security_id": 3013,
+        "exchange_security_id": 9184,
+        "name": "IME Life Insurance Company Limited",
+        "fetch_id": {
+            "tms01.nepsetms.com.np": 3013
+        }
     }
 }

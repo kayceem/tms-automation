@@ -227,6 +227,16 @@ class OrderStore:
             except (TypeError, ValueError) as e:
                 raise ValueError(f"Order '{order_id}' has invalid just_buy_pre_wait_ms: {order['just_buy_pre_wait_ms']}")
 
+        # Validate just_buy_max_requests if provided
+        just_buy_max_requests = None  # Default
+        if 'just_buy_max_requests' in order and order['just_buy_max_requests'] is not None:
+            try:
+                just_buy_max_requests = int(order['just_buy_max_requests'])
+                if just_buy_max_requests <= 0:
+                    raise ValueError(f"Order '{order_id}' has invalid just_buy_max_requests: {just_buy_max_requests}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid just_buy_max_requests: {order['just_buy_max_requests']}")
+
         # Validate just_buy only works with no_ladder
         just_buy = bool(order.get('just_buy', False))
         no_ladder = bool(order.get('no_ladder', False))
@@ -281,6 +291,7 @@ class OrderStore:
             'just_buy_interval_ms': just_buy_interval_ms,
             'just_buy_timeout': just_buy_timeout,
             'just_buy_pre_wait_ms': just_buy_pre_wait_ms,
+            'just_buy_max_requests': just_buy_max_requests,
             'multi_queue': multi_queue
         }
 
