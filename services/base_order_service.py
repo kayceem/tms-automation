@@ -1536,7 +1536,7 @@ class BaseOrderService(ABC):
         just_buy_max_requests: Optional[int] = None,
         just_buy_fade_interval_ms: Optional[int] = None,
         just_buy_fade_timeout: Optional[int] = None,
-        already_triggered: bool = True,
+        already_triggered: bool = False,
         **platform_params
     ) -> Dict[str, Any]:
         """

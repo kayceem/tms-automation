@@ -30,19 +30,19 @@
   "orders": [
     {
       "id": "hfin_ipo",
-      "execute": true,
-      "success": false,
+      "execute": false,
+      "success": true,
       "queue_id": 1,
       "ticker": "HFIN",
       "mode": "ipo-sell-buy-trigger",
       "quantity": 1029,
-      "price": 619.3,
-      "limit": 619.3,
+      "price": 580,
+      "limit": 580,
       "sell_quantity": 10,
-      "sell_pre_wait_ms": 1400,
-      "just_buy_interval_ms": 10,
-      "just_buy_timeout": 5,
-      "seller_config": "users/atrad_user6.json",
+      "sell_pre_wait_ms": 20,
+      "just_buy_interval_ms": 900,
+      "just_buy_timeout": 1,
+      "seller_config": "users/user2.json",
       "buyer_config": "users/atrad_user1.json"
     },
     {
