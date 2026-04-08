@@ -7,7 +7,7 @@ A command-line tool for automating order placement on NEPSE TMS.
 
 import argparse
 import sys
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from config import UserConfig, ATRADUserConfig
 from api import TMSClient, ATRADClient
@@ -203,6 +203,35 @@ Examples:
         default=0,
         help='Wait time in milliseconds after switch threshold before starting just buy (default: 0ms)'
     )
+
+    # IPO Sell-Buy-Trigger Mode
+    parser.add_argument(
+        '--ipo-sell-buy-trigger',
+        action='store_true',
+        help='IPO sell-buy-trigger mode: Coordinates sell and buy orders when third last level reached'
+    )
+    parser.add_argument(
+        '--seller',
+        type=str,
+        help='Path to seller user JSON file (required for --ipo-sell-buy-trigger). Can be TMS or ATRAD user.'
+    )
+    parser.add_argument(
+        '--buyer',
+        type=str,
+        help='Path to buyer user JSON file (required for --ipo-sell-buy-trigger). Can be TMS or ATRAD user.'
+    )
+    parser.add_argument(
+        '--sell-quantity',
+        type=int,
+        help='Quantity for sell order in ipo-sell-buy-trigger mode (required for --ipo-sell-buy-trigger)'
+    )
+    parser.add_argument(
+        '--sell-pre-wait-ms',
+        type=int,
+        default=5000,
+        help='Wait time in milliseconds before starting buy/sell sequence after third last level reached (default: 5000ms)'
+    )
+
     return parser
 
 
@@ -252,13 +281,13 @@ def validate_args(args: argparse.Namespace):
     validate_positive_integer(args.quantity, 'quantity')
 
     # Validate mutually exclusive IPO/trigger modes
-    mode_flags = [args.ipo_trigger, args.trigger_sell]
+    mode_flags = [args.ipo_trigger, args.trigger_sell, args.ipo_sell_buy_trigger]
     mode_count = sum(1 for flag in mode_flags if flag)
 
     if mode_count > 1:
         raise ValueError(
             "Cannot use multiple mode flags together. "
-            "Choose one: --ipo-trigger or --trigger-sell"
+            "Choose one: --ipo-trigger, --trigger-sell, or --ipo-sell-buy-trigger"
         )
 
     # Validate fetch-user requirement for trigger modes
@@ -269,8 +298,27 @@ def validate_args(args: argparse.Namespace):
     if args.trigger_sell and not has_fetch_user:
         raise ValueError("--fetch-user is required when using --trigger-sell mode (only single fetch user supported)")
 
-    if has_fetch_user and not (args.ipo_trigger or args.trigger_sell):
-        logger.warning("--fetch-user/--fetch-users flag is only used with --ipo-trigger or --trigger-sell mode. It will be ignored.")
+    # Validate ipo-sell-buy-trigger mode
+    if args.ipo_sell_buy_trigger:
+        if not args.seller:
+            raise ValueError("--seller is required when using --ipo-sell-buy-trigger mode")
+        if not args.buyer:
+            raise ValueError("--buyer is required when using --ipo-sell-buy-trigger mode")
+        if not args.sell_quantity:
+            raise ValueError("--sell-quantity is required when using --ipo-sell-buy-trigger mode")
+        if not has_fetch_user:
+            raise ValueError("--fetch-user or --fetch-users is required when using --ipo-sell-buy-trigger mode")
+
+        # Validate numeric values
+        validate_positive_integer(args.sell_quantity, 'sell-quantity')
+        validate_positive_integer(args.sell_pre_wait_ms, 'sell-pre-wait-ms')
+
+    # Warn if seller/buyer specified without mode
+    if (args.seller or args.buyer) and not args.ipo_sell_buy_trigger:
+        logger.warning("--seller/--buyer flags are only used with --ipo-sell-buy-trigger mode. They will be ignored.")
+
+    if has_fetch_user and not (args.ipo_trigger or args.trigger_sell or args.ipo_sell_buy_trigger):
+        logger.warning("--fetch-user/--fetch-users flag is only used with --ipo-trigger, --trigger-sell, or --ipo-sell-buy-trigger mode. It will be ignored.")
 
     if args.skip_first and not args.ipo_trigger:
         logger.warning("--skip-first flag is only used with --ipo-trigger mode. It will be ignored.")
@@ -390,6 +438,42 @@ def load_fetch_user_configs(args: argparse.Namespace):
         logger.info(f"Total {system_type} fetch users loaded: {len(fetch_user_configs)}")
 
     return fetch_user_configs, is_atrad_fetch
+
+
+def load_trader_config(config_path: str, role: str):
+    """
+    Load trader configuration (seller or buyer) from JSON file.
+    Auto-detects whether it's a TMS or ATRAD user.
+
+    Args:
+        config_path: Path to user config JSON
+        role: "seller" or "buyer" (for logging)
+
+    Returns:
+        UserConfig or ATRADUserConfig instance
+    """
+    import json
+    from pathlib import Path
+
+    logger.info(f"Loading {role} configuration from {config_path}")
+
+    # Read the config file to detect system type
+    path = Path(config_path)
+    with open(path, 'r') as f:
+        config_data = json.load(f)
+
+    # Detect system type
+    system_type = detect_system_from_config(config_data)
+
+    # Load appropriate config class
+    if system_type == 'atrad':
+        user_config = ATRADUserConfig.from_file(config_path)
+        logger.info(f"Loaded ATRAD {role} configuration: {user_config.user_id}")
+    else:
+        user_config = UserConfig.from_file(config_path)
+        logger.info(f"Loaded TMS {role} configuration: {user_config.user_id}")
+
+    return user_config
 
 
 def execute_order_for_user(
@@ -734,6 +818,7 @@ def execute_from_order_store(
             # Determine mode flags
             ipo_trigger_mode = order['mode'] == 'ipo-trigger'
             trigger_sell_mode = order['mode'] == 'trigger-sell'
+            ipo_sell_buy_trigger_mode = order['mode'] == 'ipo-sell-buy-trigger'
             buy_or_sell = 2 if order['sell'] else 1
 
             # Validate fetch_user requirement for trigger modes
@@ -751,87 +836,264 @@ def execute_from_order_store(
                     "Use --fetch-user argument to specify fetch user JSON file."
                 )
 
-            # Prepare order parameters
-            order_params = {
-                'security_id': security_id,
-                'exchange_security_id': exchange_security_id,
-                'order_price': order['price'],
-                'order_quantity': order['quantity'],
-                'buy_or_sell': buy_or_sell,
-                'order_type': None,  # Use defaults from user config
-                'order_validity': None,
-                'ipo_trigger_mode': ipo_trigger_mode,
-                'trigger_sell_mode': trigger_sell_mode,
-                'limit_price': order['limit'],
-                'skip_first': order['skip_first'],
-                'skip_second_last': order['skip_second_last'],
-                'no_ladder': order['no_ladder'],
-                'fetch_id': fetch_id,
-                'base_quantity': order['base_quantity'],
-                'ticker': order['ticker'],  # Pass ticker for per-user fetch_id resolution
-                'double_buy': order['double_buy'],
-                'double_buy_quantity': order['double_buy_quantity'],
-                'just_buy': order.get('just_buy', False),
-                'just_buy_interval_ms': order.get('just_buy_interval_ms', 100),
-                'just_buy_timeout': order.get('just_buy_timeout', 5),
-                'just_buy_pre_wait_ms': order.get('just_buy_pre_wait_ms', 0),
-                'just_buy_max_requests': order.get('just_buy_max_requests'),
-                'just_buy_fade_interval_ms': order.get('just_buy_fade_interval_ms'),
-                'just_buy_fade_timeout': order.get('just_buy_fade_timeout'),
-                'symbol': order['ticker'].upper()
-            }
-
-            # Log execution details
-            mode_str = order['mode'].upper()
-            logger.info(f"Execution Mode: {mode_str}")
-            logger.info(f"User: {user_config.user_id}")
-            logger.info(f"Order: {'SELL' if order['sell'] else 'BUY'}")
-            logger.info(f"Ticker: {order['ticker']}")
-            logger.info(f"Security ID: {security_id}")
-            logger.info(f"Exchange Security ID: {exchange_security_id}")
-            logger.info(f"Price: {order['price']}, Quantity: {order['quantity']}")
-            if order['limit']:
-                logger.info(f"Limit: {order['limit']}")
-            if order['time']:
-                logger.info(f"Scheduled Time: {order['time']}")
-            logger.info(f"Token Refresh: {order['refresh_before']}s before execution")
-            logger.info("="*70)
-
-            try:
-                # Execute order
-                result = execute_order_for_user(
-                    user_config=user_config,
-                    order_params=order_params,
-                    scheduled_time=order['time'],
-                    fetch_user_configs=fetch_user_configs,
-                    is_atrad_fetch=is_atrad_fetch
+            if ipo_sell_buy_trigger_mode and not fetch_user_configs:
+                order_store.mark_failed(order_id)
+                raise ValueError(
+                    "Fetch user configuration is required for 'ipo-sell-buy-trigger' mode. "
+                    "Use --fetch-user or --fetch-users argument to specify fetch user JSON file(s)."
                 )
 
-                # Mark order as successful
-                order_store.mark_success(order_id)
-                logger.info(f"Order '{order_id}' marked as successful in store")
-                last_result = result
+            # Check if ipo-sell-buy-trigger mode - handle separately
+            if ipo_sell_buy_trigger_mode:
+                # Load seller and buyer configs
+                seller_config = load_trader_config(order['seller_config'], "seller")
+                buyer_config = load_trader_config(order['buyer_config'], "buyer")
 
-                # If there are more orders in queue, add a small delay before next order
-                if idx < len(orders):
-                    logger.info(f"Order {idx}/{len(orders)} completed. Proceeding to next order in queue...")
-                    logger.info("")
+                # Log execution details
+                logger.info(f"Execution Mode: IPO-SELL-BUY-TRIGGER")
+                logger.info(f"Seller: {seller_config.user_id}")
+                logger.info(f"Buyer: {buyer_config.user_id}")
+                logger.info(f"Ticker: {order['ticker']}")
+                logger.info(f"Security ID: {security_id}")
+                logger.info(f"Exchange Security ID: {exchange_security_id}")
+                logger.info(f"Buy Price: {order['price']}, Buy Quantity: {order['quantity']}")
+                logger.info(f"Sell Quantity: {order['sell_quantity']}")
+                logger.info(f"Sell Pre-Wait: {order['sell_pre_wait_ms']}ms")
+                if order['limit']:
+                    logger.info(f"Limit: {order['limit']}")
+                logger.info("="*70)
 
-            except Exception as e:
-                order_store.mark_failed(order_id)
-                logger.error(f"Order '{order_id}' failed: {str(e)}")
-                # Continue with next order in queue instead of stopping
-                if idx < len(orders):
-                    logger.warning(f"Continuing to next order in queue despite failure...")
-                    logger.info("")
-                else:
-                    raise
+                try:
+                    # Execute ipo-sell-buy-trigger mode
+                    result = execute_ipo_sell_buy_trigger(
+                        seller_config=seller_config,
+                        buyer_config=buyer_config,
+                        fetch_user_configs=fetch_user_configs,
+                        is_atrad_fetch=is_atrad_fetch,
+                        ticker=order['ticker'],
+                        security_id=security_id,
+                        exchange_security_id=exchange_security_id,
+                        price=order['price'],
+                        quantity=order['quantity'],
+                        sell_quantity=order['sell_quantity'],
+                        sell_pre_wait_ms=order['sell_pre_wait_ms'],
+                        limit_price=order['limit'],
+                        just_buy_interval_ms=order.get('just_buy_interval_ms', 100),
+                        just_buy_timeout=order.get('just_buy_timeout', 5)
+                    )
+
+                    # Mark order as successful
+                    order_store.mark_success(order_id)
+                    logger.info(f"Order '{order_id}' marked as successful in store")
+                    last_result = result
+
+                except Exception as e:
+                    order_store.mark_failed(order_id)
+                    logger.error(f"Order '{order_id}' failed: {str(e)}")
+                    # Continue with next order in queue instead of stopping
+                    if idx < len(group_orders):
+                        logger.warning(f"Continuing to next order in queue despite failure...")
+                        logger.info("")
+                    else:
+                        raise
+
+            else:
+                # Standard order mode handling
+                # Prepare order parameters
+                order_params = {
+                    'security_id': security_id,
+                    'exchange_security_id': exchange_security_id,
+                    'order_price': order['price'],
+                    'order_quantity': order['quantity'],
+                    'buy_or_sell': buy_or_sell,
+                    'order_type': None,  # Use defaults from user config
+                    'order_validity': None,
+                    'ipo_trigger_mode': ipo_trigger_mode,
+                    'trigger_sell_mode': trigger_sell_mode,
+                    'limit_price': order['limit'],
+                    'skip_first': order['skip_first'],
+                    'skip_second_last': order['skip_second_last'],
+                    'no_ladder': order['no_ladder'],
+                    'fetch_id': fetch_id,
+                    'base_quantity': order['base_quantity'],
+                    'ticker': order['ticker'],  # Pass ticker for per-user fetch_id resolution
+                    'double_buy': order['double_buy'],
+                    'double_buy_quantity': order['double_buy_quantity'],
+                    'just_buy': order.get('just_buy', False),
+                    'just_buy_interval_ms': order.get('just_buy_interval_ms', 100),
+                    'just_buy_timeout': order.get('just_buy_timeout', 5),
+                    'just_buy_pre_wait_ms': order.get('just_buy_pre_wait_ms', 0),
+                    'just_buy_max_requests': order.get('just_buy_max_requests'),
+                    'just_buy_fade_interval_ms': order.get('just_buy_fade_interval_ms'),
+                    'just_buy_fade_timeout': order.get('just_buy_fade_timeout'),
+                    'symbol': order['ticker'].upper()
+                }
+
+                # Log execution details
+                mode_str = order['mode'].upper()
+                logger.info(f"Execution Mode: {mode_str}")
+                logger.info(f"User: {user_config.user_id}")
+                logger.info(f"Order: {'SELL' if order['sell'] else 'BUY'}")
+                logger.info(f"Ticker: {order['ticker']}")
+                logger.info(f"Security ID: {security_id}")
+                logger.info(f"Exchange Security ID: {exchange_security_id}")
+                logger.info(f"Price: {order['price']}, Quantity: {order['quantity']}")
+                if order['limit']:
+                    logger.info(f"Limit: {order['limit']}")
+                if order['time']:
+                    logger.info(f"Scheduled Time: {order['time']}")
+                logger.info(f"Token Refresh: {order['refresh_before']}s before execution")
+                logger.info("="*70)
+
+                try:
+                    # Execute order
+                    result = execute_order_for_user(
+                        user_config=user_config,
+                        order_params=order_params,
+                        scheduled_time=order['time'],
+                        fetch_user_configs=fetch_user_configs,
+                        is_atrad_fetch=is_atrad_fetch
+                    )
+
+                    # Mark order as successful
+                    order_store.mark_success(order_id)
+                    logger.info(f"Order '{order_id}' marked as successful in store")
+                    last_result = result
+
+                except Exception as e:
+                    order_store.mark_failed(order_id)
+                    logger.error(f"Order '{order_id}' failed: {str(e)}")
+                    # Continue with next order in queue instead of stopping
+                    if idx < len(group_orders):
+                        logger.warning(f"Continuing to next order in queue despite failure...")
+                        logger.info("")
+                    else:
+                        raise
+
+            # If there are more orders in queue, add a small delay before next order
+            if idx < len(group_orders):
+                logger.info(f"Order {idx}/{len(group_orders)} completed. Proceeding to next order in queue...")
+                logger.info("")
 
     # All orders in queue completed
     logger.info("="*70)
     logger.info(f"Queue execution completed: {len(orders)} order(s) processed")
     logger.info("="*70)
     return last_result
+
+
+def execute_ipo_sell_buy_trigger(
+    seller_config,
+    buyer_config,
+    fetch_user_configs: List[Any],
+    is_atrad_fetch: bool,
+    ticker: str,
+    security_id: int,
+    exchange_security_id: int,
+    price: float,
+    quantity: int,
+    sell_quantity: int,
+    sell_pre_wait_ms: int,
+    limit_price: Optional[float] = None,
+    just_buy_interval_ms: int = 100,
+    just_buy_timeout: int = 5
+) -> Dict[str, Any]:
+    """
+    Execute IPO sell-buy-trigger mode.
+
+    Flow:
+    1. Initialize seller and buyer service instances
+    2. Calculate ladder for the stock
+    3. Start price fetcher monitoring
+    4. Wait for LTP >= third last level
+    5. Start sell_pre_wait_ms timer
+    6. At timer-100ms: Start spawning buy threads (just-buy style)
+    7. At timer expiry: Place sell order (separate thread with retry)
+    8. Exit when buy succeeds OR just_buy_limit reached
+
+    Args:
+        seller_config: Seller user configuration
+        buyer_config: Buyer user configuration
+        fetch_user_configs: List of fetch user configs
+        is_atrad_fetch: True if fetch users are ATRAD
+        ticker: Ticker symbol
+        security_id: Security ID for TMS
+        exchange_security_id: Exchange security ID for TMS
+        price: Base price
+        quantity: Buy quantity
+        sell_quantity: Sell quantity
+        sell_pre_wait_ms: Wait time before sell (ms)
+        limit_price: Upper limit price
+        just_buy_interval_ms: Buy thread spawn interval
+        just_buy_timeout: Buy thread total duration
+
+    Returns:
+        Response dictionary
+    """
+    from api import TMSClient, ATRADClient
+    from services import OrderService, ATRADOrderService
+
+    logger.info("="*70)
+    logger.info("IPO SELL-BUY-TRIGGER MODE")
+    logger.info("="*70)
+
+    # Detect platform types
+    is_seller_atrad = isinstance(seller_config, ATRADUserConfig)
+    is_buyer_atrad = isinstance(buyer_config, ATRADUserConfig)
+
+    logger.info(f"Seller: {seller_config.user_id} ({'ATRAD' if is_seller_atrad else 'TMS'})")
+    logger.info(f"Buyer: {buyer_config.user_id} ({'ATRAD' if is_buyer_atrad else 'TMS'})")
+    logger.info(f"Stock: {ticker}, Price: Rs. {price}, Limit: {limit_price or 'None'}")
+    logger.info(f"Buy Quantity: {quantity}, Sell Quantity: {sell_quantity}")
+    logger.info(f"Sell Pre-Wait: {sell_pre_wait_ms}ms")
+
+    # Warn if same user
+    if seller_config.user_id == buyer_config.user_id:
+        logger.warning(
+            f"Seller and buyer are the same user: {seller_config.user_id}. "
+            f"This is allowed but may have account limitations."
+        )
+
+    fetch_clients = []
+    for fetch_config in fetch_user_configs:
+        if is_atrad_fetch:
+            fetch_clients.append(ATRADClient(fetch_config))
+        else:
+            fetch_clients.append(TMSClient(fetch_config))
+
+    # Create seller service
+    if is_seller_atrad:
+        seller_client = ATRADClient(seller_config)
+        seller_service = ATRADOrderService(seller_client)
+    else:
+        seller_client = TMSClient(seller_config)
+        seller_service = OrderService(seller_client)
+
+    # Create buyer service
+    if is_buyer_atrad:
+        buyer_client = ATRADClient(buyer_config)
+        buyer_service = ATRADOrderService(buyer_client)
+    else:
+        buyer_client = TMSClient(buyer_config)
+        buyer_service = OrderService(buyer_client)
+
+    # Delegate to service layer
+    return seller_service._execute_ipo_sell_buy_trigger(
+        buyer_service=buyer_service,
+        fetch_clients=fetch_clients,
+        is_atrad_fetch=is_atrad_fetch,
+        ticker=ticker,
+        security_id=security_id,
+        exchange_security_id=exchange_security_id,
+        symbol=ticker.upper() if ticker else None,
+        base_price=price,
+        buy_quantity=quantity,
+        sell_quantity=sell_quantity,
+        sell_pre_wait_ms=sell_pre_wait_ms,
+        limit_price=limit_price,
+        just_buy_interval_ms=just_buy_interval_ms,
+        just_buy_timeout=just_buy_timeout
+    )
 
 
 def main():
@@ -875,93 +1137,117 @@ def main():
             # Order store mode
             execute_from_order_store(user_config, args.order_store, fetch_user_configs, is_atrad_fetch)
         else:
-            # Manual order mode
-            # Determine buy or sell
-            buy_or_sell = 2 if args.sell else 1
+            # Check for ipo-sell-buy-trigger mode
+            if args.ipo_sell_buy_trigger:
+                # Load seller and buyer configs
+                seller_config = load_trader_config(args.seller, "seller")
+                buyer_config = load_trader_config(args.buyer, "buyer")
 
-            # For multi-user fetch, we'll pass the ticker and let order_service resolve fetch_id per user
-            # For backward compatibility with single user, we still resolve it here
-            fetch_id = None
-            ticker_symbol = None
-            if args.ticker:
-                ticker_symbol = args.ticker.upper()
-                # Resolve fetch_id for logging purposes (using first fetch user's host if available, TMS only)
-                try:
-                    from utils import get_ticker_store
-                    ticker_store = get_ticker_store()
+                # Execute ipo-sell-buy-trigger mode
+                execute_ipo_sell_buy_trigger(
+                    seller_config=seller_config,
+                    buyer_config=buyer_config,
+                    fetch_user_configs=fetch_user_configs,
+                    is_atrad_fetch=is_atrad_fetch,
+                    ticker=args.ticker,
+                    security_id=args.security_id,
+                    exchange_security_id=args.exchange_security_id,
+                    price=args.price,
+                    quantity=args.quantity,
+                    sell_quantity=args.sell_quantity,
+                    sell_pre_wait_ms=args.sell_pre_wait_ms,
+                    limit_price=args.limit,
+                    just_buy_interval_ms=getattr(args, 'just_buy_interval', 100),
+                    just_buy_timeout=getattr(args, 'just_buy_timeout', 5)
+                )
+            else:
+                # Standard manual order mode
+                # Determine buy or sell
+                buy_or_sell = 2 if args.sell else 1
 
-                    # Only TMS users have tms_host attribute
-                    fetch_host = None
-                    if fetch_user_config and not is_atrad_fetch:
-                        fetch_host = fetch_user_config.tms_host
+                # For multi-user fetch, we'll pass the ticker and let order_service resolve fetch_id per user
+                # For backward compatibility with single user, we still resolve it here
+                fetch_id = None
+                ticker_symbol = None
+                if args.ticker:
+                    ticker_symbol = args.ticker.upper()
+                    # Resolve fetch_id for logging purposes (using first fetch user's host if available, TMS only)
+                    try:
+                        from utils import get_ticker_store
+                        ticker_store = get_ticker_store()
 
-                    fetch_id = ticker_store.get_fetch_id(args.ticker, host=fetch_host)
-                    logger.info(f"Fetch ID for '{args.ticker}': {fetch_id}")
-                    if fetch_host:
-                        logger.debug(f"Fetch ID resolved for host: {fetch_host}")
-                except Exception as e:
-                    logger.warning(f"Could not resolve fetch_id for ticker '{args.ticker}': {e}")
+                        # Only TMS users have tms_host attribute
+                        fetch_host = None
+                        if fetch_user_config and not is_atrad_fetch:
+                            fetch_host = fetch_user_config.tms_host
 
-            # Prepare order parameters (shared across all users)
-            order_params = {
-                'security_id': args.security_id,
-                'exchange_security_id': args.exchange_security_id,
-                'order_price': args.price,
-                'order_quantity': args.quantity,
-                'buy_or_sell': buy_or_sell,
-                'order_type': args.order_type,
-                'order_validity': args.order_validity,
-                'ipo_trigger_mode': args.ipo_trigger,
-                'trigger_sell_mode': args.trigger_sell,
-                'limit_price': args.limit,
-                'skip_first': args.skip_first if hasattr(args, 'skip_first') else False,
-                'fetch_id': fetch_id,
-                'ticker': ticker_symbol,  # Pass ticker for per-user fetch_id resolution
-                'double_buy': args.double_buy if hasattr(args, 'double_buy') else False,
-                'double_buy_quantity': args.double_buy_quantity if hasattr(args, 'double_buy_quantity') else None,
-                'just_buy': args.just_buy if hasattr(args, 'just_buy') else False,
-                'just_buy_interval_ms': args.just_buy_interval if hasattr(args, 'just_buy_interval') else 100,
-                'just_buy_timeout': args.just_buy_timeout if hasattr(args, 'just_buy_timeout') else 5,
-                'just_buy_pre_wait_ms': args.just_buy_pre_wait if hasattr(args, 'just_buy_pre_wait') else 0,
-                'symbol': ticker_symbol
-            }
+                        fetch_id = ticker_store.get_fetch_id(args.ticker, host=fetch_host)
+                        logger.info(f"Fetch ID for '{args.ticker}': {fetch_id}")
+                        if fetch_host:
+                            logger.debug(f"Fetch ID resolved for host: {fetch_host}")
+                    except Exception as e:
+                        logger.warning(f"Could not resolve fetch_id for ticker '{args.ticker}': {e}")
 
-            # Log execution mode
-            mode = "SCHEDULED" if args.time else "IMMEDIATE"
-            if args.ipo_trigger:
-                mode += " (IPO TRIGGER)"
-            elif args.trigger_sell:
-                mode += " (TRIGGER SELL)"
+                # Prepare order parameters (shared across all users)
+                order_params = {
+                    'security_id': args.security_id,
+                    'exchange_security_id': args.exchange_security_id,
+                    'order_price': args.price,
+                    'order_quantity': args.quantity,
+                    'buy_or_sell': buy_or_sell,
+                    'order_type': args.order_type,
+                    'order_validity': args.order_validity,
+                    'ipo_trigger_mode': args.ipo_trigger,
+                    'trigger_sell_mode': args.trigger_sell,
+                    'limit_price': args.limit,
+                    'skip_first': args.skip_first if hasattr(args, 'skip_first') else False,
+                    'fetch_id': fetch_id,
+                    'ticker': ticker_symbol,  # Pass ticker for per-user fetch_id resolution
+                    'double_buy': args.double_buy if hasattr(args, 'double_buy') else False,
+                    'double_buy_quantity': args.double_buy_quantity if hasattr(args, 'double_buy_quantity') else None,
+                    'just_buy': args.just_buy if hasattr(args, 'just_buy') else False,
+                    'just_buy_interval_ms': args.just_buy_interval if hasattr(args, 'just_buy_interval') else 100,
+                    'just_buy_timeout': args.just_buy_timeout if hasattr(args, 'just_buy_timeout') else 5,
+                    'just_buy_pre_wait_ms': args.just_buy_pre_wait if hasattr(args, 'just_buy_pre_wait') else 0,
+                    'symbol': ticker_symbol
+                }
 
-            logger.info(f"Execution Mode: {mode}")
-            logger.info(f"User: {user_config.user_id}")
-            logger.info(f"Order: {'SELL' if args.sell else 'BUY'}")
+                # Log execution mode
+                mode = "SCHEDULED" if args.time else "IMMEDIATE"
+                if args.ipo_trigger:
+                    mode += " (IPO TRIGGER)"
+                elif args.trigger_sell:
+                    mode += " (TRIGGER SELL)"
 
-            # Display ticker info if available
-            if args.ticker:
-                try:
-                    ticker_store = get_ticker_store()
-                    name = ticker_store.get_name(args.ticker)
-                    if name:
-                        logger.info(f"Ticker: {args.ticker} ({name})")
-                    else:
+                logger.info(f"Execution Mode: {mode}")
+                logger.info(f"User: {user_config.user_id}")
+                logger.info(f"Order: {'SELL' if args.sell else 'BUY'}")
+
+                # Display ticker info if available
+                if args.ticker:
+                    try:
+                        ticker_store = get_ticker_store()
+                        name = ticker_store.get_name(args.ticker)
+                        if name:
+                            logger.info(f"Ticker: {args.ticker} ({name})")
+                        else:
+                            logger.info(f"Ticker: {args.ticker}")
+                    except Exception:
                         logger.info(f"Ticker: {args.ticker}")
-                except Exception:
-                    logger.info(f"Ticker: {args.ticker}")
 
-            logger.info(f"Security ID: {args.security_id}")
-            logger.info(f"Exchange Security ID: {args.exchange_security_id}")
-            logger.info(f"Price: {args.price}, Quantity: {args.quantity}")
-            logger.info("="*60)
+                logger.info(f"Security ID: {args.security_id}")
+                logger.info(f"Exchange Security ID: {args.exchange_security_id}")
+                logger.info(f"Price: {args.price}, Quantity: {args.quantity}")
+                logger.info("="*60)
 
-            # Execute order
-            execute_order_for_user(
-                user_config=user_config,
-                order_params=order_params,
-                scheduled_time=args.time,
-                fetch_user_configs=fetch_user_configs,
-                is_atrad_fetch=is_atrad_fetch
-            )
+                # Execute order
+                execute_order_for_user(
+                    user_config=user_config,
+                    order_params=order_params,
+                    scheduled_time=args.time,
+                    fetch_user_configs=fetch_user_configs,
+                    is_atrad_fetch=is_atrad_fetch
+                )
 
         logger.info("="*60)
         logger.info("All orders completed successfully!")

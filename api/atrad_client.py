@@ -390,7 +390,7 @@ class ATRADClient:
 
         # Combine pre-encoded static body with dynamic parts
         body = self._static_body + "&" + "&".join(dynamic_parts)
-
+        logger.debug(f"[{self.user_id}] Final encoded order body: {body}")
         # Make thread-safe API request
         with self._request_lock:
             response = self.session.post(self.order_endpoint, data=body)

@@ -1,0 +1,39 @@
+{
+  "_comment": "Example order store for ipo-sell-buy-trigger mode",
+  "_instructions": {
+    "mode": "Set to 'ipo-sell-buy-trigger' for coordinated sell/buy execution",
+    "seller_config": "Path to seller user config (TMS or ATRAD)",
+    "buyer_config": "Path to buyer user config (TMS or ATRAD)",
+    "sell_quantity": "Quantity for sell order",
+    "sell_pre_wait_ms": "Wait time in ms before starting buy/sell (default: 5000)",
+    "quantity": "Quantity for buy orders",
+    "price": "Base price for ladder calculation",
+    "limit": "Upper limit price for ladder",
+    "execution_flow": [
+      "1. Calculate ladder from price (e.g., 100, 102, 104, 106, 108, 110)",
+      "2. Monitor LTP via fetch user(s)",
+      "3. When LTP >= third last (106): Start sell_pre_wait_ms timer",
+      "4. At timer-100ms (4900ms): Start buy threads at final price (110)",
+      "5. At timer expiry (5000ms): Place sell order at second last price (108)",
+      "6. Exit when buy succeeds OR timeout reached"
+    ]
+  },
+  "orders": [
+    {
+      "id": "example_sell_buy_trigger",
+      "execute": false,
+      "success": false,
+      "queue_id": 1,
+      "mode": "ipo-sell-buy-trigger",
+      "ticker": "NABIL",
+      "price": 1000,
+      "limit": 1000,
+      "quantity": 100,
+      "sell_quantity": 50,
+      "sell_pre_wait_ms": 5000,
+      "seller_config": "users/seller_user.json",
+      "buyer_config": "users/buyer_user.json",
+      "time": null
+    }
+  ]
+}

@@ -34,17 +34,16 @@
       "success": false,
       "queue_id": 1,
       "ticker": "HFIN",
-      "mode": "ipo-trigger",
-      "quantity": 1000,
+      "mode": "ipo-sell-buy-trigger",
+      "quantity": 1029,
       "price": 619.3,
       "limit": 619.3,
-      "no_ladder": true,
-      "just_buy": true,
-      "just_buy_pre_wait_ms": 2000,
+      "sell_quantity": 10,
+      "sell_pre_wait_ms": 1400,
       "just_buy_interval_ms": 10,
-      "just_buy_max_requests": 200,
-      "just_buy_fade_interval_ms": 50,
-      "just_buy_fade_timeout": 60
+      "just_buy_timeout": 5,
+      "seller_config": "users/atrad_user6.json",
+      "buyer_config": "users/atrad_user1.json"
     },
     {
       "id": "rlel_ipo",
@@ -78,11 +77,11 @@
       "limit": 669.7,
       "no_ladder": true,
       "just_buy": true,
-      "just_buy_pre_wait_ms": 100,
-      "just_buy_interval_ms": 100,
-      "just_buy_max_requests": 500,
-      "just_buy_fade_interval_ms": 100,
-      "just_buy_fade_timeout": 300
+      "just_buy_pre_wait_ms": 2000,
+      "just_buy_interval_ms": 50,
+      "just_buy_max_requests": 200,
+      "just_buy_fade_interval_ms": 50,
+      "just_buy_fade_timeout": 60
     }
   ]
 }

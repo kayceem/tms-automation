@@ -132,7 +132,7 @@ class OrderStore:
             )
 
         # Validate mode
-        valid_modes = ['normal', 'ipo', 'ipo-trigger', 'trigger-sell']
+        valid_modes = ['normal', 'ipo', 'ipo-trigger', 'trigger-sell', 'ipo-sell-buy-trigger']
         mode = order['mode']
         if mode not in valid_modes:
             raise ValueError(
@@ -279,6 +279,32 @@ class OrderStore:
                     f"Order '{order_id}': multi_queue requires mode='ipo-trigger'"
                 )
 
+        # Validate ipo-sell-buy-trigger mode
+        if mode == 'ipo-sell-buy-trigger':
+            if 'seller_config' not in order or not order['seller_config']:
+                raise ValueError(f"Order '{order_id}': ipo-sell-buy-trigger requires 'seller_config'")
+            if 'buyer_config' not in order or not order['buyer_config']:
+                raise ValueError(f"Order '{order_id}': ipo-sell-buy-trigger requires 'buyer_config'")
+            if 'sell_quantity' not in order or not order['sell_quantity']:
+                raise ValueError(f"Order '{order_id}': ipo-sell-buy-trigger requires 'sell_quantity'")
+
+            # Validate sell_quantity
+            try:
+                sell_quantity = int(order['sell_quantity'])
+                if sell_quantity <= 0:
+                    raise ValueError(f"Order '{order_id}' has invalid sell_quantity: {sell_quantity}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid sell_quantity: {order['sell_quantity']}")
+
+            # Validate sell_pre_wait_ms if provided
+            if 'sell_pre_wait_ms' in order and order['sell_pre_wait_ms'] is not None:
+                try:
+                    sell_pre_wait_ms = int(order['sell_pre_wait_ms'])
+                    if sell_pre_wait_ms < 0:
+                        raise ValueError(f"Order '{order_id}' has invalid sell_pre_wait_ms: {sell_pre_wait_ms}")
+                except (TypeError, ValueError) as e:
+                    raise ValueError(f"Order '{order_id}' has invalid sell_pre_wait_ms: {order['sell_pre_wait_ms']}")
+
         # Validate queue_id if provided
         queue_id = 999  # Default
         if 'queue_id' in order and order['queue_id'] is not None:
@@ -314,7 +340,11 @@ class OrderStore:
             'just_buy_max_requests': just_buy_max_requests,
             'just_buy_fade_interval_ms': just_buy_fade_interval_ms,
             'just_buy_fade_timeout': just_buy_fade_timeout,
-            'multi_queue': multi_queue
+            'multi_queue': multi_queue,
+            'seller_config': order.get('seller_config') if mode == 'ipo-sell-buy-trigger' else None,
+            'buyer_config': order.get('buyer_config') if mode == 'ipo-sell-buy-trigger' else None,
+            'sell_quantity': int(order['sell_quantity']) if mode == 'ipo-sell-buy-trigger' and 'sell_quantity' in order else None,
+            'sell_pre_wait_ms': int(order.get('sell_pre_wait_ms', 5000)) if mode == 'ipo-sell-buy-trigger' else 5000
         }
 
         logger.debug(f"Order '{order_id}' validated successfully")

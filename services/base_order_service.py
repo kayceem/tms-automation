@@ -1369,7 +1369,7 @@ class BaseOrderService(ABC):
         just_buy_fade_interval_ms: Optional[int],
         just_buy_fade_timeout: Optional[int],
         platform_params: Dict[str, Any],
-        already_triggered: bool = True
+        already_triggered: bool = False
     ) -> Optional[Dict[str, Any]]:
         """
         Execute no-ladder mode: wait for trigger, optionally use just_buy, then place final order.
@@ -1857,4 +1857,428 @@ class BaseOrderService(ABC):
             just_buy_fade_timeout=order.get('just_buy_fade_timeout'),
             already_triggered=already_triggered,
             **platform_params
+        )
+
+    def _execute_ipo_sell_buy_trigger(
+        self,
+        buyer_service: 'BaseOrderService',
+        fetch_clients: List[Any],
+        is_atrad_fetch: bool,
+        ticker: Optional[str],
+        security_id: Optional[int],
+        exchange_security_id: Optional[int],
+        symbol: Optional[str],
+        base_price: float,
+        buy_quantity: int,
+        sell_quantity: int,
+        sell_pre_wait_ms: int,
+        limit_price: Optional[float] = None,
+        just_buy_interval_ms: int = 100,
+        just_buy_timeout: int = 5
+    ) -> Dict[str, Any]:
+        """
+        Execute IPO sell-buy-trigger mode.
+
+        Args:
+            buyer_service: Service instance for placing buy orders
+            fetch_clients: List of fetch clients for LTP monitoring
+            is_atrad_fetch: True if fetch clients are ATRAD
+            ticker: Ticker symbol
+            security_id: Security ID (TMS)
+            exchange_security_id: Exchange security ID (TMS)
+            symbol: Symbol (ATRAD)
+            base_price: Base/starting price
+            buy_quantity: Quantity for buy orders
+            sell_quantity: Quantity for sell order
+            sell_pre_wait_ms: Wait time before sell sequence starts (ms)
+            limit_price: Upper limit price
+            just_buy_interval_ms: Buy thread spawn interval
+            just_buy_timeout: Buy thread total duration
+
+        Returns:
+            Dictionary with sell and buy responses
+        """
+        import threading
+        import time
+
+        # Calculate ladder
+        price_levels, actual_increments = self._calculate_price_levels(base_price, limit_price)
+
+        if len(price_levels) < 3:
+            raise ValueError(
+                f"Ladder must have at least 3 levels for ipo-sell-buy-trigger mode. "
+                f"Current ladder has {len(price_levels)} levels. "
+                f"Try increasing limit_price or adjusting base_price."
+            )
+
+        # Identify key levels
+        third_last_index = len(price_levels) - 3
+        second_last_index = len(price_levels) - 2
+        final_index = len(price_levels) - 1
+
+        third_last_price = price_levels[third_last_index]
+        second_last_price = price_levels[second_last_index]
+        final_price = price_levels[final_index]
+
+        self.logger.info(
+            f"[{self.user_id}] IPO SELL-BUY-TRIGGER: Ladder calculated with {len(price_levels)} levels"
+        )
+        for i, (price, inc) in enumerate(zip(price_levels, actual_increments)):
+            marker = ""
+            if i == third_last_index:
+                marker = " [TRIGGER LEVEL]"
+            elif i == second_last_index:
+                marker = " [SELL LEVEL]"
+            elif i == final_index:
+                marker = " [BUY LEVEL]"
+            self.logger.debug(f"  Level {i+1}: Rs. {price} (+{inc}%){marker}")
+
+        self.logger.info(
+            f"[{self.user_id}] Third Last: Rs. {third_last_price}, "
+            f"Sell at: Rs. {second_last_price}, Buy at: Rs. {final_price}"
+        )
+        self.logger.info(
+            f"[{self.user_id}] Sell quantity: {sell_quantity}, Buy quantity: {buy_quantity}"
+        )
+
+        # Setup price fetcher
+        poll_interval_ms = self.client.user_config.trigger_mode_poll_interval_ms
+        fetch_security_id = security_id or symbol
+
+        price_fetcher = self._setup_price_fetcher(
+            fetch_clients, fetch_security_id, symbol, ticker, poll_interval_ms
+        )
+
+        # Setup token managers for both seller and buyer
+        seller_token_manager = self._setup_token_manager()
+        buyer_token_manager = buyer_service._setup_token_manager()
+
+        # Shared state for threading coordination
+        buy_success_flag = threading.Event()
+        sell_success_flag = threading.Event()
+        buy_response_container = {'response': None}
+        sell_response_container = {'response': None}
+        threads_lock = threading.Lock()
+        active_threads = []
+        sleep_duration = 0.005
+        try:
+            self.logger.info(
+                f"[{self.user_id}] Waiting for LTP >= Rs. {third_last_price} (third last level)..."
+            )
+
+            # Phase 1: Wait for third last level trigger
+            while True:
+                ltp = price_fetcher.get_latest_ltp()
+
+                if ltp is not None and ltp >= third_last_price:
+                    self.logger.info(
+                        f"[{self.user_id}] TRIGGER REACHED! LTP={ltp} >= Rs. {third_last_price}"
+                    )
+                    break
+
+                time.sleep(sleep_duration)
+
+            price_fetcher.start_market_details()
+            
+            # Phase 2: Start sell_pre_wait_ms timer
+            self.logger.info(
+                f"[{self.user_id}] Starting sell pre-wait timer: {sell_pre_wait_ms}ms"
+            )
+            timer_start = time.time()
+            timer_duration = sell_pre_wait_ms / 1000.0
+            buy_start_offset = (sell_pre_wait_ms - 100) / 1000.0
+
+            buy_threads_started = False
+            sell_thread_started = False
+
+            # Get current LTP for market price
+            current_ltp = price_fetcher.get_latest_ltp()
+
+            # Phase 3: Monitor timer and start buy/sell at precise times
+            while time.time() - timer_start < timer_duration:
+                elapsed = time.time() - timer_start
+
+                # Start buy threads at timer-100ms
+                if not buy_threads_started and elapsed >= buy_start_offset:
+                    buy_threads_started = True
+                    self.logger.info(
+                        f"[{self.user_id}] Starting BUY threads (100ms before sell)..."
+                    )
+
+                    # Start buy thread spawner in background
+                    buy_spawner_thread = threading.Thread(
+                        target=self._spawn_buy_threads,
+                        args=(
+                            buyer_service, final_price, buy_quantity,
+                            just_buy_interval_ms, just_buy_timeout,
+                            buy_success_flag, buy_response_container,
+                            threads_lock, active_threads,
+                            is_atrad_fetch, security_id, exchange_security_id, symbol, second_last_price
+                        ),
+                        daemon=True
+                    )
+                    buy_spawner_thread.start()
+
+                time.sleep(sleep_duration)
+
+            # Phase 4: Timer expired - place sell order
+            self.logger.info(
+                f"[{self.user_id}] Timer expired! Placing SELL order at Rs. {second_last_price}..."
+            )
+
+            # Place sell order in separate thread with retry
+            sell_thread = threading.Thread(
+                target=self._place_sell_order_with_retry,
+                args=(
+                    second_last_price, sell_quantity,
+                    sell_success_flag, sell_response_container,
+                    is_atrad_fetch, security_id, exchange_security_id, symbol, current_ltp
+                ),
+                daemon=True
+            )
+            sell_thread.start()
+            sell_thread_started = True
+
+            # Phase 5: Wait for buy success or just_buy_timeout
+            self.logger.info(
+                f"[{self.user_id}] Waiting for buy order to succeed or timeout..."
+            )
+
+            buy_success_flag.wait(timeout=just_buy_timeout + 1)
+
+            # Phase 6: Check results
+            if buy_success_flag.is_set():
+                self.logger.info(f"[{self.user_id}] BUY ORDER SUCCEEDED!")
+            else:
+                self.logger.warning(
+                    f"[{self.user_id}] Buy orders did not succeed within timeout"
+                )
+
+            # Wait for sell thread to complete
+            if sell_thread_started:
+                sell_thread.join(timeout=2)
+
+            if sell_success_flag.is_set():
+                self.logger.info(f"[{self.user_id}] SELL ORDER SUCCEEDED!")
+            else:
+                self.logger.warning(f"[{self.user_id}] Sell order did not succeed")
+
+            # Return results
+            return {
+                'buy_response': buy_response_container['response'],
+                'sell_response': sell_response_container['response'],
+                'buy_success': buy_success_flag.is_set(),
+                'sell_success': sell_success_flag.is_set()
+            }
+
+        finally:
+            # Cleanup
+            price_fetcher.stop_market_details()
+            price_fetcher.stop()
+            self._cleanup_token_manager(seller_token_manager)
+            buyer_service._cleanup_token_manager(buyer_token_manager)
+
+            # Wait for all threads
+            for thread in active_threads:
+                if thread.is_alive():
+                    thread.join(timeout=1)
+
+    def _spawn_buy_threads(
+        self,
+        buyer_service: 'BaseOrderService',
+        final_price: float,
+        buy_quantity: int,
+        interval_ms: int,
+        timeout: int,
+        success_flag: Any,  # threading.Event
+        response_container: Dict,
+        threads_lock: Any,  # threading.Lock
+        active_threads: List,
+        is_atrad: bool,
+        security_id: Optional[int],
+        exchange_security_id: Optional[int],
+        symbol: Optional[str],
+        market_price: Optional[float]
+    ):
+        """
+        Spawn buy order threads at intervals (just-buy pattern).
+        Runs in background thread.
+
+        Args:
+            buyer_service: Service instance for placing buy orders
+            final_price: Price for buy orders
+            buy_quantity: Quantity for buy orders
+            interval_ms: Interval between thread spawns (ms)
+            timeout: Total duration to spawn threads (seconds)
+            success_flag: Threading event to signal success
+            response_container: Dict to store successful response
+            threads_lock: Lock for thread-safe access
+            active_threads: List to track spawned threads
+            is_atrad: True if ATRAD platform
+            security_id: Security ID (TMS)
+            exchange_security_id: Exchange security ID (TMS)
+            symbol: Symbol (ATRAD)
+            market_price: Current market price
+        """
+        import time
+        import threading
+
+        thread_counter = 0
+        start_time = time.time()
+        interval_seconds = interval_ms / 1000.0
+
+        def place_buy_order(thread_id: int):
+            """Place single buy order in thread"""
+            try:
+                if success_flag.is_set():
+                    return
+
+                self.logger.debug(
+                    f"[{buyer_service.user_id}] Buy Thread #{thread_id}: "
+                    f"Placing order at Rs. {final_price}"
+                )
+
+                # Build platform params
+                if is_atrad:
+                    platform_params = {
+                        'symbol': symbol,
+                        'side': 'BUY',
+                        'market_price': market_price
+                    }
+                else:
+                    platform_params = {
+                        'security_id': security_id,
+                        'exchange_security_id': exchange_security_id,
+                        'buy_or_sell': 1,  # BUY
+                        'order_type': 'LMT',
+                        'order_validity': 'DAY',
+                        'market_price': market_price
+                    }
+
+                response = buyer_service._place_single_order(
+                    price=final_price,
+                    quantity=buy_quantity,
+                    **platform_params
+                )
+
+                if response and not success_flag.is_set():
+                    success_flag.set()
+                    with threads_lock:
+                        response_container['response'] = response
+                    self.logger.info(
+                        f"[{buyer_service.user_id}] Buy Thread #{thread_id}: SUCCESS!"
+                    )
+
+            except Exception as e:
+                self.logger.debug(
+                    f"[{buyer_service.user_id}] Buy Thread #{thread_id} failed: {str(e)}"
+                )
+
+        # Spawn threads at intervals
+        while (time.time() - start_time) < timeout:
+            if success_flag.is_set():
+                self.logger.info(
+                    f"[{buyer_service.user_id}] Buy success detected, stopping thread spawner"
+                )
+                break
+
+            thread_counter += 1
+            thread = threading.Thread(
+                target=place_buy_order,
+                args=(thread_counter,),
+                daemon=True
+            )
+
+            with threads_lock:
+                active_threads.append(thread)
+
+            thread.start()
+            time.sleep(interval_seconds)
+
+        self.logger.info(
+            f"[{buyer_service.user_id}] Buy thread spawner finished: {thread_counter} threads spawned"
+        )
+
+    def _place_sell_order_with_retry(
+        self,
+        sell_price: float,
+        sell_quantity: int,
+        success_flag: Any,  # threading.Event
+        response_container: Dict,
+        is_atrad: bool,
+        security_id: Optional[int],
+        exchange_security_id: Optional[int],
+        symbol: Optional[str],
+        market_price: Optional[float],
+        max_retries: int = 2
+    ):
+        """
+        Place sell order with retry logic (3-5 attempts).
+        Runs in separate thread.
+
+        Args:
+            sell_price: Price for sell order
+            sell_quantity: Quantity for sell order
+            success_flag: Threading event to signal success
+            response_container: Dict to store successful response
+            is_atrad: True if ATRAD platform
+            security_id: Security ID (TMS)
+            exchange_security_id: Exchange security ID (TMS)
+            symbol: Symbol (ATRAD)
+            market_price: Current market price
+            max_retries: Maximum number of retry attempts (default: 5)
+        """
+        import time
+
+        self.logger.info(
+            f"[{self.user_id}] Placing SELL order at Rs. {sell_price} x {sell_quantity}"
+        )
+
+        # Build platform params
+        if is_atrad:
+            platform_params = {
+                'symbol': symbol,
+                'side': 'SELL',
+                'market_price': market_price
+            }
+        else:
+            platform_params = {
+                'security_id': security_id,
+                'exchange_security_id': exchange_security_id,
+                'buy_or_sell': 2,  # SELL
+                'order_type': 'LMT',
+                'order_validity': 'DAY',
+                'market_price': market_price
+            }
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                self.logger.debug(
+                    f"[{self.user_id}] Sell order attempt #{attempt}/{max_retries}"
+                )
+
+                response = self._place_single_order(
+                    price=sell_price,
+                    quantity=sell_quantity,
+                    **platform_params
+                )
+
+                if response:
+                    success_flag.set()
+                    response_container['response'] = response
+                    self.logger.info(
+                        f"[{self.user_id}] SELL order SUCCESS on attempt #{attempt}!"
+                    )
+                    return
+
+            except Exception as e:
+                self.logger.warning(
+                    f"[{self.user_id}] Sell order attempt #{attempt} failed: {str(e)}"
+                )
+
+                if attempt < max_retries:
+                    time.sleep(0.5)  # Brief delay between retries
+
+        self.logger.error(
+            f"[{self.user_id}] SELL order FAILED after {max_retries} attempts"
         )

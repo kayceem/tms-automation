@@ -54,6 +54,48 @@
 - **With Limit**: Calculates ladder levels from price down to limit, triggers at 2nd-last, places at limit+10%
 - **Without Limit**: Legacy 2% trigger mode (triggers at price/1.02, places at price)
 
+#### IPO Sell-Buy-Trigger Mode
+Coordinated sell and buy order execution with precise timing when third-last ladder level is reached.
+
+**User Roles**:
+- **Seller**: Places sell order at second-last level (TMS or ATRAD)
+- **Buyer**: Places buy orders at final level (TMS or ATRAD)
+- **Fetch**: Monitors LTP for trigger detection (existing fetch users)
+
+**Configuration**:
+- `seller_config`: Path to seller user config
+- `buyer_config`: Path to buyer user config
+- `sell_quantity`: Quantity for sell order
+- `sell_pre_wait_ms`: Wait time before sell sequence (default: 5000ms)
+- `quantity`: Quantity for buy orders
+- `price`: Base price for ladder calculation
+- `limit`: Upper limit price
+
+**Execution Flow**:
+1. Calculate ladder (e.g., [100, 102, 104, 106, 108, 110])
+2. Monitor LTP until third-last level reached (106)
+3. Start `sell_pre_wait_ms` timer (default: 5000ms)
+4. At timer-100ms (4900ms): Spawn buy threads at final price (110) using just-buy pattern
+5. At timer expiry (5000ms): Place sell order at second-last price (108) with retry (3-5 attempts)
+6. Exit when buy succeeds OR just_buy_timeout reached
+
+**Threading Architecture**:
+- Main thread monitors LTP and manages timer
+- Buy spawner thread creates buy threads at intervals
+- Sell thread places order with retry logic
+- Uses threading.Event for success coordination
+
+**Exit Conditions**:
+- Buy order succeeds (200 response with code "0")
+- OR just_buy_timeout reached (partial success if sell succeeded)
+
+**Special Features**:
+- Seller and buyer can be same or different users
+- Supports TMS/ATRAD for both roles independently
+- 1ms precision timing loop
+- Thread-safe coordination with Event/Lock
+- Clean resource cleanup in finally block
+
 ### 2. Just Buy Mode
 Aggressive multi-threaded order placement when switch threshold reached.
 
