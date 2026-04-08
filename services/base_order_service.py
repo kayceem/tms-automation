@@ -1978,7 +1978,9 @@ class BaseOrderService(ABC):
 
                 time.sleep(sleep_duration)
 
-            price_fetcher.start_market_details()
+            if hasattr(price_fetcher, 'start_market_details'):
+                self.logger.info(f"[{self.user_id}] Starting market details monitor for sell-buy trigger")
+                price_fetcher.start_market_details()
             
             # Phase 2: Start sell_pre_wait_ms timer
             self.logger.info(
@@ -2025,14 +2027,14 @@ class BaseOrderService(ABC):
             self.logger.info(
                 f"[{self.user_id}] Timer expired! Placing SELL order at Rs. {second_last_price}..."
             )
-
+            is_atrad = hasattr(self.client, 'get_market_details')
             # Place sell order in separate thread with retry
             sell_thread = threading.Thread(
                 target=self._place_sell_order_with_retry,
                 args=(
                     second_last_price, sell_quantity,
                     sell_success_flag, sell_response_container,
-                    is_atrad_fetch, security_id, exchange_security_id, symbol, current_ltp
+                    is_atrad, security_id, exchange_security_id, symbol, current_ltp
                 ),
                 daemon=True
             )
@@ -2056,7 +2058,7 @@ class BaseOrderService(ABC):
 
             # Wait for sell thread to complete
             if sell_thread_started:
-                sell_thread.join(timeout=2)
+                sell_thread.join(timeout=5)
 
             if sell_success_flag.is_set():
                 self.logger.info(f"[{self.user_id}] SELL ORDER SUCCEEDED!")
@@ -2073,7 +2075,8 @@ class BaseOrderService(ABC):
 
         finally:
             # Cleanup
-            price_fetcher.stop_market_details()
+            if hasattr(price_fetcher, 'stop_market_details'):
+                price_fetcher.stop_market_details()
             price_fetcher.stop()
             self._cleanup_token_manager(seller_token_manager)
             buyer_service._cleanup_token_manager(buyer_token_manager)
@@ -2229,7 +2232,6 @@ class BaseOrderService(ABC):
             max_retries: Maximum number of retry attempts (default: 5)
         """
         import time
-
         self.logger.info(
             f"[{self.user_id}] Placing SELL order at Rs. {sell_price} x {sell_quantity}"
         )
@@ -2277,7 +2279,7 @@ class BaseOrderService(ABC):
                 )
 
                 if attempt < max_retries:
-                    time.sleep(0.5)  # Brief delay between retries
+                    time.sleep(0.1)
 
         self.logger.error(
             f"[{self.user_id}] SELL order FAILED after {max_retries} attempts"
