@@ -56,6 +56,9 @@ class OrderService(BaseOrderService):
         just_buy_interval_ms: int = 100,
         just_buy_timeout: int = 5,
         just_buy_pre_wait_ms: int = 0,
+        just_buy_max_requests: Optional[int] = None,
+        just_buy_fade_interval_ms: Optional[int] = None,
+        just_buy_fade_timeout: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Execute an order immediately.
@@ -122,6 +125,9 @@ class OrderService(BaseOrderService):
                 just_buy_interval_ms=just_buy_interval_ms,
                 just_buy_timeout=just_buy_timeout,
                 just_buy_pre_wait_ms=just_buy_pre_wait_ms,
+                just_buy_max_requests=just_buy_max_requests,
+                just_buy_fade_interval_ms=just_buy_fade_interval_ms,
+                just_buy_fade_timeout=just_buy_fade_timeout,
             )
 
         # Trigger Sell Mode: Monitor LTP and sell when price drops to trigger level

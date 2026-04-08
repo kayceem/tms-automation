@@ -237,6 +237,26 @@ class OrderStore:
             except (TypeError, ValueError) as e:
                 raise ValueError(f"Order '{order_id}' has invalid just_buy_max_requests: {order['just_buy_max_requests']}")
 
+        # Validate just_buy_fade_interval_ms if provided
+        just_buy_fade_interval_ms = None  # Default
+        if 'just_buy_fade_interval_ms' in order and order['just_buy_fade_interval_ms'] is not None:
+            try:
+                just_buy_fade_interval_ms = int(order['just_buy_fade_interval_ms'])
+                if just_buy_fade_interval_ms <= 0:
+                    raise ValueError(f"Order '{order_id}' has invalid just_buy_fade_interval_ms: {just_buy_fade_interval_ms}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid just_buy_fade_interval_ms: {order['just_buy_fade_interval_ms']}")
+
+        # Validate just_buy_fade_timeout if provided
+        just_buy_fade_timeout = None  # Default
+        if 'just_buy_fade_timeout' in order and order['just_buy_fade_timeout'] is not None:
+            try:
+                just_buy_fade_timeout = int(order['just_buy_fade_timeout'])
+                if just_buy_fade_timeout <= 0:
+                    raise ValueError(f"Order '{order_id}' has invalid just_buy_fade_timeout: {just_buy_fade_timeout}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid just_buy_fade_timeout: {order['just_buy_fade_timeout']}")
+
         # Validate just_buy only works with no_ladder
         just_buy = bool(order.get('just_buy', False))
         no_ladder = bool(order.get('no_ladder', False))
@@ -292,6 +312,8 @@ class OrderStore:
             'just_buy_timeout': just_buy_timeout,
             'just_buy_pre_wait_ms': just_buy_pre_wait_ms,
             'just_buy_max_requests': just_buy_max_requests,
+            'just_buy_fade_interval_ms': just_buy_fade_interval_ms,
+            'just_buy_fade_timeout': just_buy_fade_timeout,
             'multi_queue': multi_queue
         }
 

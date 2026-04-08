@@ -774,6 +774,10 @@ def execute_from_order_store(
                 'just_buy': order.get('just_buy', False),
                 'just_buy_interval_ms': order.get('just_buy_interval_ms', 100),
                 'just_buy_timeout': order.get('just_buy_timeout', 5),
+                'just_buy_pre_wait_ms': order.get('just_buy_pre_wait_ms', 0),
+                'just_buy_max_requests': order.get('just_buy_max_requests'),
+                'just_buy_fade_interval_ms': order.get('just_buy_fade_interval_ms'),
+                'just_buy_fade_timeout': order.get('just_buy_fade_timeout'),
                 'symbol': order['ticker'].upper()
             }
 

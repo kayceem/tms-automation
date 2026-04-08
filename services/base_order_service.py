@@ -721,13 +721,17 @@ class BaseOrderService(ABC):
         just_buy_pre_wait_ms: int,
         price_fetcher: Any,
         platform_params: Dict[str, Any],
-        just_buy_max_requests: Optional[int] = None
+        just_buy_max_requests: Optional[int] = None,
+        just_buy_fade_interval_ms: Optional[int] = None,
+        just_buy_fade_timeout: Optional[int] = None
     ) -> Tuple[bool, Optional[Dict[str, Any]]]:
         """
         Execute just_buy mode: aggressively place orders in multiple threads.
 
         Args:
             just_buy_max_requests: Maximum number of order attempts (None = use timeout only)
+            just_buy_fade_interval_ms: Slower interval for fade phase after initial phase fails
+            just_buy_fade_timeout: Additional timeout for fade phase (extends total duration)
 
         Returns:
             Tuple of (success: bool, response: Optional[Dict])
@@ -735,16 +739,20 @@ class BaseOrderService(ABC):
         import threading
 
         # Log configuration
+        fade_enabled = just_buy_fade_interval_ms and just_buy_fade_timeout
+
         if just_buy_max_requests:
-            self.logger.info(
-                f"[{self.user_id}] JUST BUY ACTIVATED: Starting aggressive order placement "
-                f"at Rs. {final_price} (interval={just_buy_interval_ms}ms, max_requests={just_buy_max_requests})"
-            )
+            config_str = f"interval={just_buy_interval_ms}ms, max_requests={just_buy_max_requests}"
         else:
-            self.logger.info(
-                f"[{self.user_id}] JUST BUY ACTIVATED: Starting aggressive order placement "
-                f"at Rs. {final_price} (interval={just_buy_interval_ms}ms, timeout={just_buy_timeout}s)"
-            )
+            config_str = f"interval={just_buy_interval_ms}ms, timeout={just_buy_timeout}s"
+
+        if fade_enabled:
+            config_str += f", fade_interval={just_buy_fade_interval_ms}ms, fade_timeout={just_buy_fade_timeout}s"
+
+        self.logger.info(
+            f"[{self.user_id}] JUST BUY ACTIVATED: Starting aggressive order placement "
+            f"at Rs. {final_price} ({config_str})"
+        )
 
         # Start market details monitoring if ATRAD
         if hasattr(price_fetcher, 'start_market_details'):
@@ -864,14 +872,85 @@ class BaseOrderService(ABC):
             for thread in active_threads:
                 thread.join(timeout=1)
 
-            # Check result
+            # Check result from main phase
             if success_flag.is_set():
                 self.logger.info(
                     f"[{self.user_id}] Just Buy SUCCEEDED! "
                     f"Placed {thread_counter} orders, at least one succeeded"
                 )
                 return True, success_response['response']
+
+            # Main phase failed - check if fade phase is enabled
+            if fade_enabled:
+                if just_buy_max_requests:
+                    self.logger.warning(
+                        f"[{self.user_id}] Just Buy main phase FAILED after {thread_counter} attempts "
+                        f"(max_requests={just_buy_max_requests}). Starting FADE phase..."
+                    )
+                else:
+                    self.logger.warning(
+                        f"[{self.user_id}] Just Buy main phase FAILED after {just_buy_timeout}s "
+                        f"({thread_counter} attempts). Starting FADE phase..."
+                    )
+
+                self.logger.info(
+                    f"[{self.user_id}] FADE PHASE: Placing orders at slower interval "
+                    f"({just_buy_fade_interval_ms}ms for {just_buy_fade_timeout}s)"
+                )
+
+                # Execute fade phase with slower interval
+                fade_start_time = time.time()
+                fade_interval_seconds = just_buy_fade_interval_ms / 1000.0
+
+                while (time.time() - fade_start_time) < just_buy_fade_timeout:
+                    if success_flag.is_set():
+                        self.logger.info(
+                            f"[{self.user_id}] FADE PHASE: SUCCESS detected, stopping"
+                        )
+                        break
+
+                    thread_counter += 1
+                    thread = threading.Thread(
+                        target=place_just_buy_order,
+                        args=(thread_counter,),
+                        daemon=True
+                    )
+
+                    with threads_lock:
+                        active_threads.append(thread)
+
+                    thread.start()
+
+                    try:
+                        time.sleep(fade_interval_seconds)
+                    except KeyboardInterrupt:
+                        self.logger.info(f"[{self.user_id}] Fade phase interrupted by user")
+                        raise
+
+                # Wait for fade phase threads to complete
+                self.logger.info(
+                    f"[{self.user_id}] Fade phase ended. Waiting for remaining threads to complete..."
+                )
+                for thread in active_threads:
+                    if thread.is_alive():
+                        thread.join(timeout=1)
+
+                # Check final result
+                if success_flag.is_set():
+                    self.logger.info(
+                        f"[{self.user_id}] FADE PHASE SUCCEEDED! "
+                        f"Total {thread_counter} orders placed, at least one succeeded"
+                    )
+                    return True, success_response['response']
+                else:
+                    self.logger.warning(
+                        f"[{self.user_id}] FADE PHASE FAILED after {just_buy_fade_timeout}s. "
+                        f"Total {thread_counter} attempts. Falling back to normal trigger logic."
+                    )
+                    return False, None
+
             else:
+                # No fade phase - return failure
                 if just_buy_max_requests:
                     self.logger.warning(
                         f"[{self.user_id}] Just Buy FAILED after {thread_counter} attempts "
@@ -923,7 +1002,9 @@ class BaseOrderService(ABC):
                 just_buy_pre_wait_ms=just_buy_params['pre_wait_ms'],
                 price_fetcher=price_fetcher,
                 platform_params=platform_params,
-                just_buy_max_requests=just_buy_params['max_requests']
+                just_buy_max_requests=just_buy_params['max_requests'],
+                just_buy_fade_interval_ms=just_buy_params.get('fade_interval_ms'),
+                just_buy_fade_timeout=just_buy_params.get('fade_timeout')
             )
             if success:
                 return True, response
@@ -996,7 +1077,9 @@ class BaseOrderService(ABC):
                                 just_buy_pre_wait_ms=just_buy_params['pre_wait_ms'],
                                 price_fetcher=price_fetcher,
                                 platform_params=platform_params,
-                                just_buy_max_requests=just_buy_params['max_requests']
+                                just_buy_max_requests=just_buy_params['max_requests'],
+                                just_buy_fade_interval_ms=just_buy_params.get('fade_interval_ms'),
+                                just_buy_fade_timeout=just_buy_params.get('fade_timeout')
                             )
 
                             if success:
@@ -1283,8 +1366,10 @@ class BaseOrderService(ABC):
         just_buy_timeout: int,
         just_buy_pre_wait_ms: int,
         just_buy_max_requests: int,
+        just_buy_fade_interval_ms: Optional[int],
+        just_buy_fade_timeout: Optional[int],
         platform_params: Dict[str, Any],
-        already_triggered: bool = False
+        already_triggered: bool = True
     ) -> Optional[Dict[str, Any]]:
         """
         Execute no-ladder mode: wait for trigger, optionally use just_buy, then place final order.
@@ -1324,7 +1409,9 @@ class BaseOrderService(ABC):
             'interval_ms': just_buy_interval_ms,
             'timeout': just_buy_timeout,
             'pre_wait_ms': just_buy_pre_wait_ms,
-            'max_requests': just_buy_max_requests
+            'max_requests': just_buy_max_requests,
+            'fade_interval_ms': just_buy_fade_interval_ms,
+            'fade_timeout': just_buy_fade_timeout
         }
 
         # Wait for trigger (handles just_buy internally)
@@ -1447,7 +1534,9 @@ class BaseOrderService(ABC):
         just_buy_timeout: int = 5,
         just_buy_pre_wait_ms: int = 0,
         just_buy_max_requests: Optional[int] = None,
-        already_triggered: bool = False,
+        just_buy_fade_interval_ms: Optional[int] = None,
+        just_buy_fade_timeout: Optional[int] = None,
+        already_triggered: bool = True,
         **platform_params
     ) -> Dict[str, Any]:
         """
@@ -1484,6 +1573,8 @@ class BaseOrderService(ABC):
             just_buy_timeout: Total duration to keep trying in seconds (default: 5s, ignored if max_requests set)
             just_buy_pre_wait_ms: Wait time after switch threshold before starting just_buy (default: 0ms)
             just_buy_max_requests: Max number of order attempts (None = use timeout instead)
+            just_buy_fade_interval_ms: Slower interval for fade phase after main phase fails (None = no fade)
+            just_buy_fade_timeout: Additional timeout for fade phase in seconds (None = no fade)
             already_triggered: True if called from multi-queue with switch threshold already reached (default: False)
 
         Returns:
@@ -1538,6 +1629,8 @@ class BaseOrderService(ABC):
                     just_buy_timeout=just_buy_timeout,
                     just_buy_pre_wait_ms=just_buy_pre_wait_ms,
                     just_buy_max_requests=just_buy_max_requests,
+                    just_buy_fade_interval_ms=just_buy_fade_interval_ms,
+                    just_buy_fade_timeout=just_buy_fade_timeout,
                     platform_params=platform_params,
                     already_triggered=already_triggered
                 )
@@ -1760,6 +1853,8 @@ class BaseOrderService(ABC):
             just_buy_timeout=order.get('just_buy_timeout', 5),
             just_buy_pre_wait_ms=order.get('just_buy_pre_wait_ms', 0),
             just_buy_max_requests=order.get('just_buy_max_requests'),
+            just_buy_fade_interval_ms=order.get('just_buy_fade_interval_ms'),
+            just_buy_fade_timeout=order.get('just_buy_fade_timeout'),
             already_triggered=already_triggered,
             **platform_params
         )
