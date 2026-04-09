@@ -366,7 +366,7 @@ class ATRADClient:
 
         logger.info(
             f"[{self.user_id}] Placing {side} order: "
-            f"Symbol={symbol}, Price={price}, Qty={quantity}"
+            f"Symbol={symbol}, Price={price}, Qty={quantity}, MKT={market_price}"
         )
 
         # Generate duplicate order ID

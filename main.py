@@ -543,7 +543,7 @@ def execute_order_for_user(
             result = OrderScheduler.schedule_order(
                 time_str=scheduled_time,
                 order_func=order_service.execute_order,
-                tms_client=order_client,
+                main_client=order_client,
                 fetch_clients=fetch_clients,
                 user_id=user_id,
                 **order_params
@@ -580,8 +580,6 @@ def execute_multi_queue_group(
     Returns:
         Last order response
     """
-    from api import TMSClient, ATRADClient
-    from services import OrderService, ATRADOrderService
 
     logger.info(f"Preparing multi-queue execution for {len(orders)} orders:")
     for order in orders:
@@ -670,7 +668,7 @@ def execute_multi_queue_group(
             responses = OrderScheduler.schedule_order(
                 time_str=scheduled_time,
                 order_func=execute_multi_queue,
-                tms_client=main_client,
+                main_client=main_client,
                 fetch_clients=fetch_clients,
                 user_id=user_config.user_id
             )
@@ -861,6 +859,9 @@ def execute_from_order_store(
                 logger.info(f"Sell Pre-Wait: {order['sell_pre_wait_ms']}ms")
                 if order['limit']:
                     logger.info(f"Limit: {order['limit']}")
+                if order['time']:
+                    logger.info(f"Scheduled Time: {order['time']}")
+                logger.info(f"Token Refresh: {order['refresh_before']}s before execution")
                 logger.info("="*70)
 
                 try:
@@ -879,7 +880,8 @@ def execute_from_order_store(
                         sell_pre_wait_ms=order['sell_pre_wait_ms'],
                         limit_price=order['limit'],
                         just_buy_interval_ms=order.get('just_buy_interval_ms', 100),
-                        just_buy_timeout=order.get('just_buy_timeout', 5)
+                        just_buy_timeout=order.get('just_buy_timeout', 5),
+                        scheduled_time=order['time']
                     )
 
                     # Mark order as successful
@@ -996,7 +998,8 @@ def execute_ipo_sell_buy_trigger(
     sell_pre_wait_ms: int,
     limit_price: Optional[float] = None,
     just_buy_interval_ms: int = 100,
-    just_buy_timeout: int = 5
+    just_buy_timeout: int = 5,
+    scheduled_time: str = None
 ) -> Dict[str, Any]:
     """
     Execute IPO sell-buy-trigger mode.
@@ -1026,12 +1029,11 @@ def execute_ipo_sell_buy_trigger(
         limit_price: Upper limit price
         just_buy_interval_ms: Buy thread spawn interval
         just_buy_timeout: Buy thread total duration
+        scheduled_time: Optional scheduled time string (HH:MM or HH:MM:SS)
 
     Returns:
         Response dictionary
     """
-    from api import TMSClient, ATRADClient
-    from services import OrderService, ATRADOrderService
 
     logger.info("="*70)
     logger.info("IPO SELL-BUY-TRIGGER MODE")
@@ -1054,6 +1056,7 @@ def execute_ipo_sell_buy_trigger(
             f"This is allowed but may have account limitations."
         )
 
+    # Create clients and fetch_clients list
     fetch_clients = []
     for fetch_config in fetch_user_configs:
         if is_atrad_fetch:
@@ -1077,23 +1080,36 @@ def execute_ipo_sell_buy_trigger(
         buyer_client = TMSClient(buyer_config)
         buyer_service = OrderService(buyer_client)
 
-    # Delegate to service layer
-    return seller_service._execute_ipo_sell_buy_trigger(
-        buyer_service=buyer_service,
-        fetch_clients=fetch_clients,
-        is_atrad_fetch=is_atrad_fetch,
-        ticker=ticker,
-        security_id=security_id,
-        exchange_security_id=exchange_security_id,
-        symbol=ticker.upper() if ticker else None,
-        base_price=price,
-        buy_quantity=quantity,
-        sell_quantity=sell_quantity,
-        sell_pre_wait_ms=sell_pre_wait_ms,
-        limit_price=limit_price,
-        just_buy_interval_ms=just_buy_interval_ms,
-        just_buy_timeout=just_buy_timeout
-    )
+    # Prepare execution parameters
+    exec_params = {
+        'buyer_service': buyer_service,
+        'ticker': ticker,
+        'security_id': security_id,
+        'exchange_security_id': exchange_security_id,
+        'symbol': ticker.upper() if ticker else None,
+        'base_price': price,
+        'buy_quantity': quantity,
+        'sell_quantity': sell_quantity,
+        'sell_pre_wait_ms': sell_pre_wait_ms,
+        'limit_price': limit_price,
+        'just_buy_interval_ms': just_buy_interval_ms,
+        'just_buy_timeout': just_buy_timeout
+    }
+
+    # Execute with scheduling if time specified
+    if scheduled_time:
+        return OrderScheduler.schedule_order_sell_buy(
+            time_str=scheduled_time,
+            order_func=seller_service._execute_ipo_sell_buy_trigger,
+            seller_client=seller_client,
+            buyer_client=buyer_client,
+            fetch_clients=fetch_clients,
+            user_id=seller_config.user_id,
+            **exec_params
+        )
+    else:
+        # Immediate execution - delegate to service layer
+        return seller_service._execute_ipo_sell_buy_trigger(fetch_clients=fetch_clients,**exec_params)
 
 
 def main():
@@ -1158,7 +1174,8 @@ def main():
                     sell_pre_wait_ms=args.sell_pre_wait_ms,
                     limit_price=args.limit,
                     just_buy_interval_ms=getattr(args, 'just_buy_interval', 100),
-                    just_buy_timeout=getattr(args, 'just_buy_timeout', 5)
+                    just_buy_timeout=getattr(args, 'just_buy_timeout', 5),
+                    scheduled_time=args.time
                 )
             else:
                 # Standard manual order mode

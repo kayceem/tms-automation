@@ -231,7 +231,6 @@ class TestIPOSellBuyTrigger(unittest.TestCase):
                     service._execute_ipo_sell_buy_trigger(
                         buyer_service=buyer_service,
                         fetch_clients=[],
-                        is_atrad_fetch=False,
                         ticker="TEST",
                         security_id=1,
                         exchange_security_id=1,
@@ -306,7 +305,6 @@ class TestIPOSellBuyTrigger(unittest.TestCase):
                                     result = seller_service._execute_ipo_sell_buy_trigger(
                                         buyer_service=buyer_service,
                                         fetch_clients=[fetch_service.client],
-                                        is_atrad_fetch=False,
                                         ticker="TEST",
                                         security_id=1,
                                         exchange_security_id=1,
@@ -386,7 +384,6 @@ class TestIPOSellBuyTrigger(unittest.TestCase):
                                     result = seller_service._execute_ipo_sell_buy_trigger(
                                         buyer_service=buyer_service,
                                         fetch_clients=[fetch_service.client],
-                                        is_atrad_fetch=False,
                                         ticker="TEST",
                                         security_id=1,
                                         exchange_security_id=1,
@@ -456,7 +453,6 @@ class TestIPOSellBuyTrigger(unittest.TestCase):
                                     result = seller_service._execute_ipo_sell_buy_trigger(
                                         buyer_service=buyer_service,
                                         fetch_clients=[fetch_service.client],
-                                        is_atrad_fetch=False,
                                         ticker="TEST",
                                         security_id=1,
                                         exchange_security_id=1,
@@ -522,7 +518,6 @@ class TestIPOSellBuyTrigger(unittest.TestCase):
                                     result = seller_service._execute_ipo_sell_buy_trigger(
                                         buyer_service=buyer_service,
                                         fetch_clients=[fetch_service.client],
-                                        is_atrad_fetch=False,
                                         ticker="TEST",
                                         security_id=1,
                                         exchange_security_id=1,
@@ -578,7 +573,6 @@ class TestIPOSellBuyTrigger(unittest.TestCase):
                                     result = seller_service._execute_ipo_sell_buy_trigger(
                                         buyer_service=buyer_service,
                                         fetch_clients=[fetch_service.client],
-                                        is_atrad_fetch=False,
                                         ticker="TEST",
                                         security_id=1,
                                         exchange_security_id=1,
@@ -635,7 +629,6 @@ class TestIPOSellBuyTrigger(unittest.TestCase):
                         result = same_service._execute_ipo_sell_buy_trigger(
                             buyer_service=same_service,  # Same service instance
                             fetch_clients=[fetch_service.client],
-                            is_atrad_fetch=False,
                             ticker="TEST",
                             security_id=1,
                             exchange_security_id=1,

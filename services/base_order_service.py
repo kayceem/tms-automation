@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Tuple
 import math
 import time
+from api import ATRADClient
 from utils.logger import get_logger
 
 
@@ -390,7 +391,6 @@ class BaseOrderService(ABC):
         poll_interval_ms = getattr(self.client.user_config, 'trigger_sell_poll_interval_ms', 500)
 
         # Detect if fetch client is ATRAD or TMS
-        from api import ATRADClient
         is_atrad_fetch = isinstance(fetch_client, ATRADClient)
 
         if is_atrad_fetch:
@@ -500,8 +500,7 @@ class BaseOrderService(ABC):
                         # Resume price fetcher on error
                         price_fetcher.resume()
                         self.logger.error(f"[{self.user_id}] Failed to place sell order: {str(e)}")
-                        # Don't retry - raise immediately (400 errors are validation issues)
-                        raise
+                        return None
 
                 else:
                     # Not triggered yet
@@ -535,8 +534,6 @@ class BaseOrderService(ABC):
         Returns:
             Started price fetcher instance
         """
-        from api import ATRADClient
-
         # Detect platform type
         is_atrad = len(fetch_clients) > 0 and isinstance(fetch_clients[0], ATRADClient)
 
@@ -1683,8 +1680,6 @@ class BaseOrderService(ABC):
             List of order responses
         """
         from services.multi_symbol_price_fetcher import MultiSymbolSequentialPriceFetcher, SymbolConfig
-        from api import ATRADClient
-
         self.logger.info(
             f"[{self.user_id}] MULTI-QUEUE MODE: Monitoring {len(orders)} orders concurrently"
         )
@@ -1814,8 +1809,6 @@ class BaseOrderService(ABC):
         Returns:
             Order response
         """
-        from api import ATRADClient
-
         # Detect platform
         is_atrad = len(fetch_clients) > 0 and isinstance(fetch_clients[0], ATRADClient)
 
@@ -1863,7 +1856,6 @@ class BaseOrderService(ABC):
         self,
         buyer_service: 'BaseOrderService',
         fetch_clients: List[Any],
-        is_atrad_fetch: bool,
         ticker: Optional[str],
         security_id: Optional[int],
         exchange_security_id: Optional[int],
@@ -1882,7 +1874,6 @@ class BaseOrderService(ABC):
         Args:
             buyer_service: Service instance for placing buy orders
             fetch_clients: List of fetch clients for LTP monitoring
-            is_atrad_fetch: True if fetch clients are ATRAD
             ticker: Ticker symbol
             security_id: Security ID (TMS)
             exchange_security_id: Exchange security ID (TMS)
@@ -1952,6 +1943,8 @@ class BaseOrderService(ABC):
         # Setup token managers for both seller and buyer
         seller_token_manager = self._setup_token_manager()
         buyer_token_manager = buyer_service._setup_token_manager()
+        is_buyer_atrad = isinstance(buyer_service.client, ATRADClient)
+        is_seller_atrad = isinstance(self.client, ATRADClient)
 
         # Shared state for threading coordination
         buy_success_flag = threading.Event()
@@ -1988,7 +1981,7 @@ class BaseOrderService(ABC):
             )
             timer_start = time.time()
             timer_duration = sell_pre_wait_ms / 1000.0
-            buy_start_offset = (sell_pre_wait_ms - 100) / 1000.0
+            buy_start_offset = (sell_pre_wait_ms - 10) / 1000.0
 
             buy_threads_started = False
             sell_thread_started = False
@@ -2000,11 +1993,10 @@ class BaseOrderService(ABC):
             while time.time() - timer_start < timer_duration:
                 elapsed = time.time() - timer_start
 
-                # Start buy threads at timer-100ms
                 if not buy_threads_started and elapsed >= buy_start_offset:
                     buy_threads_started = True
                     self.logger.info(
-                        f"[{self.user_id}] Starting BUY threads (100ms before sell)..."
+                        f"[{self.user_id}] Starting BUY threads ({buy_start_offset}s before sell)..."
                     )
 
                     # Start buy thread spawner in background
@@ -2015,7 +2007,7 @@ class BaseOrderService(ABC):
                             just_buy_interval_ms, just_buy_timeout,
                             buy_success_flag, buy_response_container,
                             threads_lock, active_threads,
-                            is_atrad_fetch, security_id, exchange_security_id, symbol, second_last_price
+                            is_buyer_atrad, security_id, exchange_security_id, symbol, second_last_price
                         ),
                         daemon=True
                     )
@@ -2027,14 +2019,14 @@ class BaseOrderService(ABC):
             self.logger.info(
                 f"[{self.user_id}] Timer expired! Placing SELL order at Rs. {second_last_price}..."
             )
-            is_atrad = hasattr(self.client, 'get_market_details')
+
             # Place sell order in separate thread with retry
             sell_thread = threading.Thread(
                 target=self._place_sell_order_with_retry,
                 args=(
                     second_last_price, sell_quantity,
                     sell_success_flag, sell_response_container,
-                    is_atrad, security_id, exchange_security_id, symbol, current_ltp
+                    is_seller_atrad, security_id, exchange_security_id, symbol, current_ltp
                 ),
                 daemon=True
             )

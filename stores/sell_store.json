@@ -16,13 +16,12 @@
     {
       "id": "bjhl_sell",
       "execute": false,
-      "success": false,
+      "success": true,
       "queue_id": 1,
       "ticker": "BJHL",
       "mode": "trigger-sell",
-      "quantity": 10,
-      "price": 0,
-      "limit": 0,
+      "quantity": 560,
+      "price": 1020,
       "sell": true
     }
   ]

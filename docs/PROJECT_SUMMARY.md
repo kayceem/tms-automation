@@ -95,6 +95,13 @@ Coordinated sell and buy order execution with precise timing when third-last lad
 - 1ms precision timing loop
 - Thread-safe coordination with Event/Lock
 - Clean resource cleanup in finally block
+- **Scheduled execution support**: Works with `time` field for delayed execution
+  - Uses dedicated `schedule_order_sell_buy()` method in [services/scheduler.py](../services/scheduler.py)
+  - Handles two main clients (seller and buyer) for token refresh
+  - Automatically refreshes tokens for seller, buyer, and fetch users (TMS or ATRAD)
+  - Smart detection: Only TMS clients need token refresh, ATRAD clients are logged but skipped
+  - Token refresh occurs 15 seconds before execution
+  - Same countdown and logging pattern as other execution modes
 
 ### 2. Just Buy Mode
 Aggressive multi-threaded order placement when switch threshold reached.
