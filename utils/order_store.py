@@ -132,7 +132,7 @@ class OrderStore:
             )
 
         # Validate mode
-        valid_modes = ['normal', 'ipo', 'ipo-trigger', 'trigger-sell', 'ipo-sell-buy-trigger']
+        valid_modes = ['normal', 'ipo', 'ipo-trigger', 'ipo-trigger-low', 'trigger-sell', 'ipo-sell-buy-trigger']
         mode = order['mode']
         if mode not in valid_modes:
             raise ValueError(

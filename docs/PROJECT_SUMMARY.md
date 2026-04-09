@@ -54,6 +54,18 @@
 - **With Limit**: Calculates ladder levels from price down to limit, triggers at 2nd-last, places at limit+10%
 - **Without Limit**: Legacy 2% trigger mode (triggers at price/1.02, places at price)
 
+#### IPO Trigger Low Mode
+- Monitors LTP and places buy order at lower prices when market drops
+- **Logic**: Calculates lower price levels from reference price with conditional decrements
+  - If price >= limit: Use -9% and -10% of price
+  - If price < limit: Use -8% and -9% of limit
+  - Trigger: When LTP <= first level (trigger level)
+  - Order placement: At second level (order level)
+- **Use case**: Buy orders when stock price drops to lower levels
+- **Examples**:
+  - price=1000, limit=900: Uses price (1000), triggers at Rs. 910 (-9%), orders at Rs. 900 (-10%)
+  - price=1000, limit=1100: Uses limit (1100), triggers at Rs. 1012 (-8%), orders at Rs. 1001 (-9%)
+
 #### IPO Sell-Buy-Trigger Mode
 Coordinated sell and buy order execution with precise timing when third-last ladder level is reached.
 

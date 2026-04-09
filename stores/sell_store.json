@@ -20,8 +20,8 @@
       "queue_id": 1,
       "ticker": "BJHL",
       "mode": "trigger-sell",
-      "quantity": 560,
-      "price": 1020,
+      "quantity": 0,
+      "price": 0,
       "sell": true
     }
   ]

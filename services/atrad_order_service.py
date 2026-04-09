@@ -32,6 +32,7 @@ class ATRADOrderService(BaseOrderService):
         order_quantity: int,
         buy_or_sell: int = 1,
         ipo_trigger_mode: bool = False,
+        ipo_trigger_low_mode: bool = False,
         trigger_sell_mode: bool = False,
         limit_price: Optional[float] = None,
         base_quantity: Optional[int] = None,
@@ -117,6 +118,28 @@ class ATRADOrderService(BaseOrderService):
                 just_buy_max_requests=just_buy_max_requests,
                 just_buy_fade_interval_ms=just_buy_fade_interval_ms,
                 just_buy_fade_timeout=just_buy_fade_timeout,
+                **kwargs
+            )
+
+        # IPO Trigger Low Mode: Monitor LTP and place order at -9% when LTP <= -8%
+        if ipo_trigger_low_mode:
+            # Support both fetch_client and fetch_clients for backward compatibility
+            if fetch_clients:
+                actual_fetch_clients = fetch_clients
+            elif fetch_client:
+                actual_fetch_clients = [fetch_client]
+            else:
+                raise ValueError("fetch_client or fetch_clients is required for IPO trigger low mode")
+
+            return self._execute_ipo_trigger_low(
+                symbol=symbol,
+                base_price=order_price,
+                order_quantity=order_quantity,
+                side=side,
+                limit_price=limit_price,
+                fetch_clients=actual_fetch_clients,
+                fetch_security_id=fetch_id,
+                ticker=ticker,
                 **kwargs
             )
 

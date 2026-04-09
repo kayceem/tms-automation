@@ -176,6 +176,71 @@ class BaseOrderService(ABC):
 
         return price_levels, actual_increments
 
+    def _calculate_lower_price_levels(
+        self,
+        base_price: float,
+        limit_price: Optional[float] = None
+    ) -> Tuple[List[float], List[int]]:
+        """
+        Calculate lower price ladder for buying at lower prices.
+
+        Used by IPO Trigger Low mode to place orders when price drops.
+
+        Logic:
+        - If price >= limit: Use -9% and -10% of price
+        - If price < limit: Use -8% and -9% of limit
+        - All prices are floored to 1 decimal place
+
+        Args:
+            base_price: Starting price
+            limit_price: Optional limit price for comparison
+
+        Returns:
+            Tuple of (price_levels, actual_decrements):
+                - price_levels: List of prices (floored to 1 decimal)
+                - actual_decrements: List of percentage decrements used
+
+        Example:
+            base_price=1000, limit_price=900
+            Returns: ([910.0, 900.0], [9, 10])  # -9% and -10% of 1000
+
+            base_price=1000, limit_price=1100
+            Returns: ([1012.0, 1001.0], [8, 9])  # -8% and -9% of 1100
+        """
+        # Determine which price and decrements to use for calculation
+        if limit_price is not None and base_price < limit_price:
+            # Use limit price with -8% and -9% when base_price < limit_price
+            reference_price = limit_price
+            price_decrements = [8, 9]  # [-8%, -9%]
+            self.logger.info(
+                f"Using limit price {limit_price} for lower ladder calculation "
+                f"(base_price {base_price} < limit_price) with -8%/-9% decrements"
+            )
+        else:
+            # Use base_price with -9% and -10% when no limit or base_price >= limit_price
+            reference_price = base_price
+            price_decrements = [9, 10]  # [-9%, -10%]
+            if limit_price:
+                self.logger.info(
+                    f"Using base price {base_price} for lower ladder calculation "
+                    f"(base_price {base_price} >= limit_price {limit_price}) with -9%/-10% decrements"
+                )
+
+        # Calculate price levels
+        price_levels: List[float] = []
+
+        for decrement in price_decrements:
+            new_price = reference_price * (1 - decrement / 100)
+            floored_price = math.floor(new_price * 10) / 10
+            price_levels.append(floored_price)
+
+        self.logger.info(
+            f"Lower price ladder from {reference_price}: "
+            f"{price_levels} (trigger at -{price_decrements[0]}%, order at -{price_decrements[1]}%)"
+        )
+
+        return price_levels, price_decrements
+
     def _get_quantity_for_level(
         self,
         level_num: int,
@@ -1658,6 +1723,139 @@ class BaseOrderService(ABC):
         self.logger.info(
             f"[{self.user_id}] IPO TRIGGER COMPLETE: {orders_placed} orders placed"
         )
+        return last_response
+
+    def _execute_ipo_trigger_low(
+        self,
+        base_price: float,
+        order_quantity: int,
+        fetch_clients: List[Any],
+        limit_price: Optional[float] = None,
+        fetch_security_id: Optional[int] = None,
+        ticker: Optional[str] = None,
+        **platform_params
+    ) -> Dict[str, Any]:
+        """
+        Execute IPO trigger low mode: Monitor LTP and place order at -10% when LTP <= -9%.
+
+        Logic:
+        - Calculate lower price levels using -9% and -10% of reference price
+        - Reference price: price if price >= limit, otherwise limit
+        - Monitor LTP until it reaches <= -9% level
+        - Place order at -10% level
+
+        Args:
+            base_price: Starting price
+            order_quantity: Number of units to order
+            fetch_clients: List of client instances for fetching LTP with rotation
+            limit_price: Optional limit price for reference price calculation
+            fetch_security_id: Security ID for fetching LTP
+            ticker: Ticker symbol for resolving per-user fetch_id
+            **platform_params: Platform-specific parameters
+
+        Returns:
+            API response dictionary
+        """
+        # Extract identifiers
+        security_id = platform_params.get('security_id')
+        symbol = platform_params.get('symbol')
+        fetch_security_id = fetch_security_id or security_id or symbol
+
+        # Calculate lower price ladder: [-9%, -10%]
+        price_levels, actual_decrements = self._calculate_lower_price_levels(
+            base_price, limit_price
+        )
+
+        trigger_price = price_levels[0]  # -9% level (trigger)
+        order_price = price_levels[1]    # -10% level (order)
+
+        self.logger.info("="*70)
+        self.logger.info("IPO TRIGGER LOW MODE")
+        self.logger.info("="*70)
+        self.logger.info(f"Base Price: Rs. {base_price}")
+        if limit_price:
+            self.logger.info(f"Limit Price: Rs. {limit_price}")
+        self.logger.info(f"Trigger Price (-9%): Rs. {trigger_price}")
+        self.logger.info(f"Order Price (-10%): Rs. {order_price}")
+        self.logger.info(f"Quantity: {order_quantity}")
+        self.logger.info(f"Security: {self._get_identifier_for_logging(**platform_params)}")
+        self.logger.info("="*70)
+
+        # Setup price fetcher
+        poll_interval_ms = self.client.user_config.trigger_mode_poll_interval_ms
+        price_fetcher = self._setup_price_fetcher(
+            fetch_clients, fetch_security_id, symbol, ticker, poll_interval_ms
+        )
+        sleep_duration = 0.01
+        
+        # Setup token refresh
+        token_manager = self._setup_token_manager()
+
+        last_response = None
+
+        try:
+            # Start price fetcher
+            price_fetcher.start()
+            self.logger.info(
+                f"[{self.user_id}] Monitoring LTP... "
+                f"Will place order at Rs. {order_price} when LTP <= Rs. {trigger_price}"
+            )
+
+            # Wait for LTP to drop to trigger price
+            while True:
+                ltp = price_fetcher.get_latest_ltp()
+
+                if ltp is not None and ltp <= trigger_price:
+                    self.logger.info(
+                        f"[{self.user_id}] TRIGGER REACHED: LTP={ltp} <= Trigger={trigger_price}"
+                    )
+                    break
+
+                time.sleep(sleep_duration)
+
+            # Place order at -10% price
+            self.logger.info(
+                f"[{self.user_id}] Placing order at Rs. {order_price} (Quantity: {order_quantity})"
+            )
+            if hasattr(price_fetcher, 'start_market_details'):
+                self.logger.info(f"[{self.user_id}] Starting market details monitoring for order placement")
+                price_fetcher.start_market_details()
+
+            ltp = price_fetcher.get_latest_ltp()
+            platform_params_with_ltp = {**platform_params, 'market_price': ltp}
+            try:
+                last_response = self._place_single_order(
+                    price=order_price,
+                    quantity=order_quantity,
+                    **platform_params_with_ltp
+                )
+
+                # Log response
+                if last_response:
+                    self.logger.info(
+                        f"[{self.user_id}] Order placed successfully: {last_response}"
+                    )
+                else:
+                    self.logger.warning(
+                        f"[{self.user_id}] Order placement returned no response"
+                    )
+            except Exception as e:
+                self.logger.error(
+                    f"[{self.user_id}] Error placing order: {str(e)}"
+                )
+                raise
+
+        except KeyboardInterrupt:
+            self.logger.info(f"[{self.user_id}] IPO TRIGGER LOW cancelled by user")
+            raise
+        except Exception as e:
+            self.logger.error(f"[{self.user_id}] IPO TRIGGER LOW failed: {str(e)}")
+        finally:
+            if hasattr(price_fetcher, 'stop_market_details'):
+                price_fetcher.stop_market_details()
+            price_fetcher.stop()
+            self._cleanup_token_manager(token_manager)
+
         return last_response
 
 
