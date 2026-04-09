@@ -14,11 +14,11 @@
   },
   "orders": [
     {
-      "id": "bjhl_sell",
+      "id": "_sell",
       "execute": false,
       "success": true,
       "queue_id": 1,
-      "ticker": "BJHL",
+      "ticker": "",
       "mode": "trigger-sell",
       "quantity": 0,
       "price": 0,

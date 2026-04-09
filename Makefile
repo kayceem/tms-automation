@@ -1,5 +1,7 @@
 .PHONY: update run runm
 
+Arguments := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+
 update:
 	python utils/update_user_tokens.py --auto users
 
@@ -35,3 +37,15 @@ runa-no-icarus56:
 
 token:
 	python token_fetcher/fetch_tokens.py --all
+
+reset-tokens:
+	python utils/update_atrad.py --reset
+
+set-tokens:
+	python utils/update_atrad.py --set $(Arguments)
+
+update-store:
+	python utils/update_order_prices.py --atrad-user users/atrad_user6.json --order-store stores/order_store.json
+
+%:
+	@:

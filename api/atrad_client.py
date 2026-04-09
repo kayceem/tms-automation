@@ -445,6 +445,7 @@ class ATRADClient:
             if self.login():
                 return True
             return False
+        return self._is_authenticated
 
     def refresh_tokens(self) -> bool:
         """
