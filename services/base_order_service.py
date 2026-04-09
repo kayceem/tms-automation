@@ -1733,6 +1733,7 @@ class BaseOrderService(ABC):
         limit_price: Optional[float] = None,
         fetch_security_id: Optional[int] = None,
         ticker: Optional[str] = None,
+        timeout_ipo_trigger_low: Optional[int] = None,
         **platform_params
     ) -> Dict[str, Any]:
         """
@@ -1743,6 +1744,7 @@ class BaseOrderService(ABC):
         - Reference price: price if price >= limit, otherwise limit
         - Monitor LTP until it reaches <= -9% level
         - Place order at -10% level
+        - Exit if timeout is reached without trigger
 
         Args:
             base_price: Starting price
@@ -1751,10 +1753,11 @@ class BaseOrderService(ABC):
             limit_price: Optional limit price for reference price calculation
             fetch_security_id: Security ID for fetching LTP
             ticker: Ticker symbol for resolving per-user fetch_id
+            timeout_ipo_trigger_low: Optional timeout in seconds (None = no timeout)
             **platform_params: Platform-specific parameters
 
         Returns:
-            API response dictionary
+            API response dictionary or None if timeout reached
         """
         # Extract identifiers
         security_id = platform_params.get('security_id')
@@ -1775,9 +1778,11 @@ class BaseOrderService(ABC):
         self.logger.info(f"Base Price: Rs. {base_price}")
         if limit_price:
             self.logger.info(f"Limit Price: Rs. {limit_price}")
-        self.logger.info(f"Trigger Price (-9%): Rs. {trigger_price}")
-        self.logger.info(f"Order Price (-10%): Rs. {order_price}")
+        self.logger.info(f"Trigger Price (-{actual_decrements[0]}%): Rs. {trigger_price}")
+        self.logger.info(f"Order Price (-{actual_decrements[1]}%): Rs. {order_price}")
         self.logger.info(f"Quantity: {order_quantity}")
+        if timeout_ipo_trigger_low:
+            self.logger.info(f"Timeout: {timeout_ipo_trigger_low}s")
         self.logger.info(f"Security: {self._get_identifier_for_logging(**platform_params)}")
         self.logger.info("="*70)
 
@@ -1786,7 +1791,7 @@ class BaseOrderService(ABC):
         price_fetcher = self._setup_price_fetcher(
             fetch_clients, fetch_security_id, symbol, ticker, poll_interval_ms
         )
-        sleep_duration = 0.01
+        sleep_duration = 0.005
         
         # Setup token refresh
         token_manager = self._setup_token_manager()
@@ -1796,22 +1801,44 @@ class BaseOrderService(ABC):
         try:
             # Start price fetcher
             price_fetcher.start()
+
+            # Setup timeout tracking
+            start_time = time.time()
+            timeout_msg = f" (timeout: {timeout_ipo_trigger_low}s)" if timeout_ipo_trigger_low else ""
+
             self.logger.info(
                 f"[{self.user_id}] Monitoring LTP... "
-                f"Will place order at Rs. {order_price} when LTP <= Rs. {trigger_price}"
+                f"Will place order at Rs. {order_price} when LTP <= Rs. {trigger_price}{timeout_msg}"
             )
 
             # Wait for LTP to drop to trigger price
+            triggered = False
             while True:
+                # Check timeout
+                if timeout_ipo_trigger_low:
+                    elapsed = time.time() - start_time
+                    if elapsed >= timeout_ipo_trigger_low:
+                        self.logger.warning(
+                            f"[{self.user_id}] TIMEOUT REACHED: {elapsed:.1f}s >= {timeout_ipo_trigger_low}s. "
+                            f"Trigger condition not met, exiting."
+                        )
+                        break
+
                 ltp = price_fetcher.get_latest_ltp()
 
                 if ltp is not None and ltp <= trigger_price:
                     self.logger.info(
                         f"[{self.user_id}] TRIGGER REACHED: LTP={ltp} <= Trigger={trigger_price}"
                     )
+                    triggered = True
                     break
 
                 time.sleep(sleep_duration)
+
+            # Only place order if triggered (not timeout)
+            if not triggered:
+                self.logger.info(f"[{self.user_id}] Skipping order placement - timeout reached")
+                return None
 
             # Place order at -10% price
             self.logger.info(

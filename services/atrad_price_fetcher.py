@@ -361,7 +361,7 @@ class ATRADMultiUserPriceFetcher:
         with self._lock:
             self.poll_interval_ms = poll_interval_ms
             self.poll_interval_seconds = poll_interval_ms / 1000.0
-            self.enable_cooldown = enable_cooldown
+            self.enable_cooldown = False
             self.delay = max(0.005, self.poll_interval_seconds / 2)
 
     def pause(self):

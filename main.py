@@ -137,6 +137,12 @@ Examples:
         help='IPO trigger low mode: monitor LTP and place order at lower prices. If price>=limit: trigger at -9%% and order at -10%% of price. If price<limit: trigger at -8%% and order at -9%% of limit.'
     )
     parser.add_argument(
+        '--timeout-ipo-trigger-low',
+        type=int,
+        default=None,
+        help='Timeout in seconds for IPO trigger low mode. If trigger condition not met within timeout, skip order and move on (default: no timeout)'
+    )
+    parser.add_argument(
         '--trigger-sell',
         action='store_true',
         help='Trigger sell mode: monitor LTP and place sell order when price drops to trigger level. Trigger price calculated as sell_price / 1.02 (floored to 1 decimal).'
@@ -945,6 +951,7 @@ def execute_from_order_store(
                     'just_buy_max_requests': order.get('just_buy_max_requests'),
                     'just_buy_fade_interval_ms': order.get('just_buy_fade_interval_ms'),
                     'just_buy_fade_timeout': order.get('just_buy_fade_timeout'),
+                    'timeout_ipo_trigger_low': order.get('timeout_ipo_trigger_low'),
                     'symbol': order['ticker'].upper()
                 }
 
@@ -1244,6 +1251,7 @@ def main():
                     'just_buy_interval_ms': args.just_buy_interval if hasattr(args, 'just_buy_interval') else 100,
                     'just_buy_timeout': args.just_buy_timeout if hasattr(args, 'just_buy_timeout') else 5,
                     'just_buy_pre_wait_ms': args.just_buy_pre_wait if hasattr(args, 'just_buy_pre_wait') else 0,
+                    'timeout_ipo_trigger_low': args.timeout_ipo_trigger_low if hasattr(args, 'timeout_ipo_trigger_low') else None,
                     'symbol': ticker_symbol
                 }
 

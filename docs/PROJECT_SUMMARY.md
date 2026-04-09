@@ -61,6 +61,9 @@
   - If price < limit: Use -8% and -9% of limit
   - Trigger: When LTP <= first level (trigger level)
   - Order placement: At second level (order level)
+- **Timeout**: Optional `timeout_ipo_trigger_low` parameter (seconds)
+  - If trigger condition not met within timeout, skip order and move to next
+  - If timeout is null/not set, monitor indefinitely until triggered
 - **Use case**: Buy orders when stock price drops to lower levels
 - **Examples**:
   - price=1000, limit=900: Uses price (1000), triggers at Rs. 910 (-9%), orders at Rs. 900 (-10%)

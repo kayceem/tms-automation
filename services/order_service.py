@@ -60,6 +60,7 @@ class OrderService(BaseOrderService):
         just_buy_max_requests: Optional[int] = None,
         just_buy_fade_interval_ms: Optional[int] = None,
         just_buy_fade_timeout: Optional[int] = None,
+        timeout_ipo_trigger_low: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Execute an order immediately.
@@ -155,7 +156,8 @@ class OrderService(BaseOrderService):
                 limit_price=limit_price,
                 fetch_clients=actual_fetch_clients,
                 fetch_security_id=fetch_security_id,
-                ticker=ticker
+                ticker=ticker,
+                timeout_ipo_trigger_low=timeout_ipo_trigger_low
             )
 
         # Trigger Sell Mode: Monitor LTP and sell when price drops to trigger level
