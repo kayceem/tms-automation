@@ -88,6 +88,9 @@ class OrderStore:
         queue_ids = [f"{o.get('id', 'unknown')} (queue:{o.get('queue_id', 999)})" for o in executable_orders]
         logger.info(f"Found {len(executable_orders)} executable order(s): {', '.join(queue_ids)}")
 
+        # Validate multi_queue consistency across queue groups
+        self._validate_multi_queue_consistency(executable_orders)
+
         return executable_orders
 
     def get_executable_order(self) -> Optional[Dict[str, Any]]:
@@ -129,7 +132,7 @@ class OrderStore:
             )
 
         # Validate mode
-        valid_modes = ['normal', 'ipo', 'ipo-trigger', 'trigger-sell']
+        valid_modes = ['normal', 'ipo', 'ipo-trigger', 'ipo-trigger-low', 'trigger-sell', 'ipo-sell-buy-trigger']
         mode = order['mode']
         if mode not in valid_modes:
             raise ValueError(
@@ -224,6 +227,36 @@ class OrderStore:
             except (TypeError, ValueError) as e:
                 raise ValueError(f"Order '{order_id}' has invalid just_buy_pre_wait_ms: {order['just_buy_pre_wait_ms']}")
 
+        # Validate just_buy_max_requests if provided
+        just_buy_max_requests = None  # Default
+        if 'just_buy_max_requests' in order and order['just_buy_max_requests'] is not None:
+            try:
+                just_buy_max_requests = int(order['just_buy_max_requests'])
+                if just_buy_max_requests <= 0:
+                    raise ValueError(f"Order '{order_id}' has invalid just_buy_max_requests: {just_buy_max_requests}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid just_buy_max_requests: {order['just_buy_max_requests']}")
+
+        # Validate just_buy_fade_interval_ms if provided
+        just_buy_fade_interval_ms = None  # Default
+        if 'just_buy_fade_interval_ms' in order and order['just_buy_fade_interval_ms'] is not None:
+            try:
+                just_buy_fade_interval_ms = int(order['just_buy_fade_interval_ms'])
+                if just_buy_fade_interval_ms <= 0:
+                    raise ValueError(f"Order '{order_id}' has invalid just_buy_fade_interval_ms: {just_buy_fade_interval_ms}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid just_buy_fade_interval_ms: {order['just_buy_fade_interval_ms']}")
+
+        # Validate just_buy_fade_timeout if provided
+        just_buy_fade_timeout = None  # Default
+        if 'just_buy_fade_timeout' in order and order['just_buy_fade_timeout'] is not None:
+            try:
+                just_buy_fade_timeout = int(order['just_buy_fade_timeout'])
+                if just_buy_fade_timeout <= 0:
+                    raise ValueError(f"Order '{order_id}' has invalid just_buy_fade_timeout: {just_buy_fade_timeout}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid just_buy_fade_timeout: {order['just_buy_fade_timeout']}")
+
         # Validate just_buy only works with no_ladder
         just_buy = bool(order.get('just_buy', False))
         no_ladder = bool(order.get('no_ladder', False))
@@ -231,6 +264,46 @@ class OrderStore:
             raise ValueError(
                 f"Order '{order_id}': just_buy can only be used with no_ladder=true"
             )
+
+        # Validate multi_queue
+        multi_queue = bool(order.get('multi_queue', False))
+        if multi_queue:
+            # multi_queue requires no_ladder
+            if not no_ladder:
+                raise ValueError(
+                    f"Order '{order_id}': multi_queue requires no_ladder=true"
+                )
+            # multi_queue requires ipo-trigger mode
+            if mode != 'ipo-trigger':
+                raise ValueError(
+                    f"Order '{order_id}': multi_queue requires mode='ipo-trigger'"
+                )
+
+        # Validate ipo-sell-buy-trigger mode
+        if mode == 'ipo-sell-buy-trigger':
+            if 'seller_config' not in order or not order['seller_config']:
+                raise ValueError(f"Order '{order_id}': ipo-sell-buy-trigger requires 'seller_config'")
+            if 'buyer_config' not in order or not order['buyer_config']:
+                raise ValueError(f"Order '{order_id}': ipo-sell-buy-trigger requires 'buyer_config'")
+            if 'sell_quantity' not in order or not order['sell_quantity']:
+                raise ValueError(f"Order '{order_id}': ipo-sell-buy-trigger requires 'sell_quantity'")
+
+            # Validate sell_quantity
+            try:
+                sell_quantity = int(order['sell_quantity'])
+                if sell_quantity <= 0:
+                    raise ValueError(f"Order '{order_id}' has invalid sell_quantity: {sell_quantity}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Order '{order_id}' has invalid sell_quantity: {order['sell_quantity']}")
+
+            # Validate sell_pre_wait_ms if provided
+            if 'sell_pre_wait_ms' in order and order['sell_pre_wait_ms'] is not None:
+                try:
+                    sell_pre_wait_ms = int(order['sell_pre_wait_ms'])
+                    if sell_pre_wait_ms < 0:
+                        raise ValueError(f"Order '{order_id}' has invalid sell_pre_wait_ms: {sell_pre_wait_ms}")
+                except (TypeError, ValueError) as e:
+                    raise ValueError(f"Order '{order_id}' has invalid sell_pre_wait_ms: {order['sell_pre_wait_ms']}")
 
         # Validate queue_id if provided
         queue_id = 999  # Default
@@ -264,10 +337,62 @@ class OrderStore:
             'just_buy_interval_ms': just_buy_interval_ms,
             'just_buy_timeout': just_buy_timeout,
             'just_buy_pre_wait_ms': just_buy_pre_wait_ms,
+            'just_buy_max_requests': just_buy_max_requests,
+            'just_buy_fade_interval_ms': just_buy_fade_interval_ms,
+            'just_buy_fade_timeout': just_buy_fade_timeout,
+            'multi_queue': multi_queue,
+            'seller_config': order.get('seller_config') if mode == 'ipo-sell-buy-trigger' else None,
+            'buyer_config': order.get('buyer_config') if mode == 'ipo-sell-buy-trigger' else None,
+            'sell_quantity': int(order['sell_quantity']) if mode == 'ipo-sell-buy-trigger' and 'sell_quantity' in order else None,
+            'sell_pre_wait_ms': int(order.get('sell_pre_wait_ms', 5000)) if mode == 'ipo-sell-buy-trigger' else 5000
         }
 
         logger.debug(f"Order '{order_id}' validated successfully")
         return normalized
+
+    def _validate_multi_queue_consistency(self, orders: List[Dict[str, Any]]) -> None:
+        """
+        Validate that all orders with the same queue_id have consistent multi_queue values.
+
+        Args:
+            orders: List of validated orders
+
+        Raises:
+            ValueError: If multi_queue values are inconsistent within a queue group
+        """
+        from collections import defaultdict
+
+        # Group orders by queue_id
+        queue_groups = defaultdict(list)
+        for order in orders:
+            queue_id = order.get('queue_id', 999)
+            queue_groups[queue_id].append(order)
+
+        # Check each queue group for consistency
+        for queue_id, group_orders in queue_groups.items():
+            if len(group_orders) <= 1:
+                continue  # Single order, no consistency check needed
+
+            # Check if all orders have the same multi_queue value
+            multi_queue_values = {order.get('multi_queue', False) for order in group_orders}
+
+            if len(multi_queue_values) > 1:
+                # Inconsistent multi_queue values
+                order_ids = [order.get('id', 'unknown') for order in group_orders]
+                raise ValueError(
+                    f"Orders in queue {queue_id} have inconsistent multi_queue values: {', '.join(order_ids)}\n"
+                    f"All orders with the same queue_id must have the same multi_queue setting."
+                )
+
+            # If multi_queue is true, validate requirements
+            if True in multi_queue_values:
+                # Check minimum 2 orders for multi_queue
+                if len(group_orders) < 2:
+                    order_id = group_orders[0].get('id', 'unknown')
+                    logger.warning(
+                        f"Order '{order_id}' has multi_queue=true but is alone in queue {queue_id}. "
+                        f"Multi-queue requires at least 2 orders."
+                    )
 
     def mark_success(self, order_id: str):
         """

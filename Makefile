@@ -1,4 +1,6 @@
-.PHONY: update run runm
+.PHONY: update run runm runaf prepare
+
+Arguments := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 
 update:
 	python utils/update_user_tokens.py --auto users
@@ -19,7 +21,10 @@ runa:
 	python main.py --user-config users/atrad_user1.json --order-store stores/order_store.json --fetch-users users/user1.json users/user2.json users/user3.json --log-level DEBUG
 
 runaf:
-	python main.py --atrad-fetch --user-config users/atrad_user1.json --order-store stores/order_store.json --fetch-users users/atrad_user2.json users/atrad_user3.json users/atrad_user4.json users/atrad_user5.json users/atrad_user6.json users/atrad_user7.json --log-level DEBUG
+	python main.py --atrad-fetch --user-config users/atrad_user1.json --order-store stores/order_store.json --fetch-users users/atrad_user2.json users/atrad_user3.json users/atrad_user4.json users/atrad_user5.json users/atrad_user6.json users/atrad_user7.json --log-level DEBUG $(if $(TIME),--time $(TIME))
+
+runaf-sell:
+	python main.py --atrad-fetch --user-config users/atrad_user1.json --order-store stores/sell_store.json --fetch-users users/atrad_user2.json users/atrad_user3.json users/atrad_user4.json users/atrad_user5.json users/atrad_user6.json users/atrad_user7.json --log-level DEBUG
 
 runam:
 	python main.py --user-config users/atrad_user1.json --order-store stores/order_store.json --fetch-users users/user1.json users/user2.json users/user3.json users/user4.json users/user5.json users/user6.json users/user7.json users/user8.json users/user9.json --log-level DEBUG
@@ -32,3 +37,19 @@ runa-no-icarus56:
 
 token:
 	python token_fetcher/fetch_tokens.py --all
+
+reset-tokens:
+	python utils/update_atrad.py --reset
+
+set-tokens:
+	python utils/update_atrad.py --set $(Arguments)
+
+update-store:
+	python utils/update_order_prices.py --atrad-user users/atrad_user6.json --order-store stores/order_store.json
+
+prepare:
+	$(MAKE) reset-tokens
+	$(MAKE) update-store
+
+%:
+	@:

@@ -160,7 +160,7 @@ class ATRADPriceFetcher:
         )
 
         timeout = max(min(self.poll_interval_seconds * 4, 0.05), 0.02)
-        sleep_duration = 0.01
+        sleep_duration = min((self.poll_interval_seconds * 2), 0.005)
         while self._market_details_running:
             try:
                 # Fetch market details from client
@@ -361,7 +361,7 @@ class ATRADMultiUserPriceFetcher:
         with self._lock:
             self.poll_interval_ms = poll_interval_ms
             self.poll_interval_seconds = poll_interval_ms / 1000.0
-            self.enable_cooldown = enable_cooldown
+            self.enable_cooldown = False
             self.delay = max(0.005, self.poll_interval_seconds / 2)
 
     def pause(self):
@@ -431,7 +431,7 @@ class ATRADMultiUserPriceFetcher:
         )
 
         timeout = max(min(self.poll_interval_seconds * 4, 0.05), 0.02)
-        sleep_duration = min((self.poll_interval_seconds * 2), 0.01)
+        sleep_duration = min((self.poll_interval_seconds * 2), 0.005)
 
         while self._market_details_running:
             try:

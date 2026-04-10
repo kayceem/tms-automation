@@ -366,7 +366,7 @@ class ATRADClient:
 
         logger.info(
             f"[{self.user_id}] Placing {side} order: "
-            f"Symbol={symbol}, Price={price}, Qty={quantity}"
+            f"Symbol={symbol}, Price={price}, Qty={quantity}, MKT={market_price}"
         )
 
         # Generate duplicate order ID
@@ -445,6 +445,7 @@ class ATRADClient:
             if self.login():
                 return True
             return False
+        return self._is_authenticated
 
     def refresh_tokens(self) -> bool:
         """

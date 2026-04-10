@@ -50,7 +50,7 @@
         }
     },
     "HFIN": {
-        "security_id": 3100,
+        "security_id": 3101,
         "exchange_security_id": 9308,
         "name": "Hotel Forest Inn Limited",
         "fetch_id": {
@@ -99,9 +99,9 @@
         }
     },
     "RLEL": {
-        "security_id": 3105,
+        "security_id": 3106,
         "exchange_security_id": 9324,
-        "name": "Super Khudi Hydropower Limited",
+        "name": "RIDGE LINE ENERGY LIMITED",
         "fetch_id": {
             "tms01.nepsetms.com.np": 3105,
             "tms35.nepsetms.com.np": 3106,
@@ -122,6 +122,22 @@
             "tms57.nepsetms.com.np": 3106,
             "tms89.nepsetms.com.np": 3108
 
+        }
+    },
+    "PCIL": {
+        "security_id": 3111,
+        "exchange_security_id": 9330,
+        "name": "Palpa Cement Industries Limited",
+        "fetch_id": {
+            "tms01.nepsetms.com.np": 3111
+        }
+    },
+    "ILI": {
+        "security_id": 3013,
+        "exchange_security_id": 9184,
+        "name": "IME Life Insurance Company Limited",
+        "fetch_id": {
+            "tms01.nepsetms.com.np": 3013
         }
     }
 }

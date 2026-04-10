@@ -40,6 +40,7 @@ class OrderService(BaseOrderService):
         order_type: str = None,
         order_validity: str = None,
         ipo_trigger_mode: bool = False,
+        ipo_trigger_low_mode: bool = False,
         trigger_sell_mode: bool = False,
         limit_price: Optional[float] = None,
         base_quantity: Optional[int] = None,
@@ -56,6 +57,10 @@ class OrderService(BaseOrderService):
         just_buy_interval_ms: int = 100,
         just_buy_timeout: int = 5,
         just_buy_pre_wait_ms: int = 0,
+        just_buy_max_requests: Optional[int] = None,
+        just_buy_fade_interval_ms: Optional[int] = None,
+        just_buy_fade_timeout: Optional[int] = None,
+        timeout_ipo_trigger_low: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Execute an order immediately.
@@ -122,6 +127,37 @@ class OrderService(BaseOrderService):
                 just_buy_interval_ms=just_buy_interval_ms,
                 just_buy_timeout=just_buy_timeout,
                 just_buy_pre_wait_ms=just_buy_pre_wait_ms,
+                just_buy_max_requests=just_buy_max_requests,
+                just_buy_fade_interval_ms=just_buy_fade_interval_ms,
+                just_buy_fade_timeout=just_buy_fade_timeout,
+            )
+
+        # IPO Trigger Low Mode: Monitor LTP and place order at -9% when LTP <= -8%
+        if ipo_trigger_low_mode:
+            # Support both fetch_client and fetch_clients for backward compatibility
+            if fetch_clients:
+                actual_fetch_clients = fetch_clients
+            elif fetch_client:
+                actual_fetch_clients = [fetch_client]
+            else:
+                raise ValueError("fetch_client or fetch_clients is required for IPO trigger low mode")
+
+            # Use fetch_id if provided, otherwise fall back to security_id
+            fetch_security_id = fetch_id if fetch_id is not None else security_id
+
+            return self._execute_ipo_trigger_low(
+                security_id=security_id,
+                exchange_security_id=exchange_security_id,
+                base_price=order_price,
+                order_quantity=order_quantity,
+                buy_or_sell=buy_or_sell,
+                order_type=order_type,
+                order_validity=order_validity,
+                limit_price=limit_price,
+                fetch_clients=actual_fetch_clients,
+                fetch_security_id=fetch_security_id,
+                ticker=ticker,
+                timeout_ipo_trigger_low=timeout_ipo_trigger_low
             )
 
         # Trigger Sell Mode: Monitor LTP and sell when price drops to trigger level
@@ -150,7 +186,8 @@ class OrderService(BaseOrderService):
                 order_validity=order_validity,
                 fetch_client=actual_fetch_client,
                 fetch_security_id=fetch_security_id,
-                ticker=ticker
+                ticker=ticker,
+                limit_price=limit_price
             )
 
         # Normal single order execution

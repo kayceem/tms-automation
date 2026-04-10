@@ -217,7 +217,7 @@ class TokenRefreshManager:
         )
 
         # First refresh happens 15 seconds earlier
-        time.sleep(max(0, self.refresh_interval_seconds - 15))
+        time.sleep(max(0, self.refresh_interval_seconds - self.refresh_interval_seconds))
 
         while self._running:
             try:

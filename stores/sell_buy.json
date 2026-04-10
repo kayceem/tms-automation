@@ -1,0 +1,50 @@
+{
+    "_comment": "Order store for managing multiple orders. Multiple orders can have 'execute: true' and will be queued based on queue_id.",
+    "_instructions": {
+        "execute": "Set to true to mark this order for execution",
+        "success": "Automatically set to true after successful execution",
+        "queue_id": "(Optional) Queue position for execution (1, 2, 3, etc.). Orders with execute=true are executed in ascending queue_id order. If not specified, defaults to 999.",
+        "ticker": "Ticker symbol from ticker_store.json",
+        "price": "Order price per unit",
+        "quantity": "Number of units for the FINAL ladder level (or all levels if base_quantity not specified)",
+        "base_quantity": "(Optional) Number of units for all ladder levels EXCEPT final level (default: 10). Only applies to IPO modes.",
+        "mode": "Execution mode: 'normal', 'ipo', or 'ipo-trigger'",
+        "limit": "(Optional) Upper limit price for IPO and IPO-trigger modes",
+        "time": "(Optional) Scheduled execution time in HH:MM or HH:MM:SS format",
+        "refresh_before": "(Optional) Seconds before execution to refresh tokens (default: 20)",
+        "sell": "(Optional) Set to true for sell order, false/omit for buy order",
+        "skip_first": "(Optional) For IPO-trigger mode: skip first ladder level (default: false)",
+        "skip_second_last": "(Optional) For IPO-trigger mode: skip second-to-last ladder level (the level before final limit order) (default: false)",
+        "no_ladder": "(Optional) For IPO-trigger mode: skip ALL ladder levels, only place final order at limit+10% when LTP reaches second-to-last level. Overrides skip_first and skip_second_last (default: false)",
+        "just_buy": "(Optional) For IPO-trigger with no_ladder: Aggressively place orders when switch threshold is reached. Falls back to normal trigger if all attempts fail (default: false)",
+        "just_buy_interval_ms": "(Optional) Interval between just_buy order attempts in milliseconds (default: 100)",
+        "just_buy_timeout": "(Optional) Total duration for just_buy attempts in seconds (default: 5). Ignored if just_buy_max_requests is specified.",
+        "just_buy_pre_wait_ms": "(Optional) Wait time in milliseconds after switch threshold before starting just_buy (default: 0)",
+        "just_buy_max_requests": "(Optional) Maximum number of just_buy order attempts. If specified, timeout is ignored and execution stops after max_requests are sent, waiting for threads to complete (default: None = use timeout)",
+        "just_buy_fade_interval_ms": "(Optional) Slower interval for fade phase after main just_buy phase fails without success (default: None = no fade phase)",
+        "just_buy_fade_timeout": "(Optional) Additional timeout in seconds for fade phase, extending total duration (default: None = no fade phase). Requires just_buy_fade_interval_ms to be set.",
+        "multi_queue": "(Optional) For IPO-trigger with no_ladder: Enable multi-queue mode where multiple orders with same queue_id monitor concurrently. First to reach switch threshold becomes priority (default: false). Requires: no_ladder=true, mode='ipo-trigger'. All orders with same queue_id must have matching multi_queue value.",
+        "double_buy": "(Optional) Place a second order 0.5s after first order succeeds (default: false)",
+        "double_buy_quantity": "(Optional) Quantity for the second order in double_buy mode (defaults to same as quantity if not specified)"
+    },
+    "orders": [
+        {
+            "id": "hfin_ipo",
+            "time": "23:00:00",
+            "execute": false,
+            "success": true,
+            "queue_id": 1,
+            "ticker": "HFIN",
+            "mode": "ipo-sell-buy-trigger",
+            "quantity": 1009,
+            "price": 610.7,
+            "limit": 619.3,
+            "sell_quantity": 10,
+            "sell_pre_wait_ms": 1500,
+            "just_buy_interval_ms": 5,
+            "just_buy_timeout": 5,
+            "seller_config": "users/atrad_user6.json",
+            "buyer_config": "users/atrad_user1.json"
+        }
+    ]
+}
