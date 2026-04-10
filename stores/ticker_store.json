@@ -124,6 +124,14 @@
 
         }
     },
+    "PCIL": {
+        "security_id": 3111,
+        "exchange_security_id": 9330,
+        "name": "Palpa Cement Industries Limited",
+        "fetch_id": {
+            "tms01.nepsetms.com.np": 3111
+        }
+    },
     "ILI": {
         "security_id": 3013,
         "exchange_security_id": 9184,

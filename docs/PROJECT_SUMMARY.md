@@ -165,6 +165,18 @@ Concurrent monitoring of multiple IPO symbols with automatic priority selection.
 - Remaining orders execute sequentially in order_store.json order
 - If priority order just_buy fails → moves to next order (doesn't wait for trigger)
 
+**Error Handling**:
+- Tracks successful and failed orders separately
+- If priority order fails → aborts remaining orders immediately
+- If remaining order fails → continues with other remaining orders
+- Returns dict with:
+  - `responses`: List of all order responses
+  - `successful_orders`: List of successful order IDs
+  - `failed_orders`: List of failed order IDs
+- Only successful orders marked in order store
+- Failed orders marked with `mark_failed()`
+- Raises exception if any failures occurred (after marking)
+
 **Scheduled Time Support**:
 - Uses time from first order in group
 - Warns if orders have different times
@@ -189,6 +201,99 @@ Orders with `execute=true` are executed sequentially based on `queue_id` (ascend
 **Multi-Queue Groups**:
 - Orders with same `queue_id` and `multi_queue=true` execute as a group
 - All others execute individually in queue order
+
+**Global Time Override**:
+- Use `--time HH:MM` or `--time HH:MM:SS` flag with `--order-store`
+- Overrides the `time` field of the **first order** in execution queue
+- Only applies if first order doesn't already have a time set
+- Useful for quick rescheduling without editing JSON
+- Example: `python main.py --order-store stores/order_store.json --time 10:30`
+- Works with Makefile: `make runaf TIME=10:30`
+
+### 7. Utility Scripts
+
+#### Update Order Prices (`utils/update_order_prices.py`)
+Updates `price` and `limit` fields in order store using live ATRAD market data.
+
+**Usage**:
+```bash
+# Dry run (show changes without saving)
+python utils/update_order_prices.py --dry-run
+
+# Update all orders
+python utils/update_order_prices.py
+
+# Update specific ticker
+python utils/update_order_prices.py --ticker HFIN
+
+# Use different files
+python utils/update_order_prices.py \
+  --atrad-user users/atrad_user2.json \
+  --order-store stores/my_orders.json
+```
+
+**Behavior**:
+- Fetches `tradeprice` and `closingprice` from ATRAD quote endpoint
+- Updates `price` = `tradeprice`
+- Updates `limit` = `closingprice` (only if not None)
+- Preserves all other order fields
+- Shows summary of changes
+
+**Standalone Version**: `utils/update_prices_standalone.py` - No project dependencies, only requires `requests` library
+
+#### Update ATRAD Configs (`utils/update_atrad.py`)
+Manage ATRAD user configuration files.
+
+**Usage**:
+```bash
+# Reset JSESSIONID tokens
+python utils/update_atrad.py --reset
+
+# Set configuration value
+python utils/update_atrad.py --set trigger_mode_poll_interval_ms 50
+
+# Both operations
+python utils/update_atrad.py --reset --set multi_fetch_poll_interval_ms 100
+```
+
+**Allowed Config Keys**:
+- `trigger_mode_poll_interval_ms`
+- `trigger_mode_refresh_interval_seconds`
+- `trigger_sell_poll_interval_ms`
+- `trigger_mode_slow_poll_interval_ms`
+- `trigger_mode_requests_per_fetch_user`
+
+## Makefile Targets
+
+Common operations available via `make`:
+
+```bash
+# Run with ATRAD fetch users
+make runaf                    # Run immediately
+make runaf TIME=10:30         # Run with scheduled time override
+
+# Update operations
+make update                   # Update TMS user tokens
+make update-store             # Update order prices from ATRAD quotes
+make prepare                  # Reset ATRAD tokens + update prices
+
+# Token management
+make token                    # Fetch all tokens
+make reset-tokens             # Reset ATRAD JSESSIONID tokens
+make set-tokens KEY VALUE     # Set ATRAD config value
+
+# Other targets
+make run                      # Run with TMS fetch (3 users)
+make runm                     # Run with TMS fetch (9 users)
+make runa                     # Run ATRAD main with TMS fetch
+make sell                     # Run sell orders
+```
+
+**TIME Parameter**:
+- Optional parameter for `runaf` target
+- Syntax: `make runaf TIME=HH:MM` or `make runaf TIME=HH:MM:SS`
+- Overrides first order's scheduled time
+- Works without TIME parameter (uses order store times)
 
 ## File Structure
 
@@ -224,6 +329,9 @@ Orders with `execute=true` are executed sequentially based on `queue_id` (ascend
 - `utils/order_store.py` - Order validation, normalization, multi-queue consistency checks
 - `utils/order_scheduler.py` - Time-based scheduling with token refresh
 - `utils/logger.py` - Logging configuration
+- `utils/update_order_prices.py` - Update prices/limits in order store using ATRAD quote endpoint
+- `utils/update_prices_standalone.py` - Standalone version without project dependencies
+- `utils/update_atrad.py` - Reset JSESSIONID tokens and set config values for ATRAD users
 
 ## Parameter Flow Chain
 
@@ -277,38 +385,57 @@ Orders with `execute=true` are executed sequentially based on `queue_id` (ascend
 **Current Branch**: `feat/multi-queue`
 **Main Branch**: `main`
 
-**Modified Files**:
-- `main.py` - Added fade params to order_params dict
-- `services/atrad_order_service.py` - Added fade params to execute_order()
-- `services/base_order_service.py` - Core logic implementation
-- `services/order_service.py` - Added fade params to execute_order()
-- `stores/order_store.json` - Updated orders with fade configuration
-- `utils/order_store.py` - Validation for all new parameters
+**Recently Modified Files** (current session):
+- `main.py` - Global --time flag, multi-queue error handling, order marking logic
+- `services/base_order_service.py` - Multi-queue error tracking, ipo-trigger-low timeout support
+- `services/order_service.py` - timeout_ipo_trigger_low parameter
+- `services/atrad_order_service.py` - timeout_ipo_trigger_low parameter
+- `stores/order_store.json` - Updated prices, quantities, multi-queue config
+- `utils/update_order_prices.py` - New utility for updating prices from ATRAD
+- `utils/update_prices_standalone.py` - New standalone version
+- `utils/update_atrad.py` - Token reset and config management
+- `Makefile` - TIME parameter support for runaf target
+- `docs/PROJECT_SUMMARY.md` - This file
 
-**Recent Commits**:
-- `87ffa0a` - update: multi queue to move directly into just buy and limit price for sell orders
-- `5e18b41` - add: multi queue system
-- `3dc6f96` - Merge pull request #10 from kayceem/feat/fetch-token-refresh
-- `697de98` - remove: md files
-- `40ab038` - update: refactor order service
+**Recent Features Added**:
+- Multi-queue error handling with success/failure tracking
+- timeout_ipo_trigger_low parameter for IPO trigger low mode
+- Global --time flag for order store first order override
+- Update order prices utility with ATRAD quote endpoint
+- Makefile TIME parameter support
 
 ## Current Order Configuration
 
 **Active Orders** (from order_store.json):
-1. **HFIN** (queue_id: 1, execute: true)
-   - Price: 619.3, Limit: 619.3
-   - Just buy: 200 requests @ 10ms
-   - Fade: 60s @ 50ms
+1. **HFIN** (queue_id: 1, multi_queue: true, execute: true)
+   - Price: 749.3, Limit: 681.2
+   - Quantity: 909
+   - Just buy: 400 requests @ 20ms
+   - Fade: 70s @ 50ms
 
-2. **RLEL** (queue_id: 3, execute: true)
-   - Price: 707.1, Limit: 707.1
-   - Just buy: 200 requests @ 50ms
-   - Fade: 60s @ 50ms
+2. **RLEL** (queue_id: 1, multi_queue: true, execute: true)
+   - Price: 855.5, Limit: 777.8
+   - Quantity: 909, Base: 10
+   - Just buy: 400 requests @ 20ms
+   - Fade: 70s @ 50ms
 
-3. **SKHEL** (queue_id: 5, execute: true)
-   - Price: 669.7, Limit: 669.7
-   - Just buy: 500 requests @ 100ms
-   - Fade: 300s @ 100ms
+3. **SKHEL** (queue_id: 4, execute: true)
+   - Price: 810.2, Limit: 736.6
+   - Quantity: 1099, Base: 10
+   - Just buy: disabled (false)
+   - Fade: 70s @ 40ms
+
+4. **PCIL** (queue_id: 4, execute: true)
+   - Price: 330.0, Limit: 736.6
+   - Quantity: 1099, Base: 10
+   - Just buy: disabled (false)
+   - Fade: 70s @ 40ms
+
+5. **SKHL** (queue_id: 5, execute: false, ipo-trigger-low mode)
+   - Price: 1035.1, Limit: 941.0
+   - Quantity: 200
+
+**Note**: HFIN and RLEL are in multi-queue group (queue_id: 1)
 
 ## Important Design Patterns
 

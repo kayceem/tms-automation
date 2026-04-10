@@ -59,14 +59,16 @@ def get_quote_data(client: ATRADClient, ticker: str) -> Optional[Dict[str, float
             tradeprice_str = security.get('tradeprice', '')
             closingprice_str = security.get('closingprice', '')
 
-            if not tradeprice_str or not closingprice_str:
+            if not tradeprice_str:
                 logger.warning(f"Missing price data for {ticker}: tradeprice={tradeprice_str}, closingprice={closingprice_str}")
                 return None
 
             # Remove commas and convert to float
             tradeprice = float(tradeprice_str.replace(',', ''))
-            closingprice = float(closingprice_str.replace(',', ''))
-
+            if closingprice_str:
+                closingprice = float(closingprice_str.replace(',', ''))
+            else:
+                closingprice = None
             logger.info(f"{ticker}: price={tradeprice}, limit={closingprice}")
 
             return {
@@ -151,6 +153,14 @@ def update_order_store(
         if quote:
             new_price = quote['price']
             new_limit = quote['limit']
+
+            # Update order price
+            order['price'] = new_price
+
+            # Only update limit if new_limit is not None
+            if new_limit is not None:
+                order['limit'] = new_limit
+
             updated[ticker] = {
                 'price': new_price,
                 'limit': new_limit,

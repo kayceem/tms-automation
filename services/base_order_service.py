@@ -1997,10 +1997,17 @@ class BaseOrderService(ABC):
 
         # Execute priority order
         responses = []
+        failed_orders = []
+        successful_orders = []
 
-        self.logger.info(f"[{self.user_id}] Executing priority order: {priority_order['id']}")
-        response = self._execute_single_ipo_order(priority_order, fetch_clients, True)
-        responses.append(response)
+        try:
+            self.logger.info(f"[{self.user_id}] Executing priority order: {priority_order['id']}")
+            response = self._execute_single_ipo_order(priority_order, fetch_clients, True)
+            responses.append(response)
+            successful_orders.append(priority_order['id'])
+        except Exception as e:
+            self.logger.error(f"[{self.user_id}] Priority order {priority_order['id']} FAILED: {e}")
+            failed_orders.append(priority_order['id'])
 
         # Execute remaining orders in order_store.json order
         for remaining_order in remaining_orders:
@@ -2008,14 +2015,23 @@ class BaseOrderService(ABC):
             self.logger.info(
                 f"[{self.user_id}] Executing remaining order: {remaining_order['id']} ({remaining_symbol})"
             )
-            response = self._execute_single_ipo_order(remaining_order, fetch_clients, False)
-            responses.append(response)
+            try:
+                response = self._execute_single_ipo_order(remaining_order, fetch_clients, False)
+                responses.append(response)
+                successful_orders.append(remaining_order['id'])
+            except Exception as e:
+                self.logger.error(f"[{self.user_id}] Remaining order {remaining_order['id']} FAILED: {e}")
+                failed_orders.append(remaining_order['id'])
 
         self.logger.info(
-            f"[{self.user_id}] MULTI-QUEUE COMPLETE: {len(responses)} orders executed"
+            f"[{self.user_id}] MULTI-QUEUE COMPLETE: {len(successful_orders)} successful, {len(failed_orders)} failed"
         )
 
-        return responses
+        return {
+            'responses': responses,
+            'failed_orders': failed_orders,
+            'successful_orders': successful_orders
+        }
 
     def _execute_single_ipo_order(
         self,

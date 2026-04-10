@@ -104,7 +104,7 @@ Examples:
     parser.add_argument(
         '--time',
         type=str,
-        help='Schedule order for specific time (format: HH:MM or HH:MM:SS)'
+        help='Schedule order for specific time (format: HH:MM or HH:MM:SS). When used with --order-store, overrides the time of the first order in the queue.'
     )
     parser.add_argument(
         '--sell',
@@ -261,7 +261,6 @@ def validate_args(args: argparse.Namespace):
         return
 
     # Manual order mode validation
-    # Handle ticker lookup
     if args.ticker:
         try:
             from utils import get_ticker_store
@@ -592,7 +591,10 @@ def execute_multi_queue_group(
         is_atrad_fetch: True if using ATRAD fetch clients
 
     Returns:
-        Last order response
+        Dict with:
+            - 'responses': List of all order responses
+            - 'successful_orders': List of successful order IDs
+            - 'failed_orders': List of failed order IDs
     """
 
     logger.info(f"Preparing multi-queue execution for {len(orders)} orders:")
@@ -679,31 +681,39 @@ def execute_multi_queue_group(
                 )
 
             # Use OrderScheduler to schedule multi-queue execution
-            responses = OrderScheduler.schedule_order(
+            result = OrderScheduler.schedule_order(
                 time_str=scheduled_time,
                 order_func=execute_multi_queue,
                 main_client=main_client,
                 fetch_clients=fetch_clients,
                 user_id=user_config.user_id
             )
-
-            # Ensure responses is a list (multi-queue returns list)
-            if not isinstance(responses, list):
-                responses = [responses] if responses else []
         else:
-            # Immediate execution
-            responses = order_service._execute_multi_queue_ipo_trigger(
+            result = order_service._execute_multi_queue_ipo_trigger(
                 orders=orders,
                 fetch_clients=fetch_clients
             )
 
-        # Mark all orders as successful
         for order in orders:
-            order_store.mark_success(order['id'])
-            logger.info(f"Order '{order['id']}' marked as successful in store")
+            if order['id'] in result['successful_orders']:
+                order_store.mark_success(order['id'])
+                logger.info(f"Order '{order['id']}' marked as successful in store")
+            elif order['id'] in result['failed_orders']:
+                order_store.mark_failed(order['id'])
+                logger.error(f"Order '{order['id']}' marked as failed in store")
 
-        logger.info(f"Multi-queue group completed successfully")
-        return responses[-1] if responses else None
+        if len(result['failed_orders']) > 0:
+            logger.warning(
+                f"Multi-queue group completed with failures: "
+                f"{len(result['successful_orders'])} successful, {len(result['failed_orders'])} failed"
+            )
+            raise ValueError(
+                f"Multi-queue had {len(result['failed_orders'])} failed order(s): {', '.join(result['failed_orders'])}"
+            )
+        else:
+            logger.info(f"Multi-queue group completed successfully - all {len(result['successful_orders'])} orders succeeded")
+
+        return result
 
     except Exception as e:
         logger.error(f"Multi-queue execution failed: {str(e)}")
@@ -714,7 +724,8 @@ def execute_from_order_store(
     user_config,  # UserConfig or ATRADUserConfig
     order_store_path: str,
     fetch_user_configs = None,  # List[UserConfig] or List[ATRADUserConfig]
-    is_atrad_fetch: bool = False
+    is_atrad_fetch: bool = False,
+    start_time: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Execute orders from the order store queue.
@@ -725,6 +736,7 @@ def execute_from_order_store(
         order_store_path: Path to order store JSON file
         fetch_user_configs: Optional list of fetch user configurations for trigger mode
         is_atrad_fetch: Whether fetch users are ATRAD users (default: False = TMS)
+        start_time: Optional time string to override the time of the first order in the queue (format: HH:MM or HH:MM:SS)
 
     Returns:
         API response dictionary from the last executed order
@@ -763,6 +775,9 @@ def execute_from_order_store(
     for queue_id in sorted(queue_groups.keys()):
         group_orders = queue_groups[queue_id]
 
+        if total_executed == 0 and start_time and not group_orders[0].get('time'):
+            group_orders[0]['time'] = start_time
+
         # Check if this is a multi_queue group
         is_multi_queue = group_orders[0].get('multi_queue', False)
 
@@ -785,11 +800,6 @@ def execute_from_order_store(
 
             except Exception as e:
                 logger.error(f"Multi-queue group (Queue {queue_id}) failed: {str(e)}")
-                # Mark all orders in group as failed
-                for order in group_orders:
-                    order_store.mark_failed(order['id'])
-                # Continue to next queue group
-                logger.warning(f"Continuing to next queue group despite failure...")
                 continue
 
         else:
@@ -1175,7 +1185,7 @@ def main():
         # Check if using order store mode
         if args.order_store:
             # Order store mode
-            execute_from_order_store(user_config, args.order_store, fetch_user_configs, is_atrad_fetch)
+            execute_from_order_store(user_config, args.order_store, fetch_user_configs, is_atrad_fetch, args.time)
         else:
             # Check for ipo-sell-buy-trigger mode
             if args.ipo_sell_buy_trigger:
