@@ -47,9 +47,7 @@ class ATRADUserConfig:
     atrad_order_endpoint: str = '/atsweb/order'
     atrad_watch_endpoint: str = '/atsweb/watch?action=getWatchForSecurity&format=json&exchange=NEPSE&bookDefId=1'
     atrad_market_details_endpoint: str = '/atsweb/marketdetails?action=getOrderBook&format=json&board=1'
-    # &lstUpdateTime=xxxx-xx-xx xx:xx:xx&dojo.preventCache=xxxxxxxxx
     atrad_order_book_endpoint: str = '/atsweb/order?action=getUCCActiveBlotterData&format=json&clientAcc=ALL&securityId=all&exchange=all&ordStatus=all&ordType=all&assetClass=all'
-    # &order={"cancel":[{"exchangeid":"NEPSE","clientaccountcode":"xxxxxxxx","securitycode":"xxxx", "board": "REGULAR", "clientorderid":"xxxxxxx","orderid":"00000","exchangeorderid":"xxxxxxx","orderplacedate":"xxxx-xx-xx xx:xx:xx","action":"BUY","orderstatus":"NEW","typeoforder":"REGULAR","contrabroker":"0","cpmemberid":"0"}]}&dojo.preventCache=xxxxxxx
     atrad_cancel_order_endpoint: str = '/atsweb/order?action=cancelOrder&format=json'
 
     # Session management (populated after login)

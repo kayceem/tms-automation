@@ -183,3 +183,155 @@ def test_place_order_raises_runtime_error_on_invalid_json_response(atrad_user_co
 
     with pytest.raises(RuntimeError, match="Invalid response from ATRAD server: not-json"):
         client.place_order(symbol="NABIL", quantity=10, price=500.5, side="BUY")
+
+
+def test_get_order_book_retries_after_html_session_expiry_and_returns_payload(atrad_user_config, http_interceptor):
+    client = ATRADClient(atrad_user_config)
+    client._is_authenticated = True
+
+    order_book_matcher = (
+        lambda url: url.startswith(
+            "https://atrad.test/atsweb/order?action=getUCCActiveBlotterData&format=json"
+        )
+        and "&dojo.preventCache=" in url
+    )
+    login_endpoint = "https://atrad.test/atsweb/login"
+
+    http_interceptor.add_text("GET", order_book_matcher, text="<html>expired</html>")
+    http_interceptor.add_json(
+        "POST",
+        login_endpoint,
+        payload={
+            "code": "0",
+            "role": "OnlineUser",
+            "broker_code": "NSH",
+            "max_basket_limit": "25",
+            "watchID": "77",
+            "is_dvp_enabled": "Y",
+        },
+        cookies=[{"name": "JSESSIONID", "value": "session-9", "domain": "atrad.test"}],
+    )
+    http_interceptor.add_text(
+        "GET",
+        order_book_matcher,
+        text=(
+            '{"code":"0","description":"success","data":{"blotterdata":[{"clientorderid":"76071192",'
+            '"securitycode":"SKHEL","orderplacedate":"2026-04-10 11:18:29"}],'
+            '"lastUpdatedTime":"2026-04-10 12:53:16"}}'
+        ),
+    )
+
+    result = client.get_order_book()
+
+    assert result["lastUpdatedTime"] == "2026-04-10 12:53:16"
+    assert result["blotterdata"][0]["clientorderid"] == "76071192"
+
+
+def test_build_cancel_order_url_encodes_cancel_payload(atrad_user_config):
+    client = ATRADClient(atrad_user_config)
+    order = {
+        "exchangeid": "NEPSE",
+        "clientaccountcode": "201811020977513",
+        "securitycode": "SKHEL",
+        "board": "REGULAR",
+        "clientorderid": "76071192",
+        "orderid": "00000",
+        "exchangeorderid": "2026041001015927",
+        "orderplacedate": "2026-04-10 11:18:29",
+        "action": "BUY",
+        "orderstatus": "NEW",
+        "typeoforder": "REGULAR",
+        "contrabroker": "0",
+        "cpmemberid": "0",
+    }
+
+    url = client.build_cancel_order_url(order, request_id=1775805058924)
+
+    assert url.startswith("https://atrad.test/atsweb/order?action=cancelOrder&format=json&order=")
+    assert '"clientorderid":"76071192"' in url
+    assert '"securitycode":"SKHEL"' in url
+    assert url.endswith("&dojo.preventCache=1775805058924")
+
+
+def test_cancel_order_logs_in_and_uses_built_url(atrad_user_config, http_interceptor):
+    client = ATRADClient(atrad_user_config)
+
+    login_endpoint = "https://atrad.test/atsweb/login"
+    cancel_matcher = (
+        lambda url: url.startswith("https://atrad.test/atsweb/order?action=cancelOrder&format=json&order=")
+        and "&dojo.preventCache=" in url
+    )
+
+    http_interceptor.add_json(
+        "POST",
+        login_endpoint,
+        payload={
+            "code": "0",
+            "role": "OnlineUser",
+            "broker_code": "NSH",
+            "max_basket_limit": "25",
+            "watchID": "77",
+            "is_dvp_enabled": "Y",
+        },
+        cookies=[{"name": "JSESSIONID", "value": "session-10", "domain": "atrad.test"}],
+    )
+    http_interceptor.add_text(
+        "POST",
+        cancel_matcher,
+        text='{"code":"0", "description":"javascriptOrderSuccessesFullySubmitted", "data":"success"}',
+    )
+
+    result = client.cancel_order(
+        {
+            "exchangeid": "NEPSE",
+            "clientaccountcode": "201811020977513",
+            "securitycode": "SKHEL",
+            "board": "REGULAR",
+            "clientorderid": "76071192",
+            "orderid": "00000",
+            "exchangeorderid": "2026041001015927",
+            "orderplacedate": "2026-04-10 11:18:29",
+            "action": "BUY",
+            "orderstatus": "NEW",
+            "typeoforder": "REGULAR",
+            "contrabroker": "0",
+            "cpmemberid": "0",
+        }
+    )
+
+    assert result["code"] == "0"
+    assert http_interceptor.calls[-1]["method"] == "POST"
+
+
+def test_cancel_order_raises_runtime_error_on_failed_atrad_response(atrad_user_config, http_interceptor):
+    client = ATRADClient(atrad_user_config)
+    client._is_authenticated = True
+
+    cancel_matcher = (
+        lambda url: url.startswith("https://atrad.test/atsweb/order?action=cancelOrder&format=json&order=")
+        and "&dojo.preventCache=" in url
+    )
+    http_interceptor.add_text(
+        "POST",
+        cancel_matcher,
+        text='{"code":"9", "description":"rejected", "data":"failed"}',
+    )
+
+    with pytest.raises(RuntimeError, match="Order cancellation failed: rejected"):
+        client.cancel_order(
+            {
+                "exchangeid": "NEPSE",
+                "clientaccountcode": "201811020977513",
+                "securitycode": "SKHEL",
+                "board": "REGULAR",
+                "clientorderid": "76071192",
+                "orderid": "00000",
+                "exchangeorderid": "2026041001015927",
+                "orderplacedate": "2026-04-10 11:18:29",
+                "action": "BUY",
+                "orderstatus": "NEW",
+                "typeoforder": "REGULAR",
+                "contrabroker": "0",
+                "cpmemberid": "0",
+            }
+        )

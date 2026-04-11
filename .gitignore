@@ -72,3 +72,7 @@ temp/
 
 debug/
 */users/*.json
+
+# Codex files
+.codex
+AGENTS.md
