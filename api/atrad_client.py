@@ -1,51 +1,21 @@
 """NEPSE ATRAD API client for order placement."""
 
-import time
-import requests
 import json
-import threading
 import random
-import socket
+import threading
+import time
 from typing import Dict, Any, Optional
 from urllib.parse import quote
-from config.atrad_user_config import ATRADUserConfig
+
+import requests
+
+from api.network import enable_ipv4_only_requests
+from config.models.atrad_user_config import ATRADUserConfig
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-
-# Force IPv4 for faster connections (NEPSE servers don't support IPv6)
-def create_ipv4_connection(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None, socket_options=None):
-    """Create socket connection using IPv4 only."""
-    host, port = address
-    err = None
-    for res in socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM):
-        af, socktype, proto, _, sa = res
-        sock = None
-        try:
-            sock = socket.socket(af, socktype, proto)
-            if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
-                sock.settimeout(timeout)
-            if source_address:
-                sock.bind(source_address)
-            if socket_options:
-                for opt in socket_options:
-                    sock.setsockopt(*opt)
-            sock.connect(sa)
-            return sock
-        except socket.error as _:
-            err = _
-            if sock is not None:
-                sock.close()
-    if err is not None:
-        raise err
-    else:
-        raise socket.error("getaddrinfo returns an empty list")
-
-
-# Monkey-patch urllib3 to use IPv4 only
-urllib3_connection = __import__('urllib3.util.connection', fromlist=['connection'])
-urllib3_connection.create_connection = create_ipv4_connection
+enable_ipv4_only_requests()
 
 
 class ATRADClient:
@@ -65,6 +35,8 @@ class ATRADClient:
         self.order_endpoint = f"{self.base_url}{user_config.atrad_order_endpoint}"
         self.quote_endpoint = f"{self.base_url}{user_config.atrad_watch_endpoint}"
         self.market_endpoint = f"{self.base_url}{user_config.atrad_market_details_endpoint}"
+        self.order_book_endpoint = f"{self.base_url}{user_config.atrad_order_book_endpoint}"
+        self.cancel_order_endpoint = f"{self.base_url}{user_config.atrad_cancel_order_endpoint}"
 
         # Thread-safe session
         self.session = requests.Session()
@@ -206,7 +178,7 @@ class ATRADClient:
             if response.status_code == 200:
                 result = response.text.strip().replace("'", '"')
                 result = json.loads(result)
-                if result.get("code") == "0" and result.get("data", {}).get("validation", [False])[0] == True:
+                if str(result.get("code")) == "0" and result.get("data", {}).get("validation", [False])[0] == True:
                     logger.debug(f"[{self.user_id}] Session validation successful")
                     return True
                 logger.debug(f"[{self.user_id}] Session expired or invalid")
@@ -260,9 +232,10 @@ class ATRADClient:
                 )
                 
                 response.raise_for_status()
-                result = response.json()
+                result = response.text.strip().replace("'", '"')
+                result = json.loads(result)
 
-                if result.get("code") == "0":
+                if str(result.get("code")) == "0":
                     self._is_authenticated = True
 
                     # Extract broker_code from response or cookies
@@ -393,51 +366,30 @@ class ATRADClient:
 
         # Make thread-safe API request
         with self._request_lock:
-            response = self.session.post(self.order_endpoint, data=body)
-            response.encoding = 'utf-8'
-            logger.debug(
-                f"[{self.user_id}] Response status: {response.status_code}"
-            )
+            response = self._request_with_reauth("POST", self.order_endpoint, data=body)
 
-            # Log response body
-            try:
-                response_json = response.json()
-                logger.debug(
-                    f"[{self.user_id}] Response: {json.dumps(response_json, indent=2)}"
-                )
-            except Exception:
-                logger.debug(f"[{self.user_id}] Response text: {response.text}")
+            if response is None:
+                raise RuntimeError("Order placement failed: no response from ATRAD server")
 
-            # Check for session expiry and retry
-            if response.status_code == 401 or "<html>" in response.text.lower():
-                logger.warning(f"[{self.user_id}] Session expired, re-authenticating...")
-                self._is_authenticated = False
-                self.ensure_authenticated()
-
-                # Retry order placement with the same encoded body
-                response = self.session.post(self.order_endpoint, data=body)
-                response.encoding = 'utf-8'
-                logger.debug(
-                    f"[{self.user_id}] Response status: {response.status_code}"
-                )
+            logger.debug(f"[{self.user_id}] Response status: {response.status_code}")
 
             response.raise_for_status()
 
             try:
-                result = response.json()
-
-                # Check ATRAD response code
-                if result.get("code") == "0" or result.get("code") == 0:
-                    logger.info(f"[{self.user_id}] ATRAD order placed successfully")
-                    return result
-                else:
-                    error_msg = result.get("description", "Unknown error")
-                    logger.error(f"[{self.user_id}] ATRAD order failed: {error_msg}")
-                    raise Exception(f"Order placement failed: {error_msg}")
-
+                result = response.text.strip().replace("'", '"')
+                result = json.loads(result)
+                logger.debug(f"[{self.user_id}] Response: {json.dumps(result, indent=2)}")
             except ValueError:
                 logger.error(f"[{self.user_id}] Invalid JSON response: {response.text}")
-                raise Exception(f"Invalid response from ATRAD server: {response.text}")
+                raise RuntimeError(f"Invalid response from ATRAD server: {response.text}")
+                
+            if str(result.get("code")) == "0":
+                logger.info(f"[{self.user_id}] ATRAD order placed successfully")
+                return result
+
+            error_msg = result.get("description", "Unknown error")
+            logger.error(f"[{self.user_id}] ATRAD order failed: {error_msg}")
+            raise RuntimeError(f"Order placement failed: {error_msg}")
 
     def ensure_authenticated(self):
         """Ensure the client is authenticated, login if necessary."""
@@ -446,6 +398,180 @@ class ATRADClient:
                 return True
             return False
         return self._is_authenticated
+
+    @staticmethod
+    def _epoch_time_ms() -> int:
+        """Return the current epoch timestamp in milliseconds."""
+        return int(round(time.time() * 1000))
+
+    def _request_with_reauth(
+        self,
+        method: str,
+        url: str,
+        *,
+        timeout: float = 5.0,
+        **request_kwargs: Any,
+    ) -> Optional[requests.Response]:
+        """Issue an HTTP request and retry once after re-authentication if the session expired."""
+        try:
+            response = self.session.request(method, url, timeout=timeout, **request_kwargs)
+            response.encoding = 'utf-8'
+        except requests.exceptions.Timeout:
+            logger.warning(f"[{self.user_id}] {method.upper()} request timed out after {timeout}s: {url}")
+            return None
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"[{self.user_id}] {method.upper()} request failed: {e}")
+            return None
+
+        if response.status_code == 401 or (response.status_code == 200 and "<html>" in response.text.lower()):
+            logger.debug(f"[{self.user_id}] Session expired, attempting token refresh")
+            self._is_authenticated = False
+            if not self.ensure_authenticated():
+                logger.error(f"[{self.user_id}] Token refresh failed")
+                return None
+
+            try:
+                response = self.session.request(method, url, timeout=timeout, **request_kwargs)
+                response.encoding = 'utf-8'
+            except requests.exceptions.Timeout:
+                logger.warning(f"[{self.user_id}] Retry {method.upper()} request timed out after {timeout}s: {url}")
+                return None
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"[{self.user_id}] Retry {method.upper()} request failed: {e}")
+                return None
+
+        return response
+
+    def get_order_book(
+        self,
+        timeout: float = 5.0,
+        last_updated_time: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fetch the active ATRAD order book.
+
+        Args:
+            timeout: Request timeout in seconds.
+            last_updated_time: Optional ATRAD last-updated timestamp to send back.
+
+        Returns:
+            Parsed ATRAD `data` payload, or None if fetching/parsing fails.
+        """
+        logger.debug(f"[{self.user_id}] Fetching ATRAD order book")
+
+        endpoint = self.order_book_endpoint
+        if last_updated_time:
+            endpoint = f"{endpoint}&lstUpdateTime={quote(last_updated_time, safe='')}"
+        endpoint = f"{endpoint}&dojo.preventCache={self._epoch_time_ms()}"
+
+        with self._request_lock:
+            response = self._request_with_reauth("GET", endpoint, timeout=timeout)
+
+            if response is None:
+                return None
+
+            logger.debug(f"[{self.user_id}] Order book fetch response status: {response.status_code}")
+
+            if response.status_code != 200:
+                logger.warning(
+                    f"[{self.user_id}] Order book fetch failed: "
+                    f"{response.status_code} {response.reason}"
+                )
+                return None
+
+            try:
+                result = response.text.strip().replace("'", '"')
+                result = json.loads(result)
+                if str(result.get("code")) != "0":
+                    logger.warning(
+                        f"[{self.user_id}] ATRAD order book request failed: "
+                        f"{result.get('description', 'Unknown error')}"
+                    )
+                    return None
+                return result.get("data", {})
+            except ValueError:
+                logger.error(f"[{self.user_id}] Invalid ATRAD order book response: {response.text}")
+                return None
+
+    def build_cancel_order_url(
+        self,
+        order: Dict[str, Any],
+        request_id: Optional[int] = None,
+    ) -> str:
+        """Build the ATRAD cancel-order URL for a single order-book row."""
+        cancel_payload = {
+            "cancel": [
+                {
+                    "exchangeid": str(order.get("exchangeid", "NEPSE")),
+                    "clientaccountcode": str(order["clientaccountcode"]),
+                    "securitycode": str(order["securitycode"]),
+                    "board": str(order.get("board", "REGULAR")),
+                    "clientorderid": str(order["clientorderid"]),
+                    "orderid": str(order.get("orderid", "00000")),
+                    "exchangeorderid": str(order["exchangeorderid"]),
+                    "orderplacedate": str(order["orderplacedate"]),
+                    "action": str(order["action"]),
+                    "orderstatus": str(order.get("orderstatus", "NEW")),
+                    "typeoforder": str(order.get("typeoforder", "REGULAR")),
+                    "contrabroker": "0",
+                    "cpmemberid": str(order.get("cpmemberid", "0")),
+                }
+            ]
+        }
+        raw_payload = json.dumps(cancel_payload, separators=(",", ":"))
+        if request_id is None:
+            request_id = self._epoch_time_ms()
+        return f"{self.cancel_order_endpoint}&order={raw_payload}&dojo.preventCache={request_id}"
+
+    def cancel_order(self, order: Dict[str, Any], timeout: float = 5.0) -> Dict[str, Any]:
+        """
+        Cancel an ATRAD order using the fields from an order-book row.
+
+        Args:
+            order: Order-book row containing the fields required by ATRAD cancel API.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            Parsed ATRAD cancellation response.
+
+        Raises:
+            RuntimeError: If cancellation fails or ATRAD returns invalid JSON.
+        """
+        if not self._is_authenticated:
+            logger.warning(f"[{self.user_id}] Not authenticated, attempting login...")
+            self.login()
+
+        cancel_url = self.build_cancel_order_url(order)
+        logger.info(
+            f"[{self.user_id}] Cancelling order: "
+            f"Symbol={order.get('securitycode')}, ClientOrderId={order.get('clientorderid')}"
+        )
+
+        with self._request_lock:
+            response = self._request_with_reauth("POST", cancel_url, timeout=timeout)
+
+            if response is None:
+                raise RuntimeError("Order cancellation failed: no response from ATRAD server")
+
+            logger.debug(f"[{self.user_id}] Cancel order response status: {response.status_code}")
+
+            response.raise_for_status()
+
+            try:
+                result = response.text.strip().replace("'", '"')
+                result = json.loads(result)
+                logger.debug(f"[{self.user_id}] Cancel order response: {json.dumps(result, indent=2)}")
+            except ValueError:
+                logger.error(f"[{self.user_id}] Invalid cancel response: {response.text}")
+                raise RuntimeError(f"Invalid response from ATRAD server: {response.text}")
+
+            if str(result.get("code")) == "0":
+                logger.info(f"[{self.user_id}] ATRAD order cancelled successfully")
+                return result
+
+            error_msg = result.get("description", "Unknown error")
+            logger.error(f"[{self.user_id}] ATRAD cancel failed: {error_msg}")
+            raise RuntimeError(f"Order cancellation failed: {error_msg}")
 
     def refresh_tokens(self) -> bool:
         """
@@ -471,49 +597,16 @@ class ATRADClient:
         """
         logger.debug(f"[{self.user_id}] Fetching LTP for symbol={symbol}")
 
-        epoch_time_ms = lambda: int(round(time.time() * 1000))
         endpoint = f"{self.quote_endpoint}&securityid={symbol}&dojo.preventCache="
 
         # Make thread-safe API request with timeout
         with self._request_lock:
-            try:
-                response = self.session.get(endpoint + str(epoch_time_ms()), timeout=timeout)
-                response.encoding = 'utf-8'
-            except requests.exceptions.Timeout:
-                logger.warning(f"[{self.user_id}] LTP fetch timed out after {timeout}s")
-                return None
-            except requests.exceptions.RequestException as e:
-                logger.warning(f"[{self.user_id}] LTP fetch failed: {e}")
+            response = self._request_with_reauth("GET", endpoint + str(self._epoch_time_ms()), timeout=timeout)
+
+            if response is None:
                 return None
 
-            logger.debug(
-                f"[{self.user_id}] LTP fetch response status: {response.status_code}"
-            )
-
-            # If we get 401, try to refresh tokens and retry once
-            if response.status_code == 401 or (response.status_code == 200 and "<html>" in response.text.lower()):
-                logger.debug(f"[{self.user_id}] Session expired, attempting token refresh")
-                self._is_authenticated = False
-                if self.ensure_authenticated():
-                    logger.debug(f"[{self.user_id}] Tokens refreshed, retrying LTP fetch")
-
-                    # Retry the request with new tokens
-                    try:
-                        response = self.session.get(f"{endpoint + str(epoch_time_ms())}", timeout=timeout)
-                        response.encoding = 'utf-8'
-
-                        logger.debug(
-                            f"[{self.user_id}] Retry LTP response status: {response.status_code}"
-                        )
-                    except requests.exceptions.Timeout:
-                        logger.warning(f"[{self.user_id}] Retry LTP fetch timed out after {timeout}s")
-                        return None
-                    except requests.exceptions.RequestException as e:
-                        logger.warning(f"[{self.user_id}] Retry LTP fetch failed: {e}")
-                        return None
-                else:
-                    logger.error(f"[{self.user_id}] Token refresh failed for LTP fetch")
-                    return None
+            logger.debug(f"[{self.user_id}] LTP fetch response status: {response.status_code}")
 
             if response.status_code == 200:
                 try:
@@ -565,49 +658,16 @@ class ATRADClient:
         """
         logger.debug(f"[{self.user_id}] Fetching market details for symbol={symbol}")
 
-        epoch_time_ms = lambda: int(round(time.time() * 1000))
         endpoint = f"{self.market_endpoint}&security={symbol}&dojo.preventCache="
 
         # Make thread-safe API request with timeout
         with self._request_lock:
-            try:
-                response = self.session.get(endpoint + str(epoch_time_ms()), timeout=timeout)
-                response.encoding = 'utf-8'
-            except requests.exceptions.Timeout:
-                logger.warning(f"[{self.user_id}] Market details fetch timed out after {timeout}s")
-                return None
-            except requests.exceptions.RequestException as e:
-                logger.warning(f"[{self.user_id}] Market details fetch failed: {e}")
+            response = self._request_with_reauth("GET", endpoint + str(self._epoch_time_ms()), timeout=timeout)
+
+            if response is None:
                 return None
 
-            logger.debug(
-                f"[{self.user_id}] Market details fetch response status: {response.status_code}"
-            )
-
-            # If we get 401, try to refresh tokens and retry once
-            if response.status_code == 401 or (response.status_code == 200 and "<html>" in response.text.lower()):
-                logger.debug(f"[{self.user_id}] Session expired, attempting token refresh")
-                self._is_authenticated = False
-                if self.ensure_authenticated():
-                    logger.debug(f"[{self.user_id}] Tokens refreshed, retrying market details fetch")
-
-                    # Retry the request with new tokens
-                    try:
-                        response = self.session.get(endpoint + str(epoch_time_ms()), timeout=timeout)
-                        response.encoding = 'utf-8'
-
-                        logger.debug(
-                            f"[{self.user_id}] Retry market details response status: {response.status_code}"
-                        )
-                    except requests.exceptions.Timeout:
-                        logger.warning(f"[{self.user_id}] Retry market details fetch timed out after {timeout}s")
-                        return None
-                    except requests.exceptions.RequestException as e:
-                        logger.warning(f"[{self.user_id}] Retry market details fetch failed: {e}")
-                        return None
-                else:
-                    logger.error(f"[{self.user_id}] Token refresh failed for market details fetch")
-                    return None
+            logger.debug(f"[{self.user_id}] Market details fetch response status: {response.status_code}")
 
             if response.status_code == 200:
                 try:

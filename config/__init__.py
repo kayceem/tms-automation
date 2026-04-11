@@ -1,7 +1,14 @@
 """Configuration package."""
 
+from .loaders import load_config_by_system, load_configs_for_platform
+from .models import ATRADUserConfig, UserConfig, UserConfigManager
 from .settings import settings
-from .user_config import UserConfig, UserConfigManager
-from .atrad_user_config import ATRADUserConfig
 
-__all__ = ['settings', 'UserConfig', 'UserConfigManager', 'ATRADUserConfig']
+__all__ = [
+    'ATRADUserConfig',
+    'UserConfig',
+    'UserConfigManager',
+    'load_config_by_system',
+    'load_configs_for_platform',
+    'settings',
+]

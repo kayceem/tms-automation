@@ -30,15 +30,15 @@
   "orders": [
     {
       "id": "hfin_ipo",
-      "execute": true,
-      "success": false,
+      "execute": false,
+      "success": true,
       "queue_id": 1,
       "multi_queue": true,
       "ticker": "HFIN",
       "mode": "ipo-trigger",
       "quantity": 909,
       "price": 749.3,
-      "limit": 681.2,
+      "limit": 749.3,
       "no_ladder": true,
       "just_buy": true,
       "just_buy_pre_wait_ms": 2000,
@@ -49,8 +49,8 @@
     },
     {
       "id": "rlel_ipo",
-      "execute": true,
-      "success": false,
+      "execute": false,
+      "success": true,
       "queue_id": 1,
       "multi_queue": true,
       "ticker": "RLEL",
@@ -58,7 +58,7 @@
       "quantity": 909,
       "base_quantity": 10,
       "price": 855.5,
-      "limit": 777.8,
+      "limit": 855.5,
       "no_ladder": true,
       "just_buy": true,
       "just_buy_pre_wait_ms": 2000,
@@ -77,7 +77,7 @@
       "quantity": 1099,
       "base_quantity": 10,
       "price": 810.2,
-      "limit": 736.6,
+      "limit": 810.2,
       "no_ladder": true,
       "just_buy": false,
       "just_buy_pre_wait_ms": 2000,
@@ -96,7 +96,7 @@
       "quantity": 1099,
       "base_quantity": 10,
       "price": 330.0,
-      "limit": 736.6,
+      "limit": 330.0,
       "no_ladder": true,
       "just_buy": false,
       "just_buy_pre_wait_ms": 2000,
@@ -113,8 +113,8 @@
       "ticker": "SKHL",
       "mode": "ipo-trigger-low",
       "quantity": 200,
-      "price": 1035.1,
-      "limit": 941.0
+      "price": 1035.09,
+      "limit": 1035.09
     }
   ]
 }

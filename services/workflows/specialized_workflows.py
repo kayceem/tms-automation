@@ -1,0 +1,294 @@
+"""Specialized workflow helpers for trigger-sell and ipo-trigger-low modes."""
+
+import math
+import time
+from typing import Any, Dict, List, Optional
+
+from api import ATRADClient
+
+
+def execute_trigger_sell(
+    service: Any,
+    sell_price: float,
+    order_quantity: int,
+    fetch_client: Any,
+    fetch_security_id: Optional[int] = None,
+    ticker: Optional[str] = None,
+    limit_price: Optional[float] = None,
+    **platform_params,
+) -> Optional[Dict[str, Any]]:
+    """Execute the trigger-sell workflow."""
+    from services.fetchers.price_fetcher import PriceFetcher
+
+    identifier = service._get_identifier_for_logging(**platform_params)
+
+    if fetch_security_id is None:
+        fetch_security_id = platform_params.get("security_id") or platform_params.get("symbol")
+
+    if limit_price:
+        service.logger.info(
+            f"[{service.user_id}] TRIGGER SELL MODE (with limit): "
+            f"{identifier}, Qty={order_quantity}, "
+            f"Base price: Rs. {sell_price}, Limit: Rs. {limit_price}"
+        )
+        price_levels, actual_increments = service._calculate_price_levels(sell_price, limit_price)
+
+        service.logger.info(f"[{service.user_id}] Calculated {len(price_levels)} ladder levels:")
+        for i, price in enumerate(price_levels):
+            increment = actual_increments[i] if i < len(actual_increments) else -1
+            if increment == -1:
+                service.logger.debug(f"[{service.user_id}] Level {i+1}: Rs. {price} (Limit +10%)")
+            else:
+                service.logger.debug(f"[{service.user_id}] Level {i+1}: Rs. {price} (+{increment}%)")
+
+        second_last_index = len(price_levels) - 2 if len(price_levels) >= 2 else -1
+        trigger_price = price_levels[second_last_index] if second_last_index >= 0 else price_levels[0]
+        final_sell_price = price_levels[-1]
+
+        service.logger.info(
+            f"[{service.user_id}] Will monitor for LTP >= Rs. {trigger_price} (level {second_last_index + 1})"
+        )
+        service.logger.info(
+            f"[{service.user_id}] Will place sell order at Rs. {final_sell_price} when triggered"
+        )
+    else:
+        trigger_price = sell_price / 1.02
+        trigger_price = math.ceil(trigger_price * 10) / 10
+        final_sell_price = sell_price
+
+        service.logger.info(
+            f"[{service.user_id}] TRIGGER SELL MODE (legacy): "
+            f"{identifier}, Qty={order_quantity}, "
+            f"Sell price: Rs. {sell_price}, Trigger price: Rs. {trigger_price}"
+        )
+        service.logger.info(
+            f"[{service.user_id}] Will place sell order at Rs. {final_sell_price} when LTP >= Rs. {trigger_price}"
+        )
+
+    poll_interval_ms = getattr(service.client.user_config, "trigger_sell_poll_interval_ms", 500)
+    is_atrad_fetch = isinstance(fetch_client, ATRADClient)
+
+    if is_atrad_fetch:
+        from services.fetchers.atrad_price_fetcher import ATRADPriceFetcher
+
+        symbol = platform_params.get("symbol")
+        service.logger.info(
+            f"[{service.user_id}] Using ATRAD fetch with symbol={symbol} for trigger sell LTP monitoring"
+        )
+        price_fetcher = ATRADPriceFetcher(
+            fetch_client=fetch_client,
+            symbol=symbol,
+            poll_interval_ms=poll_interval_ms,
+        )
+    else:
+        if ticker:
+            try:
+                from utils import get_ticker_store
+
+                ticker_store = get_ticker_store()
+                user_fetch_id = ticker_store.get_fetch_id(ticker, host=fetch_client.user_config.tms_host)
+                if user_fetch_id:
+                    fetch_security_id = user_fetch_id
+                    service.logger.info(
+                        f"[{service.user_id}] Using host-specific fetch_id={fetch_security_id} for ticker {ticker}"
+                    )
+            except Exception as exc:
+                service.logger.debug(f"[{service.user_id}] Could not resolve host-specific fetch_id: {exc}")
+
+        price_fetcher = PriceFetcher(
+            fetch_client=fetch_client,
+            security_id=fetch_security_id,
+            poll_interval_ms=poll_interval_ms,
+        )
+
+    token_manager = service._setup_token_manager()
+    if token_manager:
+        refresh_interval = service.client.user_config.trigger_mode_refresh_interval_seconds
+        service.logger.info(
+            f"[{service.user_id}] Token refresh started (interval: {refresh_interval}s)"
+        )
+
+    price_fetcher.start()
+    order_placed = False
+    last_response = None
+
+    try:
+        service.logger.info(
+            f"[{service.user_id}] Starting LTP monitoring (poll interval: {poll_interval_ms}ms)"
+        )
+
+        while not order_placed:
+            ltp = price_fetcher.get_latest_ltp()
+
+            if ltp is None:
+                service.logger.debug(f"[{service.user_id}] Waiting for first LTP...")
+                time.sleep(poll_interval_ms / 1000)
+                continue
+
+            if ltp >= trigger_price:
+                service.logger.info(
+                    f"[{service.user_id}] TRIGGER ACTIVATED: LTP Rs. {ltp} >= Trigger Rs. {trigger_price}"
+                )
+                service.logger.info(
+                    f"[{service.user_id}] Placing sell order at Rs. {final_sell_price} x {order_quantity}"
+                )
+
+                try:
+                    sell_params = platform_params.copy()
+                    if "buy_or_sell" in sell_params:
+                        sell_params["buy_or_sell"] = 2
+                    if "side" in sell_params:
+                        sell_params["side"] = "SELL"
+
+                    price_fetcher.pause()
+                    sell_params["market_price"] = ltp
+
+                    response = service._place_single_order(
+                        price=final_sell_price,
+                        quantity=order_quantity,
+                        **sell_params,
+                    )
+
+                    price_fetcher.resume()
+
+                    service.logger.info(f"[{service.user_id}] Sell order placed successfully")
+                    order_placed = True
+                    last_response = response
+                except Exception as exc:
+                    price_fetcher.resume()
+                    service.logger.error(f"[{service.user_id}] Failed to place sell order: {str(exc)}")
+                    return None
+            else:
+                service.logger.debug(
+                    f"[{service.user_id}] LTP Rs. {ltp} < Trigger Rs. {trigger_price} - waiting..."
+                )
+
+            time.sleep(poll_interval_ms / 1000)
+
+    finally:
+        price_fetcher.stop()
+        service._cleanup_token_manager(token_manager)
+
+    service.logger.info(f"[{service.user_id}] TRIGGER SELL COMPLETE")
+    return last_response
+
+
+def execute_ipo_trigger_low(
+    service: Any,
+    base_price: float,
+    order_quantity: int,
+    fetch_clients: List[Any],
+    limit_price: Optional[float] = None,
+    fetch_security_id: Optional[int] = None,
+    ticker: Optional[str] = None,
+    timeout_ipo_trigger_low: Optional[int] = None,
+    **platform_params,
+) -> Optional[Dict[str, Any]]:
+    """Execute the ipo-trigger-low workflow."""
+    security_id = platform_params.get("security_id")
+    symbol = platform_params.get("symbol")
+    fetch_security_id = fetch_security_id or security_id or symbol
+
+    price_levels, actual_decrements = service._calculate_lower_price_levels(base_price, limit_price)
+    trigger_price = price_levels[0]
+    order_price = price_levels[1]
+
+    service.logger.info("=" * 70)
+    service.logger.info("IPO TRIGGER LOW MODE")
+    service.logger.info("=" * 70)
+    service.logger.info(f"Base Price: Rs. {base_price}")
+    if limit_price:
+        service.logger.info(f"Limit Price: Rs. {limit_price}")
+    service.logger.info(f"Trigger Price (-{actual_decrements[0]}%): Rs. {trigger_price}")
+    service.logger.info(f"Order Price (-{actual_decrements[1]}%): Rs. {order_price}")
+    service.logger.info(f"Quantity: {order_quantity}")
+    if timeout_ipo_trigger_low:
+        service.logger.info(f"Timeout: {timeout_ipo_trigger_low}s")
+    service.logger.info(f"Security: {service._get_identifier_for_logging(**platform_params)}")
+    service.logger.info("=" * 70)
+
+    poll_interval_ms = service.client.user_config.trigger_mode_poll_interval_ms
+    price_fetcher = service._setup_price_fetcher(
+        fetch_clients, fetch_security_id, symbol, ticker, poll_interval_ms
+    )
+    sleep_duration = 0.005
+    token_manager = service._setup_token_manager()
+    last_response = None
+
+    try:
+        price_fetcher.start()
+        start_time = time.time()
+        timeout_msg = f" (timeout: {timeout_ipo_trigger_low}s)" if timeout_ipo_trigger_low else ""
+
+        service.logger.info(
+            f"[{service.user_id}] Monitoring LTP... "
+            f"Will place order at Rs. {order_price} when LTP <= Rs. {trigger_price}{timeout_msg}"
+        )
+
+        triggered = False
+        while True:
+            if timeout_ipo_trigger_low:
+                elapsed = time.time() - start_time
+                if elapsed >= timeout_ipo_trigger_low:
+                    service.logger.warning(
+                        f"[{service.user_id}] TIMEOUT REACHED: {elapsed:.1f}s >= {timeout_ipo_trigger_low}s. "
+                        f"Trigger condition not met, exiting."
+                    )
+                    break
+
+            ltp = price_fetcher.get_latest_ltp()
+
+            if ltp is not None and ltp <= trigger_price:
+                service.logger.info(
+                    f"[{service.user_id}] TRIGGER REACHED: LTP={ltp} <= Trigger={trigger_price}"
+                )
+                triggered = True
+                break
+
+            time.sleep(sleep_duration)
+
+        if not triggered:
+            service.logger.info(f"[{service.user_id}] Skipping order placement - timeout reached")
+            return None
+
+        service.logger.info(
+            f"[{service.user_id}] Placing order at Rs. {order_price} (Quantity: {order_quantity})"
+        )
+        if hasattr(price_fetcher, "start_market_details"):
+            service.logger.info(f"[{service.user_id}] Starting market details monitoring for order placement")
+            price_fetcher.start_market_details()
+
+        ltp = price_fetcher.get_latest_ltp()
+        platform_params_with_ltp = {**platform_params, "market_price": ltp}
+        try:
+            last_response = service._place_single_order(
+                price=order_price,
+                quantity=order_quantity,
+                **platform_params_with_ltp,
+            )
+            if last_response:
+                service.logger.info(
+                    f"[{service.user_id}] Order placed successfully: {last_response}"
+                )
+            else:
+                service.logger.warning(
+                    f"[{service.user_id}] Order placement returned no response"
+                )
+        except Exception as exc:
+            service.logger.error(
+                f"[{service.user_id}] Error placing order: {str(exc)}"
+            )
+            raise
+
+    except KeyboardInterrupt:
+        service.logger.info(f"[{service.user_id}] IPO TRIGGER LOW cancelled by user")
+        raise
+    except Exception as exc:
+        service.logger.error(f"[{service.user_id}] IPO TRIGGER LOW failed: {str(exc)}")
+    finally:
+        if hasattr(price_fetcher, "stop_market_details"):
+            price_fetcher.stop_market_details()
+        price_fetcher.stop()
+        service._cleanup_token_manager(token_manager)
+
+    return last_response

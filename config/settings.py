@@ -3,11 +3,16 @@
 import os
 import json
 from pathlib import Path
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency
+    load_dotenv = None
 
 # Load environment variables from .env file
 env_path = Path(__file__).parent.parent / '.env'
-load_dotenv(dotenv_path=env_path)
+if load_dotenv is not None:
+    load_dotenv(dotenv_path=env_path)
 
 
 def load_cookies():

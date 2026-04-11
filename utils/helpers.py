@@ -143,11 +143,9 @@ def initialize_order_client_and_service(config_path: str) -> Tuple[Union['TMSCli
     Raises:
         ValueError: If system type is invalid or configuration is incomplete
     """
-    from config.user_config import UserConfig
-    from config.atrad_user_config import ATRADUserConfig
+    from config.models import ATRADUserConfig, UserConfig
     from api import TMSClient, ATRADClient
-    from services.order_service import OrderService
-    from services.atrad_order_service import ATRADOrderService
+    from services.orders import OrderService, ATRADOrderService
 
     # Load config to detect system
     config_data = load_json_file(config_path)
