@@ -160,8 +160,7 @@ def log_standard_order_plan(
     ticker: Optional[str] = None,
     ticker_name: Optional[str] = None,
     limit_price: Optional[float] = None,
-    scheduled_time: Optional[str] = None,
-    refresh_before: Optional[int] = None,
+    scheduled_time: Optional[str] = None
 ) -> None:
     """Emit a consistent execution summary for standard order flows."""
     logger.info(f"Execution Mode: {mode}")
@@ -179,5 +178,3 @@ def log_standard_order_plan(
         logger.info(f"Limit: {limit_price}")
     if scheduled_time:
         logger.info(f"Scheduled Time: {scheduled_time}")
-    if refresh_before is not None:
-        logger.info(f"Token Refresh: {refresh_before}s before execution")

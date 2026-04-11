@@ -11,6 +11,7 @@ import json
 import argparse
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -22,6 +23,14 @@ from config.models import ATRADUserConfig
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class PriceUpdateResult:
+    updated_count: int
+    skipped_count: int
+    failed_count: int
+    updated: Dict[str, Dict[str, float | None]]
 
 
 def get_quote_data(client: ATRADClient, ticker: str) -> Optional[Dict[str, float]]:
@@ -90,7 +99,7 @@ def update_order_store(
     atrad_user_path: str,
     dry_run: bool = False,
     ticker_filter: Optional[str] = None
-) -> None:
+) -> PriceUpdateResult:
     """
     Update prices in order store using ATRAD quotes.
 
@@ -111,7 +120,12 @@ def update_order_store(
     # Ensure authenticated
     if not client.ensure_authenticated():
         logger.error("Failed to authenticate ATRAD client")
-        return
+        return PriceUpdateResult(
+            updated_count=0,
+            skipped_count=0,
+            failed_count=0,
+            updated={},
+        )
 
     logger.info("ATRAD client authenticated")
 
@@ -188,6 +202,12 @@ def update_order_store(
         print(f"  Price: {data['old_price']} -> {data['price']}")
         print(f"  Limit: {data['old_limit']} -> {data['limit']}")
     print("="*70)
+    return PriceUpdateResult(
+        updated_count=updated_count,
+        skipped_count=skipped_count,
+        failed_count=failed_count,
+        updated=updated,
+    )
 
 
 def main():

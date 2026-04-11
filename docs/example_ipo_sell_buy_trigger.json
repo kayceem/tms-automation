@@ -10,7 +10,6 @@
     "price": "Base price for ladder calculation",
     "limit": "Upper limit price for ladder",
     "time": "Optional scheduled time (HH:MM or HH:MM:SS format)",
-    "refresh_before": "Seconds before execution to refresh tokens (default: 15)",
     "execution_flow": [
       "1. Calculate ladder from price (e.g., 100, 102, 104, 106, 108, 110)",
       "2. Monitor LTP via fetch user(s)",
@@ -35,8 +34,7 @@
       "sell_pre_wait_ms": 5000,
       "seller_config": "users/seller_user.json",
       "buyer_config": "users/buyer_user.json",
-      "time": null,
-      "refresh_before": 15
+      "time": null
     },
     {
       "id": "scheduled_sell_buy_trigger",
@@ -52,8 +50,7 @@
       "sell_pre_wait_ms": 5000,
       "seller_config": "users/seller_user.json",
       "buyer_config": "users/buyer_user.json",
-      "time": "11:00:00",
-      "refresh_before": 20
+      "time": "11:00:00"
     }
   ]
 }

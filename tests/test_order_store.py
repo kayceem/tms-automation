@@ -137,3 +137,70 @@ def test_mark_success_persists_state(tmp_path):
     persisted = json.loads(store_path.read_text(encoding="utf-8"))
     assert persisted["orders"][0]["success"] is True
     assert persisted["orders"][0]["execute"] is False
+
+
+def test_add_order_persists_validated_order(tmp_path):
+    store_path = tmp_path / "order_store.json"
+    write_store(store_path, [])
+
+    store = OrderStore(str(store_path))
+    added = store.add_order(
+        {
+            "id": "new-order",
+            "ticker": "nabil",
+            "price": "500",
+            "quantity": "10",
+            "mode": "normal",
+            "execute": True,
+        }
+    )
+
+    assert added["ticker"] == "NABIL"
+    persisted = json.loads(store_path.read_text(encoding="utf-8"))
+    assert persisted["orders"][0]["id"] == "new-order"
+    assert persisted["orders"][0]["execute"] is True
+
+
+def test_update_order_preserves_unrelated_metadata(tmp_path):
+    store_path = tmp_path / "order_store.json"
+    write_store(
+        store_path,
+        [
+            {
+                "id": "existing",
+                "ticker": "AAA",
+                "price": 100,
+                "quantity": 10,
+                "mode": "normal",
+                "note": "keep-me",
+                "execute": True,
+            },
+        ],
+    )
+
+    store = OrderStore(str(store_path))
+    updated = store.update_order("existing", {"price": 150, "quantity": 15})
+
+    assert updated["price"] == 150.0
+    assert updated["quantity"] == 15
+    assert updated["note"] == "keep-me"
+    persisted = json.loads(store_path.read_text(encoding="utf-8"))
+    assert persisted["orders"][0]["note"] == "keep-me"
+
+
+def test_remove_order_deletes_target_order(tmp_path):
+    store_path = tmp_path / "order_store.json"
+    write_store(
+        store_path,
+        [
+            {"id": "remove-me", "ticker": "AAA", "price": 100, "quantity": 10, "mode": "normal"},
+            {"id": "keep-me", "ticker": "BBB", "price": 200, "quantity": 20, "mode": "normal"},
+        ],
+    )
+
+    store = OrderStore(str(store_path))
+    removed = store.remove_order("remove-me")
+
+    assert removed["id"] == "remove-me"
+    persisted = json.loads(store_path.read_text(encoding="utf-8"))
+    assert [order["id"] for order in persisted["orders"]] == ["keep-me"]
