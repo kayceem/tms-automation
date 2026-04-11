@@ -325,7 +325,6 @@ def execute_from_order_store(user_config, order_store_path: str, fetch_user_conf
                     logger.info(f"Limit: {order['limit']}")
                 if order['time']:
                     logger.info(f"Scheduled Time: {order['time']}")
-                logger.info(f"Token Refresh: {order['refresh_before']}s before execution")
                 logger.info("=" * 70)
 
                 try:
@@ -370,8 +369,7 @@ def execute_from_order_store(user_config, order_store_path: str, fetch_user_conf
                     price=order["price"],
                     quantity=order["quantity"],
                     limit_price=order["limit"],
-                    scheduled_time=order["time"],
-                    refresh_before=order["refresh_before"] if order["time"] else None,
+                    scheduled_time=order["time"]
                 )
                 logger.info("=" * 70)
 

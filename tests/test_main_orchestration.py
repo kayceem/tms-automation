@@ -177,8 +177,7 @@ def test_execute_from_order_store_overrides_first_start_time_and_marks_success(m
                     "just_buy_pre_wait_ms": 0,
                     "just_buy_max_requests": None,
                     "just_buy_fade_interval_ms": None,
-                    "just_buy_fade_timeout": None,
-                    "refresh_before": 20,
+                    "just_buy_fade_timeout": None
                 }
             ]
             self.marked_success = []
@@ -352,8 +351,7 @@ def test_execute_from_order_store_uses_multi_queue_executor(monkeypatch):
                 "just_buy_pre_wait_ms": 0,
                 "just_buy_max_requests": None,
                 "just_buy_fade_interval_ms": None,
-                "just_buy_fade_timeout": None,
-                "refresh_before": 20,
+                "just_buy_fade_timeout": None
             }
             normalized.update(order)
             return normalized
@@ -418,8 +416,7 @@ def test_execute_from_order_store_marks_failed_when_trigger_mode_has_no_fetch_us
                     "just_buy_pre_wait_ms": 0,
                     "just_buy_max_requests": None,
                     "just_buy_fade_interval_ms": None,
-                    "just_buy_fade_timeout": None,
-                    "refresh_before": 20,
+                    "just_buy_fade_timeout": None
                 }
             ]
             self.marked_failed = []

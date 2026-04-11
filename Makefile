@@ -1,4 +1,4 @@
-.PHONY: update run runm runaf prepare
+.PHONY: update run runm runaf prepare tui
 
 Arguments := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 
@@ -50,6 +50,9 @@ update-store:
 prepare:
 	$(MAKE) reset-tokens
 	$(MAKE) update-store
+
+tui:
+	python -m tui
 
 %:
 	@:

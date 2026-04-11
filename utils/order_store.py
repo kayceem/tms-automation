@@ -1,8 +1,9 @@
 """Order store management for executing predefined orders."""
 
-import json
 from pathlib import Path
 from typing import Dict, Any, Optional, List
+
+from config.loaders.file_utils import load_json_file, save_json_file
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -31,9 +32,11 @@ class OrderStore:
             )
 
         try:
-            with open(self.store_path, 'r') as f:
-                self._data = json.load(f)
-        except json.JSONDecodeError as e:
+            self._data = load_json_file(
+                str(self.store_path),
+                "Order store not found: {file_path}",
+            )
+        except ValueError as e:
             raise ValueError(f"Invalid JSON in order store: {e}")
 
         # Validate structure
@@ -163,19 +166,6 @@ class OrderStore:
                     raise ValueError(f"Order '{order_id}' has invalid limit: {limit}")
             except (TypeError, ValueError) as e:
                 raise ValueError(f"Order '{order_id}' has invalid limit: {order['limit']}")
-
-        # Validate refresh_before
-        if 'refresh_before' in order and order['refresh_before'] is not None:
-            try:
-                refresh_before = int(order['refresh_before'])
-                if refresh_before < 0:
-                    raise ValueError(
-                        f"Order '{order_id}' has invalid refresh_before: {refresh_before}"
-                    )
-            except (TypeError, ValueError) as e:
-                raise ValueError(
-                    f"Order '{order_id}' has invalid refresh_before: {order['refresh_before']}"
-                )
 
         # Validate base_quantity if provided
         base_quantity = 10  # Default
@@ -326,7 +316,6 @@ class OrderStore:
             'mode': mode,
             'limit': float(order['limit']) if 'limit' in order and order['limit'] is not None else None,
             'time': order.get('time'),
-            'refresh_before': int(order.get('refresh_before', 20)),
             'sell': bool(order.get('sell', False)),
             'skip_first': bool(order.get('skip_first', False)),
             'skip_second_last': bool(order.get('skip_second_last', False)),
@@ -426,12 +415,86 @@ class OrderStore:
     def _save_store(self):
         """Save order store back to JSON file."""
         try:
-            with open(self.store_path, 'w') as f:
-                json.dump(self._data, f, indent=2)
+            save_json_file(str(self.store_path), self._data)
             logger.debug(f"Order store saved to {self.store_path}")
         except Exception as e:
             logger.error(f"Failed to save order store: {e}")
             raise
+
+    def save(self):
+        """Public save wrapper for callers that mutate store data."""
+        self._save_store()
+
+    def get_order(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """Get a single order by id."""
+        for order in self._data.get('orders', []):
+            if order.get('id') == order_id:
+                return order
+        return None
+
+    def _prepare_order_for_storage(
+        self,
+        order: Dict[str, Any],
+        *,
+        existing_order: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        normalized = self.validate_order(order)
+        merged = dict(existing_order or {})
+        merged.update(order)
+        merged.update(normalized)
+
+        if existing_order is not None:
+            merged.setdefault('execute', existing_order.get('execute', False))
+            merged.setdefault('success', existing_order.get('success', False))
+        else:
+            merged['execute'] = bool(order.get('execute', False))
+            merged['success'] = bool(order.get('success', False))
+
+        return merged
+
+    def add_order(self, order: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and append a new order."""
+        order_id = order.get('id')
+        if not order_id:
+            raise ValueError("Order is missing required field: id")
+        if self.get_order(str(order_id)) is not None:
+            raise ValueError(f"Order '{order_id}' already exists")
+
+        prepared_order = self._prepare_order_for_storage(order)
+        self._data.setdefault('orders', []).append(prepared_order)
+        self._save_store()
+        return prepared_order
+
+    def update_order(self, order_id: str, order: Dict[str, Any]) -> Dict[str, Any]:
+        """Update an existing order by id."""
+        orders = self._data.get('orders', [])
+        for index, existing_order in enumerate(orders):
+            if existing_order.get('id') != order_id:
+                continue
+
+            requested_id = order.get('id', order_id)
+            if requested_id != order_id and self.get_order(str(requested_id)) is not None:
+                raise ValueError(f"Order '{requested_id}' already exists")
+
+            updated_order = self._prepare_order_for_storage(
+                {**existing_order, **order, 'id': requested_id},
+                existing_order=existing_order,
+            )
+            orders[index] = updated_order
+            self._save_store()
+            return updated_order
+
+        raise ValueError(f"Order '{order_id}' not found")
+
+    def remove_order(self, order_id: str) -> Dict[str, Any]:
+        """Remove an order by id and save the store."""
+        orders = self._data.get('orders', [])
+        for index, order in enumerate(orders):
+            if order.get('id') == order_id:
+                removed = orders.pop(index)
+                self._save_store()
+                return removed
+        raise ValueError(f"Order '{order_id}' not found")
 
     def list_orders(self) -> List[Dict[str, Any]]:
         """

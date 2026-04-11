@@ -9,6 +9,7 @@ dependencies = [
     "pytest>=9.0.2",
     "python-dotenv>=1.0.0",
     "requests>=2.31.0",
+    "textual>=0.61.1",
 ]
 
 [tool.pytest.ini_options]

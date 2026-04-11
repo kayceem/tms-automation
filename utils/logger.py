@@ -194,6 +194,25 @@ def get_user_logger(user_id: str, log_dir: str = 'logs') -> logging.Logger:
     )
 
 
+def detach_console_handlers(name: str = "main") -> list[logging.Handler]:
+    """Remove stream handlers from a logger and return them for later restoration."""
+    logger = logging.getLogger(name)
+    detached: list[logging.Handler] = []
+    for handler in list(logger.handlers):
+        if isinstance(handler, logging.StreamHandler) and not isinstance(handler, RotatingFileHandler):
+            logger.removeHandler(handler)
+            detached.append(handler)
+    return detached
+
+
+def attach_handlers(name: str, handlers: list[logging.Handler]) -> None:
+    """Reattach previously detached handlers to a logger."""
+    logger = logging.getLogger(name)
+    for handler in handlers:
+        if handler not in logger.handlers:
+            logger.addHandler(handler)
+
+
 # Default logger instance - removed to prevent initialization without file handler
 # Use get_logger() or setup_logger() explicitly instead
 # default_logger = setup_logger()
