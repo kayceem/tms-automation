@@ -1,9 +1,7 @@
 """Services package."""
 
-from .base_order_service import BaseOrderService
-from .order_service import OrderService
-from .scheduler import OrderScheduler
-from .price_fetcher import PriceFetcher, TokenRefreshManager
-from .atrad_order_service import ATRADOrderService
+from .fetchers import PriceFetcher, TokenRefreshManager
+from .orders import ATRADOrderService, BaseOrderService, OrderService
+from .scheduling import OrderScheduler
 
 __all__ = ['BaseOrderService', 'OrderService', 'OrderScheduler', 'PriceFetcher', 'TokenRefreshManager', 'ATRADOrderService']

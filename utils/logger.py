@@ -10,6 +10,13 @@ from datetime import datetime
 
 class MillisecondFormatter(logging.Formatter):
     """Custom formatter that includes milliseconds in timestamps."""
+    
+    @staticmethod
+    def _shorten_logger_name(logger_name: str) -> str:
+        """Return a compact logger name for log output."""
+        if logger_name.startswith("main."):
+            return logger_name.split(".")[-1]
+        return logger_name
 
     def formatTime(self, record, datefmt=None):
         """Override to include milliseconds."""
@@ -17,11 +24,20 @@ class MillisecondFormatter(logging.Formatter):
         if datefmt:
             s = ct.strftime(datefmt)
         else:
-            s = ct.strftime("%Y-%m-%d %H:%M:%S")
+            s = ct.strftime("%H:%M:%S")
         # Add milliseconds
         s = f"{s}.{int(record.msecs):03d}"
         return s
 
+    def format(self, record):
+        """Format log record with shortened logger name."""
+        original_name = record.name
+        record.name = self._shorten_logger_name(original_name)
+
+        try:
+            return super().format(record)
+        finally:
+            record.name = original_name
 
 class ColoredFormatter(logging.Formatter):
     """Custom formatter with colors for console output."""
@@ -94,12 +110,12 @@ def setup_logger(
 
     # Create formatters
     file_formatter = MillisecondFormatter(
-        '%(asctime)s | %(name)s | %(levelname)s | %(threadName)s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        '%(asctime)s | %(levelname)-7s | %(threadName)-12s | %(message)s',
+        datefmt='%H:%M:%S'
     )
 
     console_formatter = ColoredFormatter(
-        '%(asctime)s | %(levelname)s | %(message)s',
+        '%(asctime)s | %(levelname)-7s | %(message)s',
         datefmt='%H:%M:%S'
     )
 
@@ -131,46 +147,29 @@ def setup_logger(
 
 def get_logger(name: str = 'main') -> logging.Logger:
     """
-    Get an existing logger or create a new one.
+    Get the shared application logger.
 
-    This function ensures all loggers write to file by either:
-    1. Setting up the root 'main' logger with file handler
-    2. Using hierarchical naming so child loggers propagate to root
+    The project uses a single configured logger instance. Module-specific names
+    are intentionally not attached here, so handler level and formatting stay
+    consistent regardless of call site.
 
     Args:
-        name: Logger name (e.g., __name__ from calling module)
+        name: Ignored. Kept for compatibility with existing call sites.
 
     Returns:
         Logger instance
     """
-    # Ensure the root logger is set up with file handler
     root_logger = logging.getLogger('main')
 
-    # Check if root logger has a file handler
     has_file_handler = any(
         isinstance(h, RotatingFileHandler) for h in root_logger.handlers
     )
 
     if not has_file_handler:
-        # Clear any existing handlers and set up properly with file handler
         root_logger.handlers.clear()
         setup_logger('main', log_file='tms_automation.log')
 
-    # Create hierarchical logger name if not already prefixed
-    if name != 'main' and not name.startswith('main.'):
-        hierarchical_name = f'main.{name}'
-    else:
-        hierarchical_name = name
-
-    logger = logging.getLogger(hierarchical_name)
-
-    # For child loggers, ensure propagation is enabled and no duplicate handlers
-    if hierarchical_name != 'main':
-        logger.propagate = True
-        if not logger.level:
-            logger.setLevel(logging.DEBUG)  # Let root handle filtering
-
-    return logger
+    return root_logger
 
 
 def get_user_logger(user_id: str, log_dir: str = 'logs') -> logging.Logger:
