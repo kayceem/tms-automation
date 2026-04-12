@@ -49,8 +49,7 @@ def get_quote_data(client: ATRADClient, ticker: str) -> Optional[Dict[str, float
 
         # Use the existing quote endpoint from client
         epoch_time_ms = lambda: int(round(time.time() * 1000))
-        endpoint = f"{client.quote_endpoint}&securityid={ticker}&dojo.preventCache="
-
+        endpoint = f"{client.quick_watch_endpoint}&securityid={ticker}&watchId={client.user_config._watch_id}&dojo.preventCache="
         response = client.session.get(endpoint + str(epoch_time_ms()), timeout=5.0)
         response.encoding = 'utf-8'
 
@@ -58,7 +57,7 @@ def get_quote_data(client: ATRADClient, ticker: str) -> Optional[Dict[str, float
             data = response.text.strip().replace("'", '"')
             data = json.loads(data)
 
-            security = data.get('data', {})
+            security = (data.get('data', {})).get('watch', [{}])[0]
 
             if not security or not isinstance(security, dict):
                 logger.warning(f"No security data for {ticker}")

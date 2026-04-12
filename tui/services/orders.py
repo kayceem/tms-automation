@@ -27,7 +27,7 @@ class OrderStoreService:
                     success=bool(order.get("success", False)),
                     time=str(order.get("time") or ""),
                     price=float(order.get("price", 0)),
-                    limit=float(order.get("limit", 0)),
+                    limit=float(order.get("limit", 0) if order.get("limit") is not None else 0),
                     multi_queue=bool(order.get("multi_queue", False)),
                 )
             )

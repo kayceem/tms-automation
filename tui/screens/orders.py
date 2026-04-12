@@ -106,7 +106,8 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
         ("up", "focus_previous_control", "Previous"),
         ("down", "focus_next_control", "Next"),
         ("ctrl+1", "show_main", "Main"),
-        ("ctrl+2", "show_flags", "Flags"),
+        ("ctrl+2", "show_buy", "Buy"),
+        ("ctrl+3", "show_sell", "Sell"),
         ("ctrl+s", "submit", "Save"),
         ("escape", "cancel", "Cancel"),
     ]
@@ -125,8 +126,11 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
     def action_show_main(self) -> None:
         self.query_one(TabbedContent).active = "tab-main"
 
-    def action_show_flags(self) -> None:
-        self.query_one(TabbedContent).active = "tab-flags"
+    def action_show_buy(self) -> None:
+        self.query_one(TabbedContent).active = "tab-buy"
+
+    def action_show_sell(self) -> None:
+        self.query_one(TabbedContent).active = "tab-sell"
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -136,9 +140,17 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
         yield Static(f" ORDERS ▸ {self.editor_title.upper()} ", classes="screen-title")
         with TabbedContent(initial="tab-main", id="order-tabs"):
             with TabPane("Main", id="tab-main"):
-                with VerticalScroll(id="order-editor-scroll"):
+                with VerticalScroll(id="order-main-scroll"):
                     with Vertical(id="order-editor-form"):
-                        # Identity fields: full-width horizontal rows
+                        yield Static("── STATUS ──", classes="form-section")
+                        yield from self._compose_flag_row(
+                            (
+                                ("execute", "Execute"),
+                                ("success", "Success"),
+                            )
+                        )
+
+                        yield Static("── IDENTITY ──", classes="form-section")
                         with Horizontal(classes="form-row"):
                             yield Label("Order ID", classes="form-label")
                             yield Input(
@@ -161,66 +173,70 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
                                 value=str(self.order_payload.get("mode", "normal")),
                                 id="order-mode",
                             )
+                        yield Static("── CORE FIELDS ──", classes="form-section")
+                        yield from self._compose_field("queue_id")
+                        yield from self._compose_field("time")
+                        yield from self._compose_field("price")
+                        yield from self._compose_field("quantity")
+                        yield from self._compose_field("base_quantity")
 
-                        # Two-column split: basics left, conditional/advanced right
-                        with Horizontal(id="order-editor-cols"):
-                            with Vertical(classes="form-col"):
-                                yield Static("── BASICS ──", classes="form-section")
-                                yield from self._compose_field("queue_id")
-                                yield from self._compose_field("time")
-                                yield from self._compose_field("price")
-                                yield from self._compose_field("quantity")
-                                yield from self._compose_field("base_quantity")
-                            with Vertical(classes="form-col"):
-                                yield Static("── CONDITIONAL ──", classes="form-section")
-                                yield from self._compose_field("limit")
-                                yield from self._compose_field("double_buy_quantity")
-                                yield Static("── JUST BUY ──", classes="form-section")
-                                yield from self._compose_field("just_buy_interval_ms")
-                                yield from self._compose_field("just_buy_timeout")
-                                yield from self._compose_field("just_buy_pre_wait_ms")
-                                yield from self._compose_field("just_buy_max_requests")
-                                yield from self._compose_field("just_buy_fade_interval_ms")
-                                yield from self._compose_field("just_buy_fade_timeout")
-                                yield Static("── SELL / BUY TRIGGER ──", classes="form-section")
-                                with Horizontal(classes="form-row"):
-                                    yield Label("Seller Config", classes="form-label")
-                                    yield Input(
-                                        str(self.order_payload.get("seller_config", TEXT_FIELD_DEFAULTS["seller_config"])),
-                                        id="order-seller_config",
-                                        classes="form-input",
-                                    )
-                                with Horizontal(classes="form-row"):
-                                    yield Label("Buyer Config", classes="form-label")
-                                    yield Input(
-                                        str(self.order_payload.get("buyer_config", TEXT_FIELD_DEFAULTS["buyer_config"])),
-                                        id="order-buyer_config",
-                                        classes="form-input",
-                                    )
-                                yield from self._compose_field("sell_quantity")
-                                yield from self._compose_field("sell_pre_wait_ms")
+            with TabPane("Buy", id="tab-buy"):
+                with VerticalScroll(id="order-buy-scroll"):
+                    with Vertical(id="order-buy-pane"):
+                        yield Static("── BUY FLAGS ──", classes="form-section")
+                        yield from self._compose_flag_row(
+                            (
+                                ("skip_first", "Skip First"),
+                                ("skip_second_last", "Skip 2nd Last"),
+                                ("no_ladder", "No Ladder"),
+                            )
+                        )
+                        yield from self._compose_flag_row(
+                            (
+                                ("double_buy", "Double Buy"),
+                                ("just_buy", "Just Buy"),
+                                ("multi_queue", "Multi Queue"),
+                            )
+                        )
+                        yield Static("── BUY LOGIC ──", classes="form-section")
+                        yield from self._compose_field("limit")
+                        yield from self._compose_field("double_buy_quantity")
+                        yield Static("── JUST BUY SETTINGS ──", classes="form-section")
+                        yield from self._compose_field("just_buy_interval_ms")
+                        yield from self._compose_field("just_buy_timeout")
+                        yield from self._compose_field("just_buy_pre_wait_ms")
+                        yield from self._compose_field("just_buy_max_requests")
+                        yield from self._compose_field("just_buy_fade_interval_ms")
+                        yield from self._compose_field("just_buy_fade_timeout")
 
-            with TabPane("Flags", id="tab-flags"):
-                with Vertical(id="order-flags-pane"):
-                    yield Static("── FLAGS ──", classes="form-section")
-                    for row_group in (
-                        (("sell", "Sell"), ("skip_first", "Skip First"), ("skip_second_last", "Skip 2nd Last")),
-                        (("no_ladder", "No Ladder"), ("double_buy", "Double Buy"), ("just_buy", "Just Buy")),
-                        (("multi_queue", "Multi Queue"), ("execute", "Execute"), ("success", "Success")),
-                    ):
-                        with Horizontal(classes="flags-row"):
-                            for flag_name, flag_label in row_group:
-                                yield Checkbox(
-                                    flag_label,
-                                    value=bool(self.order_payload.get(flag_name, YES_NO_DEFAULTS[flag_name])),
-                                    id=f"order-{flag_name}",
-                                    classes="flag-cell",
-                                )
+            with TabPane("Sell", id="tab-sell"):
+                with VerticalScroll(id="order-sell-scroll"):
+                    with Vertical(id="order-sell-pane"):
+                        yield Static("── SELL FLAGS ──", classes="form-section")
+                        yield from self._compose_flag_row((("sell", "Sell"),))
+                        yield Static("── SELL / BUY TRIGGER ──", classes="form-section")
+                        with Horizontal(classes="form-row"):
+                            yield Label("Seller Config", classes="form-label")
+                            yield Input(
+                                str(self.order_payload.get("seller_config", TEXT_FIELD_DEFAULTS["seller_config"])),
+                                id="order-seller_config",
+                                classes="form-input",
+                            )
+                        with Horizontal(classes="form-row"):
+                            yield Label("Buyer Config", classes="form-label")
+                            yield Input(
+                                str(self.order_payload.get("buyer_config", TEXT_FIELD_DEFAULTS["buyer_config"])),
+                                id="order-buyer_config",
+                                classes="form-input",
+                            )
+                        yield from self._compose_field("sell_quantity")
+                        yield from self._compose_field("sell_pre_wait_ms")
 
         with Horizontal(id="order-editor-actions"):
             yield Button("[Ctrl+S] Save", id="save", classes="action-button")
             yield Button("[Ctrl+1] Main", id="goto-main", classes="action-button")
-            yield Button("[Ctrl+2] Flags", id="goto-flags", classes="action-button")
+            yield Button("[Ctrl+2] Buy", id="goto-buy", classes="action-button")
+            yield Button("[Ctrl+3] Sell", id="goto-sell", classes="action-button")
             yield Button("[Esc] Cancel", id="cancel", classes="action-button")
         yield Static("", id="order-editor-status")
         yield Footer()
@@ -239,6 +255,16 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
                 classes="form-input",
             )
 
+    def _compose_flag_row(self, row_group: tuple[tuple[str, str], ...]):
+        with Horizontal(classes="flags-row"):
+            for flag_name, flag_label in row_group:
+                yield Checkbox(
+                    flag_label,
+                    value=bool(self.order_payload.get(flag_name, YES_NO_DEFAULTS[flag_name])),
+                    id=f"order-{flag_name}",
+                    classes="flag-cell",
+                )
+
     def on_mount(self) -> None:
         self._apply_dependency_state()
         self.query_one("#order-id", Input).focus()
@@ -250,8 +276,11 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
         if event.button.id == "goto-main":
             self.action_show_main()
             return
-        if event.button.id == "goto-flags":
-            self.action_show_flags()
+        if event.button.id == "goto-buy":
+            self.action_show_buy()
+            return
+        if event.button.id == "goto-sell":
+            self.action_show_sell()
             return
         self.action_submit()
 
@@ -293,7 +322,7 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
         multi_queue_enabled = no_ladder and mode == "ipo-trigger"
         self._set_checkbox_state("multi_queue", disabled=not multi_queue_enabled, value=False if not multi_queue_enabled else None)
 
-        self._set_input_group_state("limit", enabled=mode in {"ipo", "ipo-trigger"})
+        self._set_input_group_state("limit", enabled=mode in {"ipo", "ipo-trigger", "ipo-trigger-low", "trigger-sell", "ipo-sell-buy-trigger"})
         self._set_input_group_state("double_buy_quantity", enabled=double_buy)
 
         just_buy_fields = (

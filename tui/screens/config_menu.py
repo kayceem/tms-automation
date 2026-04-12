@@ -12,6 +12,7 @@ from tui.services.config import ConfigActionsService
 
 DEFAULT_FIELDS = (
     ("trigger_mode_poll_interval_ms", "Trigger poll (ms)"),
+    ("multi_fetch_poll_interval_ms", "Multi-fetch poll (ms)"),
     ("trigger_mode_refresh_interval_seconds", "Refresh interval (s)"),
     ("trigger_sell_poll_interval_ms", "Sell poll (ms)"),
     ("trigger_mode_slow_poll_interval_ms", "Slow poll (ms)"),
@@ -19,10 +20,11 @@ DEFAULT_FIELDS = (
 )
 
 DEFAULT_PRESETS = {
-    "trigger_mode_poll_interval_ms": ["25", "50", "100", "250"],
-    "trigger_mode_refresh_interval_seconds": ["30", "60", "120", "300"],
-    "trigger_sell_poll_interval_ms": ["100", "250", "500", "1000"],
-    "trigger_mode_slow_poll_interval_ms": ["250", "500", "1000", "2000"],
+    "trigger_mode_poll_interval_ms": ["5", "10", "20"],
+    "multi_fetch_poll_interval_ms": ["100", "150", "200", "250"],
+    "trigger_mode_refresh_interval_seconds": ["30", "60"],
+    "trigger_sell_poll_interval_ms": ["100", "150", "200", "250"],
+    "trigger_mode_slow_poll_interval_ms": ["150", "250", "500"],
     "trigger_mode_requests_per_fetch_user": ["1", "2", "5", "10"],
 }
 

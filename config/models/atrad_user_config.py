@@ -49,6 +49,7 @@ class ATRADUserConfig:
     atrad_market_details_endpoint: str = '/atsweb/marketdetails?action=getOrderBook&format=json&board=1'
     atrad_order_book_endpoint: str = '/atsweb/order?action=getUCCActiveBlotterData&format=json&clientAcc=ALL&securityId=all&exchange=all&ordStatus=all&ordType=all&assetClass=all'
     atrad_cancel_order_endpoint: str = '/atsweb/order?action=cancelOrder&format=json'
+    atrad_quick_watch_endpoint: str = '/atsweb/watch?action=getQuickWatch&format=json&exchange=NEPSE&bookDefId=1&isquickwatchsecurity=true&lastUpdatedId=undefined'
 
     # Session management (populated after login)
     _session_id: Optional[str] = None  # JSESSIONID

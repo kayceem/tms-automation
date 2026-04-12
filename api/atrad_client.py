@@ -37,7 +37,7 @@ class ATRADClient:
         self.market_endpoint = f"{self.base_url}{user_config.atrad_market_details_endpoint}"
         self.order_book_endpoint = f"{self.base_url}{user_config.atrad_order_book_endpoint}"
         self.cancel_order_endpoint = f"{self.base_url}{user_config.atrad_cancel_order_endpoint}"
-
+        self.quick_watch_endpoint = f"{self.base_url}{user_config.atrad_quick_watch_endpoint}"
         # Thread-safe session
         self.session = requests.Session()
         self._login_lock = threading.Lock()

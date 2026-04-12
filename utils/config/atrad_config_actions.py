@@ -16,6 +16,7 @@ from config.loaders.file_utils import save_json_file
 
 TRIGGER_DEFAULT_KEYS = (
     "trigger_mode_poll_interval_ms",
+    "multi_fetch_poll_interval_ms",
     "trigger_mode_refresh_interval_seconds",
     "trigger_sell_poll_interval_ms",
     "trigger_mode_slow_poll_interval_ms",
