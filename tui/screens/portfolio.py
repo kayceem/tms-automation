@@ -11,7 +11,8 @@ from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Button, DataTable, Footer, Header, Input, Select, Static, TabbedContent, TabPane
+from textual.widgets import Button, DataTable, Footer, Header, Input, OptionList, Select, Static, TabbedContent, TabPane
+from textual.widgets.option_list import Option
 
 from tui.models import CustomWatchlistRow, OrderBookRow, WatchlistEntryRow
 from tui.services.portfolio import PortfolioService
@@ -172,13 +173,21 @@ class CancelConfirmScreen(ModalScreen[bool]):
 class SymbolPromptScreen(ModalScreen[str | None]):
     BINDINGS = [
         ("escape", "dismiss(None)", "Close"),
+        ("down", "focus_suggestions", "Suggestions"),
     ]
 
-    def __init__(self, title: str, submit_label: str = "Submit", initial: str = "") -> None:
+    def __init__(
+        self,
+        title: str,
+        submit_label: str = "Submit",
+        initial: str = "",
+        tickers: list[dict] | None = None,
+    ) -> None:
         super().__init__()
         self.prompt_title = title
         self.submit_label = submit_label
         self.initial = initial
+        self.tickers = tickers or []
 
     def compose(self) -> ComposeResult:
         with Vertical(id="symbol-prompt-shell"):
@@ -191,13 +200,60 @@ class SymbolPromptScreen(ModalScreen[str | None]):
                     id="symbol-input",
                     classes="form-input",
                 )
+            yield OptionList(id="symbol-suggestions")
             yield Static("", id="symbol-prompt-status")
             with Horizontal():
                 yield Button(f"[Enter] {self.submit_label}", id="submit", classes="action-button")
                 yield Button("[Esc] Cancel", id="cancel", classes="action-button")
 
     def on_mount(self) -> None:
+        suggestions = self.query_one("#symbol-suggestions", OptionList)
+        suggestions.display = False
         self.query_one("#symbol-input", Input).focus()
+        if self.initial:
+            self._update_suggestions(self.initial)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "symbol-input":
+            return
+        self._update_suggestions(event.value)
+
+    def _update_suggestions(self, query: str) -> None:
+        suggestions = self.query_one("#symbol-suggestions", OptionList)
+        suggestions.clear_options()
+        q = (query or "").strip().upper()
+        if not q or not self.tickers:
+            suggestions.display = False
+            return
+        starts: list[dict] = []
+        contains: list[dict] = []
+        for ticker in self.tickers:
+            sym = str(ticker.get("security", "")).upper()
+            desc = str(ticker.get("securityDes", "")).upper()
+            if not sym:
+                continue
+            if sym.startswith(q):
+                starts.append(ticker)
+            elif q in sym or q in desc:
+                contains.append(ticker)
+            if len(starts) >= 8:
+                break
+        matches = (starts + contains)[:8]
+        if not matches:
+            suggestions.display = False
+            return
+        for ticker in matches:
+            sym = ticker.get("security", "")
+            desc = ticker.get("securityDes", "")
+            label = f"[bold #ff9e1b]{sym:<8}[/] [#6b6b6b]{desc}[/]"
+            suggestions.add_option(Option(label, id=sym))
+        suggestions.display = True
+        suggestions.highlighted = 0
+
+    def action_focus_suggestions(self) -> None:
+        suggestions = self.query_one("#symbol-suggestions", OptionList)
+        if suggestions.display and suggestions.option_count > 0:
+            suggestions.focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "submit":
@@ -208,11 +264,26 @@ class SymbolPromptScreen(ModalScreen[str | None]):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self._submit()
 
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option_list.id != "symbol-suggestions":
+            return
+        symbol = str(event.option.id or "").strip().upper()
+        if symbol:
+            self.dismiss(symbol)
+
     def _submit(self) -> None:
         value = self.query_one("#symbol-input", Input).value.strip().upper()
         if not value:
             self.query_one("#symbol-prompt-status", Static).update("[#ff4757]Enter a symbol.[/]")
             return
+        suggestions = self.query_one("#symbol-suggestions", OptionList)
+        if suggestions.display and suggestions.option_count > 0:
+            idx = suggestions.highlighted if suggestions.highlighted is not None else 0
+            option = suggestions.get_option_at_index(idx)
+            symbol = str(option.id or "").strip().upper()
+            if symbol:
+                self.dismiss(symbol)
+                return
         self.dismiss(value)
 
 
@@ -247,6 +318,7 @@ class OrderBookScreen(Screen[None]):
         self._selected_watchlist_id: str | None = None
         self._market_symbol: str | None = None
         self.user_label = self.service.get_user_label(self.user_path)
+        self._tickers: list[dict] = self.service.load_tickers()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -812,6 +884,7 @@ class OrderBookScreen(Screen[None]):
             SymbolPromptScreen(
                 title=f"WATCHLIST ▸ ADD SYMBOL ▸ {row.watch_list_name}",
                 submit_label="Add",
+                tickers=self._tickers,
             ),
             lambda symbol: self._handle_add_symbol_result(row, symbol),
         )
@@ -859,6 +932,7 @@ class OrderBookScreen(Screen[None]):
                 title="MARKET DETAILS ▸ ENTER SYMBOL",
                 submit_label="Load",
                 initial=self._market_symbol or "",
+                tickers=self._tickers,
             ),
             self._handle_market_symbol_result,
         )

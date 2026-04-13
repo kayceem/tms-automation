@@ -498,12 +498,39 @@ Checkbox:focus {
 }
 
 #symbol-prompt-shell {
-    width: 52;
+    width: 60;
     height: auto;
-    max-height: 12;
+    max-height: 20;
     border: heavy #ff9e1b;
     padding: 1 2;
     background: #0a0a0a;
+}
+
+#symbol-suggestions {
+    width: 100%;
+    height: auto;
+    max-height: 10;
+    margin: 0 0 1 0;
+    background: #050505;
+    border: solid #7a4a00;
+    color: #e8e8e8;
+    scrollbar-background: #000000;
+    scrollbar-color: #7a4a00;
+    scrollbar-color-hover: #ff9e1b;
+    scrollbar-size-vertical: 1;
+}
+
+#symbol-suggestions:focus {
+    border: solid #ff9e1b;
+}
+
+#symbol-suggestions > .option-list--option-highlighted {
+    background: #1a1000;
+    color: #ffd166;
+}
+
+#symbol-suggestions > .option-list--option-hover {
+    background: #1a1000;
 }
 
 Label {

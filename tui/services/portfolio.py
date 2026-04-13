@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
@@ -166,3 +167,13 @@ class PortfolioService:
         market_details = self.fetch_market_details(client, symbol)
         last_updated_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return ltp, market_details, last_updated_time
+
+    def load_tickers(self, path: str | Path = "stores/tickers.json") -> list[dict]:
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            return []
+        if isinstance(data, list):
+            return [t for t in data if isinstance(t, dict) and t.get("security")]
+        return []
