@@ -36,8 +36,11 @@ class ATRADClient:
         self.quote_endpoint = f"{self.base_url}{user_config.atrad_watch_endpoint}"
         self.market_endpoint = f"{self.base_url}{user_config.atrad_market_details_endpoint}"
         self.order_book_endpoint = f"{self.base_url}{user_config.atrad_order_book_endpoint}"
+        self.completed_order_book_endpoint = f"{self.base_url}{user_config.atrad_completed_order_book_endpoint}"
         self.cancel_order_endpoint = f"{self.base_url}{user_config.atrad_cancel_order_endpoint}"
         self.quick_watch_endpoint = f"{self.base_url}{user_config.atrad_quick_watch_endpoint}"
+        self.custom_watchlists_endpoint = f"{self.base_url}{user_config.atrad_custom_watchlists_endpoint}"
+        self.watchlist_endpoint = f"{self.base_url}{user_config.atrad_watchlist_endpoint}"
         # Thread-safe session
         self.session = requests.Session()
         self._login_lock = threading.Lock()
@@ -444,6 +447,7 @@ class ATRADClient:
 
     def get_order_book(
         self,
+        completed: bool = False,
         timeout: float = 5.0,
         last_updated_time: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
@@ -459,9 +463,12 @@ class ATRADClient:
         """
         logger.debug(f"[{self.user_id}] Fetching ATRAD order book")
 
-        endpoint = self.order_book_endpoint
+        if completed:
+            endpoint = self.completed_order_book_endpoint
+        else:
+            endpoint = self.order_book_endpoint
         if last_updated_time:
-            endpoint = f"{endpoint}&lstUpdateTime={quote(last_updated_time, safe='')}"
+            endpoint = f"{endpoint}&lstUpdateTime={last_updated_time}"
         endpoint = f"{endpoint}&dojo.preventCache={self._epoch_time_ms()}"
 
         with self._request_lock:
@@ -580,6 +587,94 @@ class ATRADClient:
         """
         self.ensure_authenticated()
         return self._is_authenticated
+    
+    def get_custom_watchlists(self, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
+        """
+        Fetch the user's custom watchlists.
+
+        Args:
+            timeout: Request timeout in seconds.
+
+        Returns:
+            Parsed ATRAD custom watchlists response, or None if fetching/parsing fails.
+        """
+        logger.debug(f"[{self.user_id}] Fetching custom watchlists")
+
+        endpoint = f"{self.custom_watchlists_endpoint}&dojo.preventCache={self._epoch_time_ms()}"
+
+        with self._request_lock:
+            response = self._request_with_reauth("GET", endpoint, timeout=timeout)
+
+            if response is None:
+                return None
+
+            logger.debug(f"[{self.user_id}] Custom watchlists fetch response status: {response.status_code}")
+
+            if response.status_code != 200:
+                logger.warning(
+                    f"[{self.user_id}] Custom watchlists fetch failed: "
+                    f"{response.status_code} {response.reason}"
+                )
+                return None
+
+            try:
+                result = response.text.strip().replace("'", '"')
+                result = json.loads(result)
+                if str(result.get("code")) != "0":
+                    logger.warning(
+                        f"[{self.user_id}] ATRAD custom watchlists request failed: "
+                        f"{result.get('description', 'Unknown error')}"
+                    )
+                    return None
+                return (result.get("customwatches", {})).get("watchListName", [])
+            except ValueError:
+                logger.error(f"[{self.user_id}] Invalid ATRAD custom watchlists response: {response.text}")
+                return None
+
+    def get_watchlist(self, watch_id: int, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
+        """
+        Fetch the user's watchlist by ID.
+
+        Args:
+            watch_id: ID of the watchlist to fetch
+            timeout: Request timeout in seconds.
+
+        Returns:
+            Parsed ATRAD watchlist response, or None if fetching/parsing fails.
+        """
+        logger.debug(f"[{self.user_id}] Fetching watchlist with ID={watch_id}")
+
+        endpoint = f"{self.watchlist_endpoint}&watchId={watch_id}&lastUpdatedId=0&dojo.preventCache={self._epoch_time_ms()}"
+
+        print(f"Fetching watchlist with URL: {endpoint}")  # Debug print for watchlist URL
+        with self._request_lock:
+            response = self._request_with_reauth("GET", endpoint, timeout=timeout)
+
+            if response is None:
+                return None
+
+            logger.debug(f"[{self.user_id}] Watchlist fetch response status: {response.status_code}")
+
+            if response.status_code != 200:
+                logger.warning(
+                    f"[{self.user_id}] Watchlist fetch failed: "
+                    f"{response.status_code} {response.reason}"
+                )
+                return None
+
+            try:
+                result = response.text.strip().replace("'", '"')
+                result = json.loads(result)
+                if str(result.get("code")) != "0":
+                    logger.warning(
+                        f"[{self.user_id}] ATRAD watchlist request failed: "
+                        f"{result.get('description', 'Unknown error')}"
+                    )
+                    return None
+                return result.get("data", {}).get("watch", [])
+            except ValueError:
+                logger.error(f"[{self.user_id}] Invalid ATRAD watchlist response: {response.text}")
+                return None
 
     def get_ltp(self, symbol: str, timeout: float = 5.0) -> Optional[float]:
         """

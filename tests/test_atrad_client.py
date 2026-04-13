@@ -227,6 +227,88 @@ def test_get_order_book_retries_after_html_session_expiry_and_returns_payload(at
     assert result["blotterdata"][0]["clientorderid"] == "76071192"
 
 
+def test_get_completed_order_book_uses_completed_endpoint(atrad_user_config, http_interceptor):
+    client = ATRADClient(atrad_user_config)
+    client._is_authenticated = True
+
+    completed_matcher = (
+        lambda url: url.startswith(
+            "https://atrad.test/atsweb/order?action=getUCCInactiveBlotterData&format=json"
+        )
+        and "&dojo.preventCache=" in url
+    )
+
+    http_interceptor.add_text(
+        "GET",
+        completed_matcher,
+        text=(
+            '{"code":"0","description":"success","data":{"blotterdata":[{"clientorderid":"9001",'
+            '"securitycode":"NABIL","orderplacedate":"2026-04-10 11:18:29"}],'
+            '"lastUpdatedTime":"2026-04-10 12:53:16"}}'
+        ),
+    )
+
+    result = client.get_order_book(completed=True)
+
+    assert result["blotterdata"][0]["clientorderid"] == "9001"
+
+
+def test_get_custom_watchlists_returns_watch_list_names(atrad_user_config, http_interceptor):
+    client = ATRADClient(atrad_user_config)
+    client._is_authenticated = True
+
+    matcher = (
+        lambda url: url.startswith(
+            "https://atrad.test/atsweb/watch?action=getCustomWatches&format=json&exchange=NEPSE"
+        )
+        and "&dojo.preventCache=" in url
+    )
+
+    http_interceptor.add_text(
+        "GET",
+        matcher,
+        text=(
+            '{"code":"0","description":"success","customwatches":{"watchListName":['
+            '{"watchListID":"101305","watchListName":"IPO","exchangeID":"NEPSE"},'
+            '{"watchListID":"207815","watchListName":"Buy List","exchangeID":"NEPSE"}],'
+            '"size":[{"size":"2"}]}}'
+        ),
+    )
+
+    result = client.get_custom_watchlists()
+
+    assert result[0]["watchListName"] == "IPO"
+    assert result[1]["watchListID"] == "207815"
+
+
+def test_get_watchlist_returns_watch_rows(atrad_user_config, http_interceptor):
+    client = ATRADClient(atrad_user_config)
+    client._is_authenticated = True
+
+    matcher = (
+        lambda url: url.startswith(
+            "https://atrad.test/atsweb/watch?action=userWatch&format=json&exchange=NEPSE&bookDefId=1&watchId=101305&lastUpdatedId=0"
+        )
+        and "&dojo.preventCache=" in url
+    )
+
+    http_interceptor.add_text(
+        "GET",
+        matcher,
+        text=(
+            '{"code":"0","description":"success","data":{"watch":['
+            '{"securitycode":"NABIL","tradeprice":"501.2","bidprice":"500.9","askprice":"501.4","change":"1.2","tradeqty":"10000"},'
+            '{"securitycode":"SKBBL","tradeprice":"799.0","bidprice":"798.5","askprice":"799.5","change":"-2.5","tradeqty":"8000"}'
+            ']}}'
+        ),
+    )
+
+    result = client.get_watchlist(101305)
+
+    assert result[0]["securitycode"] == "NABIL"
+    assert result[1]["tradeqty"] == "8000"
+
+
 def test_build_cancel_order_url_encodes_cancel_payload(atrad_user_config):
     client = ATRADClient(atrad_user_config)
     order = {

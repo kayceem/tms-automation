@@ -37,3 +37,30 @@ class OrderBookRow:
     order_time: str
     last_updated_time: str
     raw: dict
+
+
+@dataclass(frozen=True)
+class CustomWatchlistRow:
+    watch_list_id: str
+    watch_list_name: str
+    exchange_id: str
+    raw: dict
+
+
+@dataclass(frozen=True)
+class WatchlistEntryRow:
+    security_code: str
+    bid_quantity: str
+    bid_price: str
+    ask_quantity: str
+    ask_price: str
+    net_change: str
+    percent_change: str
+    last_price: str
+    last_traded_time: str
+    opening_price: str
+    high_price: str
+    low_price: str
+    volume: str
+    turnover: str
+    raw: dict

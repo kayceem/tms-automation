@@ -7,7 +7,7 @@ from typing import Iterable
 
 from api.atrad_client import ATRADClient
 from config import ATRADUserConfig
-from tui.models import OrderBookRow
+from tui.models import CustomWatchlistRow, OrderBookRow, WatchlistEntryRow
 from utils.config.atrad_config_actions import iter_atrad_user_paths
 
 
@@ -48,9 +48,18 @@ class PortfolioService:
     def load_user_config(self, path: str | Path) -> ATRADUserConfig:
         return ATRADUserConfig.from_file(str(path))
 
-    def fetch_order_book(self, path: str | Path) -> tuple[list[OrderBookRow], dict]:
+    def get_user_label(self, path: str | Path) -> str:
+        config = self.load_user_config(path)
+        return config.username or config.user_id
+
+    def fetch_order_book(
+        self,
+        path: str | Path,
+        *,
+        completed: bool = False,
+    ) -> tuple[list[OrderBookRow], dict]:
         client = ATRADClient(self.load_user_config(path))
-        payload = client.get_order_book()
+        payload = client.get_order_book(completed=completed)
         if payload is None:
             raise RuntimeError("Unable to fetch ATRAD order book")
 
@@ -74,6 +83,51 @@ class PortfolioService:
         ]
         rows.sort(key=lambda row: row.last_updated_time or "", reverse=True)
         return rows, payload
+
+    def fetch_custom_watchlists(self, path: str | Path) -> list[CustomWatchlistRow]:
+        client = ATRADClient(self.load_user_config(path))
+        payload = client.get_custom_watchlists()
+        if payload is None:
+            raise RuntimeError("Unable to fetch ATRAD custom watchlists")
+
+        return [
+            CustomWatchlistRow(
+                watch_list_id=_pick_first(item, "watchListID", "watchlistid"),
+                watch_list_name=_pick_first(item, "watchListName", "watchlistname"),
+                exchange_id=_pick_first(item, "exchangeID", "exchangeid", default="-"),
+                raw=item,
+            )
+            for item in payload
+        ]
+
+    def fetch_watchlist(self, path: str | Path, watch_id: int) -> list[WatchlistEntryRow]:
+        client = ATRADClient(self.load_user_config(path))
+        payload = client.get_watchlist(watch_id)
+        if payload is None:
+            raise RuntimeError("Unable to fetch ATRAD watchlist contents")
+
+        rows = [
+            WatchlistEntryRow(
+                security_code=_pick_first(item, "security", "securitycode", "securityCode", "symbol", default="-"),
+                bid_quantity=_pick_first(item, "bidqty", "bidQty", default="-"),
+                bid_price=_pick_first(item, "bidprice", "bidPrice", default="-"),
+                ask_quantity=_pick_first(item, "askqty", "askQty", default="-"),
+                ask_price=_pick_first(item, "askprice", "askPrice", default="-"),
+                net_change=_pick_first(item, "netchange", "change", "changeinprice", "changeValue", default="-"),
+                percent_change=_pick_first(item, "perchange", "percentChange", default="-"),
+                last_price=_pick_first(item, "tradeprice", "ltp", "lastTradedPrice", default="-"),
+                last_traded_time=_pick_first(item, "lasttradedtime", "lastTradedTime", default="-"),
+                opening_price=_pick_first(item, "openingprice", "openingPrice", default="-"),
+                high_price=_pick_first(item, "highpx", "highPrice", default="-"),
+                low_price=_pick_first(item, "lowpx", "lowPrice", default="-"),
+                volume=_pick_first(item, "totvolume", "tradeqty", "volume", "ttq", default="-"),
+                turnover=_pick_first(item, "totturnover", "turnover", default="-"),
+                raw=item,
+            )
+            for item in payload
+        ]
+        rows.sort(key=lambda row: row.security_code)
+        return rows
 
     def build_cancel_url(self, path: str | Path, order: dict) -> str:
         client = ATRADClient(self.load_user_config(path))

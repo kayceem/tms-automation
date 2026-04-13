@@ -457,7 +457,11 @@ class OrdersScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(" CONFIG ▸ ORDERS ▸ STORE EDITOR ", classes="screen-title")
-        table = DataTable(id="orders-table")
+        table = DataTable(
+            id="orders-table",
+            cursor_foreground_priority="renderable",
+            cursor_background_priority="css",
+        )
         table.cursor_type = "row"
         yield table
         with Horizontal():
@@ -496,25 +500,30 @@ class OrdersScreen(Screen[None]):
         table = self.query_one("#orders-table", DataTable)
         table.clear()
         for row in self.service.list_rows():
+            row_color = "#00d26a" if row.execute else "#ff4757"
             table.add_row(
-                row.id,
-                row.ticker,
-                row.mode,
-                str(row.queue_id),
-                "yes" if row.execute else "no",
-                "yes" if row.success else "no",
-                row.time,
-                "yes" if row.multi_queue else "no",
-                str(row.price),
-                str(row.limit) if row.limit is not None else "",
-                str(row.quantity),
-                f"{int(row.total_cost):,}",
-                f"{int(row.cumulative_cost):,}",
-                f"{int(row.total_cost*2):,}",
-                f"{int(row.total_cost*3):,}",
+                self._styled_cell(row.id, row_color),
+                self._styled_cell(row.ticker, row_color),
+                self._styled_cell(row.mode, row_color),
+                self._styled_cell(str(row.queue_id), row_color),
+                self._styled_cell("yes" if row.execute else "no", row_color),
+                self._styled_cell("yes" if row.success else "no", row_color),
+                self._styled_cell(row.time, row_color),
+                self._styled_cell("yes" if row.multi_queue else "no", row_color),
+                self._styled_cell(str(row.price), row_color),
+                self._styled_cell(str(row.limit) if row.limit is not None else "", row_color),
+                self._styled_cell(str(row.quantity), row_color),
+                self._styled_cell(f"{int(row.total_cost):,}", row_color),
+                self._styled_cell(f"{int(row.cumulative_cost):,}", row_color),
+                self._styled_cell(f"{int(row.total_cost*2):,}", row_color),
+                self._styled_cell(f"{int(row.total_cost*3):,}", row_color),
 
                 key=row.id,
             )
+
+    @staticmethod
+    def _styled_cell(value: str, color: str) -> str:
+        return f"[{color}]{value or '-'}[/]"
 
     def _selected_order_id(self) -> str | None:
         table = self.query_one("#orders-table", DataTable)

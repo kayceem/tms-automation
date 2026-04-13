@@ -51,10 +51,22 @@ class ConfigMenuScreen(FocusableScreen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static(" CONFIG ▸ MENU ", classes="screen-title")
-        yield Button("[U] User Defaults", id="user", classes="menu-button")
-        yield Button("[O] Orders", id="orders", classes="menu-button")
-        yield Button("[Esc] Back", id="back", classes="menu-button")
+        with Vertical(classes="menu-shell"):
+            yield Static(" CONFIG ▸ MENU ", classes="screen-title")
+            yield Static("Adjust defaults and maintain the live order store. Use [bold]Esc[/] to go back.", classes="menu-subtitle")
+            with Vertical(classes="menu-section"):
+                with Vertical(classes="menu-list"):
+                    yield Button(
+                        "[bold #ff9e1b]U[/]  User Defaults  [#6b6b6b]Trigger timing and ATRAD session reset[/]",
+                        id="user",
+                        classes="menu-item",
+                    )
+                    yield Static("─" * 64, classes="menu-divider")
+                    yield Button(
+                        "[bold #ff9e1b]O[/]  Orders         [#6b6b6b]Edit queued orders and refresh stored prices[/]",
+                        id="orders",
+                        classes="menu-item",
+                    )
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -62,8 +74,6 @@ class ConfigMenuScreen(FocusableScreen):
             self.action_open_user_tools()
         elif event.button.id == "orders":
             self.action_open_orders()
-        elif event.button.id == "back":
-            self.app.pop_screen()
 
     def on_mount(self) -> None:
         self.query_one("#user", Button).focus()

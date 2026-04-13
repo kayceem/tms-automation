@@ -1,6 +1,7 @@
 """Main menu screen."""
 
 from textual.app import ComposeResult
+from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static, Button
 
@@ -16,10 +17,22 @@ class MainMenuScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static(" TMS ▸ MAIN MENU ", id="title")
-        yield Button("[P] Portfolio", id="portfolio", classes="menu-button")
-        yield Button("[C] Config", id="config", classes="menu-button")
-        yield Button("[Q] Quit", id="quit", classes="menu-button")
+        with Vertical(classes="menu-shell"):
+            yield Static(" TMS ▸ MAIN MENU ", id="title")
+            yield Static("Operator shortcuts and entry points. Use [bold]Q[/] to quit.", classes="menu-subtitle")
+            with Vertical(classes="menu-section"):
+                with Vertical(classes="menu-list"):
+                    yield Button(
+                        "[bold #ff9e1b]P[/]  Portfolio  [#6b6b6b]ATRAD order book and account views[/]",
+                        id="portfolio",
+                        classes="menu-item",
+                    )
+                    yield Static("─" * 64, classes="menu-divider")
+                    yield Button(
+                        "[bold #ff9e1b]C[/]  Config     [#6b6b6b]Defaults, order store, and runtime settings[/]",
+                        id="config",
+                        classes="menu-item",
+                    )
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -27,8 +40,6 @@ class MainMenuScreen(Screen[None]):
             self.action_open_portfolio()
         elif event.button.id == "config":
             self.action_open_config()
-        elif event.button.id == "quit":
-            self.app.exit()
 
     def on_mount(self) -> None:
         self.query_one("#portfolio", Button).focus()

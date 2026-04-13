@@ -39,6 +39,80 @@ Screen {
     color: #e8e8e8;
 }
 
+.menu-shell {
+    width: 100%;
+    max-width: 84;
+    padding: 0;
+    align: left top;
+}
+
+.menu-subtitle {
+    width: 100%;
+    margin: 0 0 1 0;
+    padding: 0 1;
+    color: #6b6b6b;
+}
+
+.menu-section {
+    width: 100%;
+    margin: 0;
+    border: tall #1a1000;
+    background: #050505;
+    padding: 0 1;
+    align: left top;
+}
+
+.menu-list {
+    width: 100%;
+    height: auto;
+    align: left top;
+}
+
+.menu-item {
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    margin: 0;
+    padding: 0 1;
+    background: #050505;
+    color: #e8e8e8;
+    border: none;
+    content-align: left middle;
+    text-align: left;
+}
+
+.menu-item:hover {
+    background: #1a1000;
+    color: #ffd166;
+}
+
+.menu-item:focus,
+.menu-item.-active {
+    background: #ff9e1b 22%;
+    color: #ffffff;
+    text-style: bold;
+}
+
+.menu-item:disabled {
+    color: #4a4a4a;
+    background: #050505;
+}
+
+.menu-key {
+    color: #ff9e1b;
+    text-style: bold;
+}
+
+.menu-meta {
+    color: #6b6b6b;
+}
+
+.menu-divider {
+    width: 100%;
+    height: 1;
+    color: #1a1000;
+}
+
 VerticalScroll {
     width: 100%;
     height: 1fr;
@@ -145,8 +219,7 @@ DataTable > .datatable--header {
 }
 
 DataTable > .datatable--cursor {
-    background: #ff9e1b;
-    color: #000000;
+    background: #ff9e1b 28%;
     text-style: bold;
 }
 
@@ -331,12 +404,14 @@ Checkbox:focus {
     text-style: bold;
 }
 
-#config-status, #orders-status, #order-book-status, #atrad-users-status, #order-editor-status {
-    width: 100%;
-    padding: 0 1;
-    margin: 1 0 0 0;
+#config-status, #orders-status, #order-book-status, #completed-order-book-status, #watchlist-status, #atrad-users-status, #order-editor-status, #portfolio-status {
     background: #0a0a0a;
     color: #ffd166;
+}
+
+#order-book-total, #completed-order-book-total, #portfolio-total {
+    background: #0a0a0a;
+    color: #5fd7ff;
 }
 
 #order-book-response {
@@ -360,11 +435,13 @@ Label {
 }
 
 #order-editor-actions,
-#user-config-actions {
+#user-config-actions,
+#portfolio-actions {
     width: 100%;
     height: auto;
     align: left middle;
     padding: 1 0 0 0;
+    margin: 0 0 1 0;
 }
 
 Header {
