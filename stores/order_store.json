@@ -186,7 +186,7 @@
       "id": "skhl_ipo_low",
       "ticker": "SKHL",
       "mode": "ipo-trigger-low",
-      "queue_id": 5,
+      "queue_id": 6,
       "time": null,
       "price": 1055.8,
       "quantity": 200,

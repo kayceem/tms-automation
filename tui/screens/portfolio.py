@@ -169,34 +169,38 @@ class CancelConfirmScreen(ModalScreen[bool]):
         self.dismiss(True)
 
 
-class AddSymbolScreen(ModalScreen[str | None]):
+class SymbolPromptScreen(ModalScreen[str | None]):
     BINDINGS = [
         ("escape", "dismiss(None)", "Close"),
     ]
 
-    def __init__(self, watchlist_name: str) -> None:
+    def __init__(self, title: str, submit_label: str = "Submit", initial: str = "") -> None:
         super().__init__()
-        self.watchlist_name = watchlist_name
+        self.prompt_title = title
+        self.submit_label = submit_label
+        self.initial = initial
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="confirm-shell"):
-            yield Static(
-                f" WATCHLIST ▸ ADD SYMBOL ▸ {self.watchlist_name.upper()} ",
-                classes="screen-title",
-            )
+        with Vertical(id="symbol-prompt-shell"):
+            yield Static(f" {self.prompt_title.upper()} ", classes="screen-title")
             with Horizontal(classes="form-row"):
                 yield Static("Symbol", classes="form-label")
-                yield Input(placeholder="e.g. NABIL", id="symbol-input", classes="form-input")
-            yield Static("", id="add-symbol-status")
+                yield Input(
+                    value=self.initial,
+                    placeholder="e.g. NABIL",
+                    id="symbol-input",
+                    classes="form-input",
+                )
+            yield Static("", id="symbol-prompt-status")
             with Horizontal():
-                yield Button("[Enter] Add", id="add", classes="action-button")
+                yield Button(f"[Enter] {self.submit_label}", id="submit", classes="action-button")
                 yield Button("[Esc] Cancel", id="cancel", classes="action-button")
 
     def on_mount(self) -> None:
         self.query_one("#symbol-input", Input).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "add":
+        if event.button.id == "submit":
             self._submit()
         else:
             self.dismiss(None)
@@ -207,7 +211,7 @@ class AddSymbolScreen(ModalScreen[str | None]):
     def _submit(self) -> None:
         value = self.query_one("#symbol-input", Input).value.strip().upper()
         if not value:
-            self.query_one("#add-symbol-status", Static).update("[#ff4757]Enter a symbol.[/]")
+            self.query_one("#symbol-prompt-status", Static).update("[#ff4757]Enter a symbol.[/]")
             return
         self.dismiss(value)
 
@@ -217,6 +221,9 @@ class OrderBookScreen(Screen[None]):
         ("ctrl+1", "show_active_panel", "Active"),
         ("ctrl+2", "show_completed_panel", "Completed"),
         ("ctrl+3", "show_watchlist_panel", "Watchlists"),
+        ("ctrl+4", "show_market_panel", "Market"),
+        ("s", "change_market_symbol", "Symbol"),
+        ("k", "change_market_symbol", "Search Symbol"),
         ("left", "previous_panel", "Prev Panel"),
         ("right", "next_panel", "Next Panel"),
         ("r", "refresh_book", "Refresh"),
@@ -238,6 +245,7 @@ class OrderBookScreen(Screen[None]):
         self.watchlist_rows: list[WatchlistEntryRow] = []
         self._watchlists_loaded = False
         self._selected_watchlist_id: str | None = None
+        self._market_symbol: str | None = None
         self.user_label = self.service.get_user_label(self.user_path)
 
     def compose(self) -> ComposeResult:
@@ -247,6 +255,7 @@ class OrderBookScreen(Screen[None]):
             with TabPane("Active", id="tab-active"):
                 table = DataTable(
                     id="order-book-table",
+                    zebra_stripes=True,
                     cursor_foreground_priority="renderable",
                     cursor_background_priority="css",
                 )
@@ -256,6 +265,7 @@ class OrderBookScreen(Screen[None]):
             with TabPane("Completed", id="tab-completed"):
                 table = DataTable(
                     id="completed-order-book-table",
+                    zebra_stripes=True,
                     cursor_foreground_priority="renderable",
                     cursor_background_priority="css",
                 )
@@ -265,11 +275,32 @@ class OrderBookScreen(Screen[None]):
             with TabPane("Watchlists", id="tab-watchlists"):
                 watchlist_table = DataTable(
                     id="watchlist-table",
+                    zebra_stripes=True,
                     cursor_foreground_priority="renderable",
                     cursor_background_priority="css",
                 )
                 watchlist_table.cursor_type = "row"
                 yield watchlist_table
+
+            with TabPane("Market", id="tab-market"):
+                with Horizontal(id="market-tables"):
+                    bids_table = DataTable(
+                        id="market-bids-table",
+                        zebra_stripes=True,
+                        cursor_foreground_priority="renderable",
+                        cursor_background_priority="css",
+                    )
+                    bids_table.cursor_type = "row"
+                    yield bids_table
+                    asks_table = DataTable(
+                        id="market-asks-table",
+                        zebra_stripes=True,
+                        cursor_foreground_priority="renderable",
+                        cursor_background_priority="css",
+                    )
+                    asks_table.cursor_type = "row"
+                    yield asks_table
+                yield Static("", id="market-ltp", classes="market-ltp")
         yield Static("", id="portfolio-total")
         yield Static("", id="portfolio-status")
         with VerticalScroll(id="active-response-scroll", classes="response-scroll"):
@@ -278,6 +309,8 @@ class OrderBookScreen(Screen[None]):
             yield Static("", id="completed-response", classes="response-text")
         with VerticalScroll(id="watchlist-response-scroll", classes="response-scroll"):
             yield Static("", id="watchlist-response", classes="response-text")
+        with VerticalScroll(id="market-response-scroll", classes="response-scroll"):
+            yield Static("", id="market-response", classes="response-text")
         with Horizontal(id="portfolio-actions"):
             yield Button("[R] Refresh", id="refresh", classes="action-button")
             yield Button("[C] Cancel Selected", id="cancel", classes="action-button")
@@ -292,51 +325,52 @@ class OrderBookScreen(Screen[None]):
     def on_mount(self) -> None:
         active_table = self.query_one("#order-book-table", DataTable)
         active_table.add_columns(
-            "order_id",
-            "exchange_id",
-            "symbol",
-            "side",
-            "qty",
-            "filled",
-            "remainder",
-            "price",
-            "amount",
-            "status",
-            "time",
-            "last updated",
+            "  SYMBOL",
+            "   SIDE",
+            "     QTY",
+            "  FILLED",
+            "    REM",
+            "    PRICE",
+            "     AMOUNT",
+            " STATUS",
+            "ORDER ID",
+            "   EXCH ID",
+            "  TIME",
+            "  UPDATED",
         )
         completed_table = self.query_one("#completed-order-book-table", DataTable)
         completed_table.add_columns(
-            "order_id",
-            "exchange_id",
-            "symbol",
-            "side",
-            "qty",
-            "filled",
-            "remainder",
-            "price",
-            "amount",
-            "status",
-            "time",
-            "last updated",
+            "  SYMBOL",
+            "   SIDE",
+            "     QTY",
+            "  FILLED",
+            "    REM",
+            "    PRICE",
+            "     AMOUNT",
+            " STATUS",
+            "ORDER ID",
+            "   EXCH ID",
+            " TIME",
+            "  UPDATED",
         )
         watchlist_table = self.query_one("#watchlist-table", DataTable)
         watchlist_table.add_columns(
-            "symbol",
-            "ltp",
-            "open",
-            "high",
-            "low",
-            "net",
-            "%",
-            "volume",
-            "turnover",
-            "bid qty",
-            "bid",
-            "ask qty",
-            "ask",
-            "last trade",
+            "  SYMBOL",
+            "    LAST",
+            "     CHG",
+            "    CHG%",
+            "    OPEN",
+            "    HIGH",
+            "     LOW",
+            "  VOLUME",
+            "   T/O",
+            "          BID",
+            "          ASK",
         )
+        bids_table = self.query_one("#market-bids-table", DataTable)
+        bids_table.add_columns("#", "splits", "qty", "bid price")
+        asks_table = self.query_one("#market-asks-table", DataTable)
+        asks_table.add_columns("#", "ask price", "qty", "splits")
         self.action_show_active_panel()
         active_table.focus()
         self._update_action_buttons()
@@ -360,15 +394,18 @@ class OrderBookScreen(Screen[None]):
     def action_show_watchlist_panel(self) -> None:
         self._set_panel("tab-watchlists")
 
+    def action_show_market_panel(self) -> None:
+        self._set_panel("tab-market")
+
+    _PANELS = ("tab-active", "tab-completed", "tab-watchlists", "tab-market")
+
     def action_previous_panel(self) -> None:
-        panels = ["tab-active", "tab-completed", "tab-watchlists"]
-        current = panels.index(self._active_panel())
-        self._set_panel(panels[(current - 1) % len(panels)])
+        current = self._PANELS.index(self._active_panel())
+        self._set_panel(self._PANELS[(current - 1) % len(self._PANELS)])
 
     def action_next_panel(self) -> None:
-        panels = ["tab-active", "tab-completed", "tab-watchlists"]
-        current = panels.index(self._active_panel())
-        self._set_panel(panels[(current + 1) % len(panels)])
+        current = self._PANELS.index(self._active_panel())
+        self._set_panel(self._PANELS[(current + 1) % len(self._PANELS)])
 
     def _focus_current_panel(self) -> None:
         panel = self._active_panel()
@@ -376,6 +413,8 @@ class OrderBookScreen(Screen[None]):
             self.query_one("#order-book-table", DataTable).focus()
         elif panel == "tab-completed":
             self.query_one("#completed-order-book-table", DataTable).focus()
+        elif panel == "tab-market":
+            self.query_one("#market-bids-table", DataTable).focus()
         else:
             self.query_one("#watchlist-table", DataTable).focus()
 
@@ -383,6 +422,7 @@ class OrderBookScreen(Screen[None]):
         "tab-active": "active",
         "tab-completed": "completed",
         "tab-watchlists": "watchlist",
+        "tab-market": "market",
     }
 
     def _update_action_buttons(self) -> None:
@@ -391,19 +431,22 @@ class OrderBookScreen(Screen[None]):
         cancel_button.display = panel == "tab-active"
         selector = self.query_one("#watchlist-selector", Select)
         selector.display = panel == "tab-watchlists"
-        for key in ("active", "completed", "watchlist"):
+        for key in ("active", "completed", "watchlist", "market"):
             self.query_one(f"#{key}-response-scroll").display = self._PANEL_KEY.get(panel) == key
 
     def on_tabbed_content_tab_activated(self, _event: TabbedContent.TabActivated) -> None:
         self._focus_current_panel()
         self._update_action_buttons()
+        if self._active_panel() == "tab-market" and self._market_symbol is None:
+            self._prompt_market_symbol()
 
     def _set_status(self, message: str, panel: str = "active") -> None:
         panel_label = {
             "active": "Active",
             "completed": "Completed",
             "watchlists": "Watchlists",
-        }[panel]
+            "market": "Market",
+        }.get(panel, panel.title())
         self.query_one("#portfolio-status", Static).update(f"{panel_label}: {message}")
 
     def _set_response(self, message: str, panel: str = "active") -> None:
@@ -427,6 +470,8 @@ class OrderBookScreen(Screen[None]):
             try:
                 total += Decimal(str(row.amount).replace(",", ""))
                 has_value = True
+                if int(str(row.filled_quantity)) > 0 and Decimal(row.price.replace(",", "")):
+                    total += int(str(row.filled_quantity).replace(",", "")) * Decimal(str(row.price).replace(",", ""))
             except (InvalidOperation, TypeError, ValueError):
                 continue
 
@@ -457,6 +502,16 @@ class OrderBookScreen(Screen[None]):
                     "completed",
                 )
                 return
+            if panel == "tab-market":
+                if self._market_symbol is None:
+                    self.app.call_from_thread(
+                        self._set_status, "Press K to search a symbol.", "market",
+                    )
+                    return
+                symbol = self._market_symbol
+                ltp, market_details, last_updated_time = self.service.fetch_script_details(self.user_path, symbol)
+                self.app.call_from_thread(self._apply_market, symbol, market_details, ltp, last_updated_time)
+                return
             if not self._watchlists_loaded:
                 watchlists = self.service.fetch_custom_watchlists(self.user_path)
                 self.app.call_from_thread(self._apply_watchlists, watchlists)
@@ -469,12 +524,48 @@ class OrderBookScreen(Screen[None]):
             self.app.call_from_thread(self._apply_watchlist_rows, watch_id, rows, last_updated_time)
             return
         except RuntimeError as exc:
-            self.app.call_from_thread(
-                self._set_status,
-                str(exc),
-                "watchlists" if panel == "tab-watchlists" else ("completed" if panel == "tab-completed" else "active"),
-            )
+            panel_status = {
+                "tab-active": "active",
+                "tab-completed": "completed",
+                "tab-watchlists": "watchlists",
+                "tab-market": "market",
+            }.get(panel, "active")
+            self.app.call_from_thread(self._set_status, str(exc), panel_status)
             return
+
+    _STATUS_PALETTE = {
+        "filled": "#3ddc84",
+        "fill": "#3ddc84",
+        "complete": "#3ddc84",
+        "completed": "#3ddc84",
+        "executed": "#3ddc84",
+        "pending": "#ffd166",
+        "open": "#ffd166",
+        "working": "#ffd166",
+        "new": "#ffd166",
+        "partial": "#ffd166",
+        "partially": "#ffd166",
+        "cancel": "#f47174",
+        "cancelled": "#f47174",
+        "canceled": "#f47174",
+        "rejected": "#ff5c5c",
+        "expired": "#6b6b6b",
+    }
+
+    @classmethod
+    def _status_color(cls, status: str) -> str:
+        key = (status or "").strip().lower()
+        for token, color in cls._STATUS_PALETTE.items():
+            if token in key:
+                return color
+        return "#e8e8e8"
+
+    @staticmethod
+    def _float_cell(value: str) -> float | None:
+        try:
+            return float(str(value).replace(",", ""))
+        except (ValueError, TypeError):
+            return None
 
     def _apply_order_rows(
         self,
@@ -490,27 +581,59 @@ class OrderBookScreen(Screen[None]):
         table = self.query_one(table_id, DataTable)
         table.clear()
         for row in rows:
-            row_color = "#00d26a" if self._has_fill(row.filled_quantity) else "#ff4757"
+            action = (row.action or "").strip().upper()
+            is_buy = action.startswith("B")
+            is_sell = action.startswith("S")
+            side_color = "#3ddc84" if is_buy else ("#f47174" if is_sell else "#e8e8e8")
+            side_arrow = "▲" if is_buy else ("▼" if is_sell else "·")
+            side_cell = f"[bold {side_color}]{side_arrow} {action or '-':<4}[/]"
+
+            qty_f = self._float_cell(row.quantity)
+            filled_f = self._float_cell(row.filled_quantity) or 0.0
+            pct_filled = (filled_f / qty_f * 100) if qty_f and qty_f > 0 else None
+            if filled_f > 0 and pct_filled is not None:
+                fill_color = "#3ddc84" if pct_filled >= 100 else "#ffd166"
+                filled_cell = f"[bold {fill_color}]{row.filled_quantity}[/] [#6b6b6b]({pct_filled:.0f}%)[/]"
+            else:
+                filled_cell = f"[#6b6b6b]{row.filled_quantity or '0':>8}[/]"
+
+            rem_f = self._float_cell(row.remainder)
+            if rem_f is not None and rem_f == 0:
+                rem_cell = f"[#6b6b6b]{row.remainder:>6}[/]"
+            else:
+                rem_cell = f"[#e8e8e8]{row.remainder or '-':>6}[/]"
+
+            status_color = self._status_color(row.order_status)
+            status_cell = f"[bold {status_color}]{(row.order_status or '-').upper():<10}[/]"
+            format_time = lambda t: t.split(" ")[-1] if t else "-"
+            symbol_cell = f"[bold #5fd7ff]{row.security_code or '-'}[/]"
+            qty_cell = f"[#e8e8e8]{(row.quantity or '-'):>8}[/]"
+            price_cell = f"[bold #e8e8e8]{(row.price or '-'):>10}[/]"
+            amount_cell = f"[#e8e8e8]{(row.amount or '-'):>12}[/]"
+            order_id_cell = f"[#6b6b6b]{row.client_order_id or '-'}[/]"
+            exch_cell = f"[#6b6b6b]{row.exchange_order_id or '-'}[/]"
+            time_cell = f"[#6b6b6b]{format_time(row.order_time) or '-'}[/]"
+            updated_cell = f"[#5fd7ff]{format_time(row.last_updated_time) or '-'}[/]"
+
             table.add_row(
-                self._styled_cell(row.client_order_id, row_color),
-                self._styled_cell(row.exchange_order_id, row_color),
-                f"[bold #5fd7ff]{row.security_code}[/]",
-                self._styled_cell(row.action, row_color),
-                self._styled_cell(row.quantity, row_color),
-                self._styled_cell(row.filled_quantity, row_color),
-                self._styled_cell(row.remainder, row_color),
-                self._styled_cell(row.price, row_color),
-                self._styled_cell(row.amount, row_color),
-                self._styled_cell(row.order_status, row_color),
-                self._styled_cell(row.order_time, row_color),
-                f"[bold #5fd7ff]{row.last_updated_time or '-'}[/]",
+                symbol_cell,
+                side_cell,
+                qty_cell,
+                filled_cell,
+                rem_cell,
+                price_cell,
+                amount_cell,
+                status_cell,
+                order_id_cell,
+                exch_cell,
+                time_cell,
+                updated_cell,
                 key=row.client_order_id,
             )
         self._set_total(rows, "Active" if panel == "active" else "Completed")
         self._set_status(
-            f"Loaded {len(rows)} order(s)"
-            + (f" | last updated {last_updated_time}" if last_updated_time else "")
-            ,
+            f"{'Active' if panel == 'active' else 'Completed'} · {len(rows)} order(s)"
+            + (f" · updated {last_updated_time}" if last_updated_time else ""),
             panel,
         )
 
@@ -575,9 +698,9 @@ class OrderBookScreen(Screen[None]):
         except (ValueError, TypeError):
             p = 0.0
         if n > 0:
-            return "#33c000" if p > 9.9 else "#047200"
+            return "#62ff7a" if p > 9.9 else "#3ddc84"
         if n < 0:
-            return "#ff1a31" if p > 9.9 else "#b11824"
+            return "#ff5c5c" if p > 9.9 else "#f47174"
         return None
 
     def _apply_watchlist_rows(self, watch_id: int, rows: list[WatchlistEntryRow], last_updated_time: str) -> None:
@@ -586,31 +709,65 @@ class OrderBookScreen(Screen[None]):
         table.clear()
         for row in rows:
             color = self._watchlist_row_color(row.net_change, row.percent_change)
-            def paint(value: str, bold: bool = False) -> str:
-                text = value or "-"
+            try:
+                n = float(str(row.net_change).replace(",", ""))
+            except (ValueError, TypeError):
+                n = 0.0
+            arrow = "▲" if n > 0 else ("▼" if n < 0 else "·")
+            sign = "+" if n > 0 else ""
+
+            def rjust(value: str, width: int) -> str:
+                return str(value or "-").rjust(width)
+
+            def tinted(text: str, bold: bool = False) -> str:
                 if color is None:
                     return text
                 prefix = "bold " if bold else ""
                 return f"[{prefix}{color}]{text}[/]"
+
+            def muted(text: str) -> str:
+                return tinted(text) if color else f"[#6b6b6b]{text}[/]"
+
+            symbol_cell = (
+                f"[bold {color}]{row.security_code}[/]" if color else f"[bold #5fd7ff]{row.security_code}[/]"
+            )
+            last_cell = (
+                f"[bold {color}]{rjust(row.last_price, 10)}[/]"
+                if color
+                else f"[bold #e8e8e8]{rjust(row.last_price, 10)}[/]"
+            )
+            chg_cell = tinted(f"{arrow} {sign}{row.net_change}".rjust(12), bold=True) if color else muted(rjust(row.net_change, 12))
+            pct_cell = tinted(f"{sign}{row.percent_change}%".rjust(9), bold=True) if color else muted(rjust(row.percent_change, 9))
+
+            bid_pair = (
+                f"{row.bid_quantity} × {row.bid_price}"
+                if row.bid_quantity not in ("-", "", None) and row.bid_price not in ("-", "", None)
+                else "-"
+            )
+            ask_pair = (
+                f"{row.ask_price} × {row.ask_quantity}"
+                if row.ask_quantity not in ("-", "", None) and row.ask_price not in ("-", "", None)
+                else "-"
+            )
+            bid_cell = f"[#00d26a]{bid_pair.rjust(14)}[/]" if bid_pair != "-" else muted(rjust("-", 14))
+            ask_cell = f"[#ff4757]{ask_pair.rjust(14)}[/]" if ask_pair != "-" else muted(rjust("-", 14))
+
             table.add_row(
-                paint(row.security_code, bold=True) if color else f"[bold #5fd7ff]{row.security_code}[/]",
-                paint(row.last_price),
-                paint(row.opening_price),
-                paint(row.high_price),
-                paint(row.low_price),
-                paint(row.net_change),
-                paint(row.percent_change),
-                paint(row.volume),
-                paint(row.turnover),
-                paint(row.bid_quantity),
-                paint(row.bid_price),
-                paint(row.ask_quantity),
-                paint(row.ask_price),
-                paint(row.last_traded_time),
+                symbol_cell,
+                last_cell,
+                chg_cell,
+                pct_cell,
+                muted(rjust(row.opening_price, 10)),
+                f"[#00d26a]{rjust(row.high_price, 10)}[/]" if row.high_price not in ("-", "", None) else muted(rjust("-", 10)),
+                f"[#ff4757]{rjust(row.low_price, 10)}[/]" if row.low_price not in ("-", "", None) else muted(rjust("-", 10)),
+                muted(rjust(row.volume, 12)),
+                muted(rjust(row.turnover, 14)),
+                bid_cell,
+                ask_cell,
                 key=row.security_code,
             )
         self._set_status(
-            f"Loaded watchlist {watch_id} with {len(rows)} symbol(s). | Last updated: {last_updated_time}",
+            f"Watchlist {watch_id} · {len(rows)} symbol(s) · updated {last_updated_time}",
             "watchlists",
         )
         self.query_one("#portfolio-total", Static).update("")
@@ -652,7 +809,10 @@ class OrderBookScreen(Screen[None]):
             self._set_status("Watchlist not found.", "watchlists")
             return
         self.app.push_screen(
-            AddSymbolScreen(row.watch_list_name),
+            SymbolPromptScreen(
+                title=f"WATCHLIST ▸ ADD SYMBOL ▸ {row.watch_list_name}",
+                submit_label="Add",
+            ),
             lambda symbol: self._handle_add_symbol_result(row, symbol),
         )
 
@@ -687,6 +847,132 @@ class OrderBookScreen(Screen[None]):
             self._set_status, f"Added {symbol} to watchlist. Refreshing...", "watchlists",
         )
         self.app.call_from_thread(self._load_watchlist, watch_id)
+
+    def action_change_market_symbol(self) -> None:
+        if self._active_panel() != "tab-market":
+            return
+        self._prompt_market_symbol()
+
+    def _prompt_market_symbol(self) -> None:
+        self.app.push_screen(
+            SymbolPromptScreen(
+                title="MARKET DETAILS ▸ ENTER SYMBOL",
+                submit_label="Load",
+                initial=self._market_symbol or "",
+            ),
+            self._handle_market_symbol_result,
+        )
+
+    def _handle_market_symbol_result(self, symbol: str | None) -> None:
+        if not symbol:
+            return
+        self._market_symbol = symbol
+        self.action_refresh_book()
+
+    def _apply_market(self, symbol: str, details: dict, ltp: dict, last_updated_time: str) -> None:
+        bids_table = self.query_one("#market-bids-table", DataTable)
+        asks_table = self.query_one("#market-asks-table", DataTable)
+        bids_table.clear()
+        asks_table.clear()
+        bids = details.get("bid", []) or []
+        asks = details.get("ask", []) or []
+        for i, b in enumerate(bids, start=1):
+            bids_table.add_row(
+                str(i),
+                str(b.get("splits", "-")),
+                str(b.get("qty", "-")),
+                f"[#00d26a]{b.get('price', '-')}[/]",
+            )
+        bids_table.add_row(
+            "[bold #ff9e1b]TOTAL[/]",
+            "",
+            f"[bold #00d26a]{details.get('totalbids', '0')}[/]",
+            "",
+        )
+        for i, a in enumerate(asks, start=1):
+            asks_table.add_row(
+                str(i),
+                f"[#ff4757]{a.get('price', '-')}[/]",
+                str(a.get("qty", "-")),
+                str(a.get("splits", "-")),
+            )
+        asks_table.add_row(
+            "[bold #ff9e1b]TOTAL[/]",
+            "",
+            f"[bold #ff4757]{details.get('totalask', '0')}[/]",
+            "",
+        )
+        self.query_one("#market-ltp", Static).update(self._format_ltp(ltp))
+        self.query_one("#portfolio-total", Static).update("")
+        self._set_status(
+            f"{symbol} · LTP {ltp.get('tradeprice', '-')} · updated {last_updated_time}",
+            "market",
+        )
+
+    @staticmethod
+    def _float_or_none(value) -> float | None:
+        try:
+            return float(str(value).replace(",", "").replace("%", ""))
+        except (ValueError, TypeError):
+            return None
+
+    @classmethod
+    def _format_ltp(cls, ltp: dict) -> str:
+        security = ltp.get("security", "-")
+        company = ltp.get("companyname", "-")
+        asset = ltp.get("assetClass", "-")
+        price = ltp.get("tradeprice", "-")
+        net = ltp.get("netchange", "-")
+        pct = ltp.get("perchange", "-")
+        open_px = ltp.get("openingprice", "-")
+        close = ltp.get("closingprice", "-")
+        high = ltp.get("highpx", "-")
+        low = ltp.get("lowpx", "-")
+        volume = ltp.get("totvolume", "-")
+        turnover = ltp.get("totturnover", "-")
+        trades = ltp.get("tottrades", "-")
+        size = ltp.get("tradesize", "-")
+        w52h = ltp.get("week52High", "-")
+        w52l = ltp.get("week52Low", "-")
+        last_time = ltp.get("lasttradedtime", "-")
+        odd_lot = ltp.get("oddLotQty", "-")
+
+        net_val = cls._float_or_none(net) or 0.0
+        color = "#00d26a" if net_val > 0 else ("#ff4757" if net_val < 0 else "#e8e8e8")
+        arrow = "▲" if net_val > 0 else ("▼" if net_val < 0 else "●")
+        sign = "+" if net_val > 0 else ""
+
+        bar_width = 30
+        range_bar = "─" * bar_width
+        hi = cls._float_or_none(w52h)
+        lo = cls._float_or_none(w52l)
+        cur = cls._float_or_none(price)
+        if hi is not None and lo is not None and cur is not None and hi > lo:
+            pos = int(round(((cur - lo) / (hi - lo)) * (bar_width - 1)))
+            pos = max(0, min(bar_width - 1, pos))
+            range_bar = "[#7a4a00]" + "─" * pos + "[/][bold #ffd166]●[/][#7a4a00]" + "─" * (bar_width - 1 - pos) + "[/]"
+        else:
+            range_bar = f"[#7a4a00]{range_bar}[/]"
+
+        def cell(label: str, value: str, value_color: str = "#e8e8e8", bold: bool = False) -> str:
+            prefix = "bold " if bold else ""
+            return f"[#5fd7ff]{label:<11}[/] [{prefix}{value_color}]{str(value):<14}[/]"
+
+        lines = [
+            f"[bold #ff9e1b]{security}[/]  [#6b6b6b]{company}[/]  [#1a1000 on #ffd166] {asset} [/]",
+            "",
+            f"[#5fd7ff]LAST[/]  [bold {color}]{price}[/]   [{color}]{arrow} {sign}{net} ({sign}{pct}%)[/]   [#5fd7ff]@[/] [#ffd166]{last_time}[/]",
+            "",
+            cell("Open", open_px) + "  " + cell("High", high, "#00d26a"),
+            cell("Close", close) + "  " + cell("Low", low, "#ff4757"),
+            "",
+            cell("Volume", volume) + "  " + cell("Turnover", turnover),
+            cell("Trades", trades) + "  " + cell("Trade Size", size),
+            cell("Odd Lot", odd_lot),
+            "",
+            f"[#5fd7ff]52W Range[/]  [#ff4757]{w52l:>10}[/] {range_bar} [#00d26a]{w52h}[/]",
+        ]
+        return "\n".join(lines)
 
     def action_open_selected_watchlist(self) -> None:
         if self._active_panel() != "tab-watchlists":

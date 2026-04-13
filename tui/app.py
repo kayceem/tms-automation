@@ -417,7 +417,7 @@ Checkbox:focus {
 
 .response-scroll {
     width: 100%;
-    height: 6;
+    height: 4;
     margin: 1 0 0 0;
     background: #0a0a0a;
     scrollbar-background: #000000;
@@ -432,6 +432,78 @@ Checkbox:focus {
     padding: 0 1;
     background: #0a0a0a;
     color: #5fd7ff;
+}
+
+#watchlist-table,
+#order-book-table,
+#completed-order-book-table {
+    border: round #7a4a00;
+    padding: 0;
+}
+
+#watchlist-table:focus,
+#order-book-table:focus,
+#completed-order-book-table:focus {
+    border: round #ff9e1b;
+}
+
+#watchlist-table > .datatable--header,
+#order-book-table > .datatable--header,
+#completed-order-book-table > .datatable--header {
+    background: #0a0a0a;
+    color: #ff9e1b;
+    text-style: bold;
+}
+
+#watchlist-table > .datatable--odd-row,
+#order-book-table > .datatable--odd-row,
+#completed-order-book-table > .datatable--odd-row {
+    background: #050505;
+}
+
+#watchlist-table > .datatable--even-row,
+#order-book-table > .datatable--even-row,
+#completed-order-book-table > .datatable--even-row {
+    background: #000000;
+}
+
+#market-tables {
+    width: 100%;
+    height: auto;
+    align: center top;
+    padding: 0;
+}
+
+#market-bids-table, #market-asks-table {
+    width: 40;
+    max-width: 50%;
+    height: auto;
+    max-height: 14;
+    margin: 0 1;
+    border: solid #7a4a00;
+}
+
+#market-bids-table:focus, #market-asks-table:focus {
+    border: solid #ff9e1b;
+}
+
+.market-ltp {
+    width: 100%;
+    height: auto;
+    padding: 1 2;
+    margin: 1 0 0 0;
+    background: #050505;
+    color: #e8e8e8;
+    border: tall #1a1000;
+}
+
+#symbol-prompt-shell {
+    width: 52;
+    height: auto;
+    max-height: 12;
+    border: heavy #ff9e1b;
+    padding: 1 2;
+    background: #0a0a0a;
 }
 
 Label {

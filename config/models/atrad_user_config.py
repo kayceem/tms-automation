@@ -44,6 +44,7 @@ class ATRADUserConfig:
 
     # ATRAD API endpoints
     atrad_login_endpoint: str = '/atsweb/login'
+    atrad_market_status_endpoint: str = '/atsweb/home?action=marketStatus'
     atrad_order_endpoint: str = '/atsweb/order'
     atrad_watch_endpoint: str = '/atsweb/watch?action=getWatchForSecurity&format=json&exchange=NEPSE&bookDefId=1'
     atrad_market_details_endpoint: str = '/atsweb/marketdetails?action=getOrderBook&format=json&board=1'

@@ -1,0 +1,2886 @@
+[
+    {
+        "security": "ACEDPO",
+        "securityDes": "ACE Development Bank Limited Promoter Share"
+    },
+    {
+        "security": "ACLBSL",
+        "securityDes": "Aarambha Chautari Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "ACLBSLP",
+        "securityDes": "Aarambha Chautari Laghubitta Bittiya Sanstha Limited Promoter Share"
+    },
+    {
+        "security": "ADBL",
+        "securityDes": "Agricultural Development Bank Limited"
+    },
+    {
+        "security": "ADBLB",
+        "securityDes": "4% Agricultural Bond"
+    },
+    {
+        "security": "ADBLB86",
+        "securityDes": "Agricultural Bond (8 Year)"
+    },
+    {
+        "security": "ADBLB87",
+        "securityDes": "Agricultural Bond (9 Year)"
+    },
+    {
+        "security": "ADBLD83",
+        "securityDes": "10.35% Agricultural Bank Debenture 2083"
+    },
+    {
+        "security": "ADLB",
+        "securityDes": "Adarsha Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "AHL",
+        "securityDes": "Asian Hydropower Limited"
+    },
+    {
+        "security": "AHPC",
+        "securityDes": "Arun Valley Hydropower Development Co. Ltd."
+    },
+    {
+        "security": "AIL",
+        "securityDes": "Ajod Insurance Limited"
+    },
+    {
+        "security": "AKBSL",
+        "securityDes": "Adhikhola Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "AKBSLPO",
+        "securityDes": "ADHIKHOLA LAGHUBITTA BITTIYA SANSTHA LIMITED PROMOTER SHARE"
+    },
+    {
+        "security": "AKJCL",
+        "securityDes": "Ankhu Khola Jalvidhyut Company Ltd"
+    },
+    {
+        "security": "AKPL",
+        "securityDes": "Arun Kabeli Power Ltd."
+    },
+    {
+        "security": "ALBSL",
+        "securityDes": "Asha Laghubitta Bittiya Sanstha Ltd"
+    },
+    {
+        "security": "ALBSLP",
+        "securityDes": "Asha Laghubitta Bittiya Sanstha Ltd Promoter Share"
+    },
+    {
+        "security": "ALICL",
+        "securityDes": "Asian Life Insurance Co. Limited"
+    },
+    {
+        "security": "ALICLP",
+        "securityDes": "Asian Life Insurance Co. Ltd Promoter Share"
+    },
+    {
+        "security": "AMFI",
+        "securityDes": "Arambha Microfinance Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "ANLB",
+        "securityDes": "Aatmanirbhar Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "API",
+        "securityDes": "Api Power Company Ltd."
+    },
+    {
+        "security": "ARDBLP",
+        "securityDes": "Araniko Development Bank Limited Promoter Share"
+    },
+    {
+        "security": "AVU",
+        "securityDes": "Arun Vanaspati Udhyog Limited"
+    },
+    {
+        "security": "AVYAN",
+        "securityDes": "Aviyan Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "BANDIPUR",
+        "securityDes": "Bandipur Cablecar and Tourism Limited"
+    },
+    {
+        "security": "BARUN",
+        "securityDes": "Barun Hydropower Co. Ltd."
+    },
+    {
+        "security": "BBBLNP",
+        "securityDes": "Bagheshowari Development Bank  Ltd. Promoer Share"
+    },
+    {
+        "security": "BBC",
+        "securityDes": "Bishal Bazar Company Limited"
+    },
+    {
+        "security": "BEDC",
+        "securityDes": "Bhugol Energy Development Company Limited"
+    },
+    {
+        "security": "BFC",
+        "securityDes": "Best Finance Company Ltd."
+    },
+    {
+        "security": "BFCPO",
+        "securityDes": "Best Finance Co. Limited Promoter Share"
+    },
+    {
+        "security": "BGDBLP",
+        "securityDes": "Bagmati Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "BGWT",
+        "securityDes": "Bhagawati Hydropower Development Company Limited"
+    },
+    {
+        "security": "BHBL",
+        "securityDes": "Bhargav Bikash Bank Ltd."
+    },
+    {
+        "security": "BHBLPO",
+        "securityDes": "Bhargav Bikash Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "BHCL",
+        "securityDes": "Bikash Hydropower Company Limited"
+    },
+    {
+        "security": "BHDC",
+        "securityDes": "Bindhyabasini Hydropower Development Company Limited"
+    },
+    {
+        "security": "BHL",
+        "securityDes": "Balephi Hydropower Limited"
+    },
+    {
+        "security": "BHPL",
+        "securityDes": "Barahi Hydropower Public Limited"
+    },
+    {
+        "security": "BJHL",
+        "securityDes": "Bhujung Hydropower Limited"
+    },
+    {
+        "security": "BLDBLP",
+        "securityDes": "Biratlaxmi Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "BNHC",
+        "securityDes": "Buddha Bhumi Nepal Hydropower Company Limited"
+    },
+    {
+        "security": "BNL",
+        "securityDes": "Bottlers Nepal (Balaju) Limited"
+    },
+    {
+        "security": "BNT",
+        "securityDes": "Bottlers Nepal (Terai) Limited"
+    },
+    {
+        "security": "BOKD2079",
+        "securityDes": "8% BOK Debenture 2079"
+    },
+    {
+        "security": "BOKD86",
+        "securityDes": "8.5% BOK Debenture 2086"
+    },
+    {
+        "security": "BOKD86KA",
+        "securityDes": "BOK Debenture 2086 KA"
+    },
+    {
+        "security": "BOKL",
+        "securityDes": "Bank of Kathmandu Ltd."
+    },
+    {
+        "security": "BOKLPO",
+        "securityDes": "Bank of Kathmandu Limited Promoter Share"
+    },
+    {
+        "security": "BPCL",
+        "securityDes": "Butwal Power Company Limited"
+    },
+    {
+        "security": "BPW",
+        "securityDes": "BPW Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "BSBLPO",
+        "securityDes": "Bishwa Bikas Bank Limited Promoter Share"
+    },
+    {
+        "security": "BSL",
+        "securityDes": "Birat Shoe Limited"
+    },
+    {
+        "security": "BSM",
+        "securityDes": "Butwal Spinning Mills Limited"
+    },
+    {
+        "security": "BUDBLP",
+        "securityDes": "Business Universal Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "BUNGAL",
+        "securityDes": "Bungal Hydro Limited"
+    },
+    {
+        "security": "C30MF",
+        "securityDes": "Citizens Super 30 Mutual Fund"
+    },
+    {
+        "security": "CBBL",
+        "securityDes": "Chhimek Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "CBBLPO",
+        "securityDes": "Chhimek Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "CBL",
+        "securityDes": "Civil Bank Ltd"
+    },
+    {
+        "security": "CBLD88",
+        "securityDes": "Civil Bank Debenture 2088"
+    },
+    {
+        "security": "CBLPO",
+        "securityDes": "Civil Bank Ltd Promoter Share"
+    },
+    {
+        "security": "CCBD88",
+        "securityDes": "Century Debenture 2088"
+    },
+    {
+        "security": "CCBL",
+        "securityDes": "Century Commercial Bank Ltd."
+    },
+    {
+        "security": "CCBLPO",
+        "securityDes": "Century Commercial Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "CEDBLP",
+        "securityDes": "Clean Energy Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "CEFL",
+        "securityDes": "City Express Finance Co. Limited"
+    },
+    {
+        "security": "CEFLPO",
+        "securityDes": "City Express Finance Co. Ltd. Promoter Share"
+    },
+    {
+        "security": "CFCL",
+        "securityDes": "Central Finance Co. Ltd."
+    },
+    {
+        "security": "CFCLPO",
+        "securityDes": "Central Finance Co. Ltd. Promoter Share"
+    },
+    {
+        "security": "CFL",
+        "securityDes": "Crystal Finance Ltd."
+    },
+    {
+        "security": "CGH",
+        "securityDes": "Chandragiri Hills Limited"
+    },
+    {
+        "security": "CHCL",
+        "securityDes": "Chilime Hydropower Company Limited"
+    },
+    {
+        "security": "CHDC",
+        "securityDes": "CEDB Holdings Limited"
+    },
+    {
+        "security": "CHL",
+        "securityDes": "Chhyangdi Hydropower Ltd."
+    },
+    {
+        "security": "CIT",
+        "securityDes": "Citizen Investment Trust"
+    },
+    {
+        "security": "CITPO",
+        "securityDes": "Citizen Investment Trust Promoter Share"
+    },
+    {
+        "security": "CITY",
+        "securityDes": "City Hotel Limited"
+    },
+    {
+        "security": "CIZBD86",
+        "securityDes": "10.25% Citizens Bank Debenture 2086"
+    },
+    {
+        "security": "CIZBD90",
+        "securityDes": "10% Citizens Bank Debenture 2090"
+    },
+    {
+        "security": "CKHL",
+        "securityDes": "Chirkhwa Hydropower Limited"
+    },
+    {
+        "security": "CLI",
+        "securityDes": "Citizen Life Insurance Company Limited"
+    },
+    {
+        "security": "CMB",
+        "securityDes": "Capital Merchant Bank & Finance Co. Ltd."
+    },
+    {
+        "security": "CMF1",
+        "securityDes": "Citizens Mutual Fund -1"
+    },
+    {
+        "security": "CMF2",
+        "securityDes": "CITIZENS MUTUAL FUND 2"
+    },
+    {
+        "security": "CNDBLP",
+        "securityDes": "Country Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "CORBL",
+        "securityDes": "Corporate Development Bank Limited"
+    },
+    {
+        "security": "CORBLP",
+        "securityDes": "Corporate Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "CREST",
+        "securityDes": "Crest Micro Life Insurance Limited"
+    },
+    {
+        "security": "CSDBLP",
+        "securityDes": "Cosmos Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "CSY",
+        "securityDes": "Citizens Santulit Yojana"
+    },
+    {
+        "security": "CYCL",
+        "securityDes": "CYC Nepal Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "CYCLP",
+        "securityDes": "CYC Nepal Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "CZBIL",
+        "securityDes": "Citizens Bank International Limited"
+    },
+    {
+        "security": "CZBILP",
+        "securityDes": "Citizens Bank Internatioal Limited Promoter Share"
+    },
+    {
+        "security": "DBBL",
+        "securityDes": "Deva Bikas Bank Limited"
+    },
+    {
+        "security": "DBBLPO",
+        "securityDes": "Dev BikasBank Ltd. Promoter Share"
+    },
+    {
+        "security": "DDBL",
+        "securityDes": "Deprosc Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "DDBLPO",
+        "securityDes": "Deprosc LaghuBitta Promoter Share"
+    },
+    {
+        "security": "DHEL",
+        "securityDes": "Daramkhola Hydro Energy Limited"
+    },
+    {
+        "security": "DHPL",
+        "securityDes": "Dibyashwori Hydropower Ltd."
+    },
+    {
+        "security": "DLBS",
+        "securityDes": "Dhaulagiri Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "DOLTI",
+        "securityDes": "Dolti Power Company Limited"
+    },
+    {
+        "security": "DORDI",
+        "securityDes": "Dordi Khola Jal Bidyut Company Limited"
+    },
+    {
+        "security": "EBL",
+        "securityDes": "Everest Bank Limited"
+    },
+    {
+        "security": "EBLCP",
+        "securityDes": "Everest Bank Limited Con. Pref.",
+        "assetClass": "PS",
+        "maturitydate": "null",
+        "sectorCode": "",
+        "cycle": ""
+    },
+    {
+        "security": "EBLD2078",
+        "securityDes": "8% EBL Debenture 2078"
+    },
+    {
+        "security": "EBLD85",
+        "securityDes": "10.50% Everest Bank Limited Debenture 2085"
+    },
+    {
+        "security": "EBLD86",
+        "securityDes": "Everest Bank Limited"
+    },
+    {
+        "security": "EBLD91",
+        "securityDes": "Everest Bank Limited Debenture 2091"
+    },
+    {
+        "security": "EBLEB89",
+        "securityDes": "Everest Bank Limited Energy Bond, 2089"
+    },
+    {
+        "security": "EBLPO",
+        "securityDes": "Everest Bank Ltd.Promoter"
+    },
+    {
+        "security": "EDBL",
+        "securityDes": "Excel Development Bank Ltd."
+    },
+    {
+        "security": "EDBLPO",
+        "securityDes": "Excel Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "EFLPO",
+        "securityDes": "Everest Finance Limited Promoter Share"
+    },
+    {
+        "security": "EHPL",
+        "securityDes": "Eastern Hydropower Limited"
+    },
+    {
+        "security": "EIC",
+        "securityDes": "Everest Insurance Co. Ltd."
+    },
+    {
+        "security": "EICPO",
+        "securityDes": "Everest Insurance Co. Ltd. Promoter Share"
+    },
+    {
+        "security": "EKBLPO",
+        "securityDes": "Ekata Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "ENL",
+        "securityDes": "Emerging Nepal Limited"
+    },
+    {
+        "security": "FBBLPO",
+        "securityDes": "Fewa Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "FHL",
+        "securityDes": "Fleur Himalayan Limited"
+    },
+    {
+        "security": "FMDBL",
+        "securityDes": "First Micro Finance Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "FMDBLP",
+        "securityDes": "First Micro Finance Laghubitta Bittiya Sanstha Limited Promoter Share"
+    },
+    {
+        "security": "FOWAD",
+        "securityDes": "Forward Microfinance Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "FOWADP",
+        "securityDes": "Forward Microfinance Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "GBBD85",
+        "securityDes": "Garima Debenture, 2085"
+    },
+    {
+        "security": "GBBL",
+        "securityDes": "Garima Bikas Bank Limited"
+    },
+    {
+        "security": "GBBLPO",
+        "securityDes": "Garima Bikas Bank Limited Promoter Share"
+    },
+    {
+        "security": "GBD80/81",
+        "securityDes": "10.25% GLOBAL IME BANK LTD. DEBENTURE 2080/81"
+    },
+    {
+        "security": "GBILD84/85",
+        "securityDes": "Global IME Bank Debenture, 2084/85"
+    },
+    {
+        "security": "GBILD86/87",
+        "securityDes": "Global IME Bank Limited Debenture 2086/87"
+    },
+    {
+        "security": "GBIME",
+        "securityDes": "Global IME Bank Limited"
+    },
+    {
+        "security": "GBIMEP",
+        "securityDes": "Global IME Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "GBIMESY2",
+        "securityDes": "Global IME Sammunat Yojana -2"
+    },
+    {
+        "security": "GBLBS",
+        "securityDes": "Grameen Bikas Laghubitta Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "GBLBSP",
+        "securityDes": "Grameen Bikas Laghubitta Bittiya Sanstha Ltd. Promoter Share"
+    },
+    {
+        "security": "GCIL",
+        "securityDes": "Ghorahi Cement Industry Limited"
+    },
+    {
+        "security": "GDBL",
+        "securityDes": "Gandaki Bikas Bank Limited"
+    },
+    {
+        "security": "GDBLPO",
+        "securityDes": "Gandaki Bikas Bank Limited Promoter Share"
+    },
+    {
+        "security": "GFCL",
+        "securityDes": "Goodwill Finance Limited"
+    },
+    {
+        "security": "GFCLPO",
+        "securityDes": "Goodwill Finance Limited Promoter"
+    },
+    {
+        "security": "GGBSL",
+        "securityDes": "Ghodighoda Laghubitta Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "GHL",
+        "securityDes": "Ghalemdi Hydro Limited"
+    },
+    {
+        "security": "GIBF1",
+        "securityDes": "Global IME Balanced Fund-1"
+    },
+    {
+        "security": "GIC",
+        "securityDes": "General Insurance Company Nepal Ltd"
+    },
+    {
+        "security": "GILB",
+        "securityDes": "Global IME Laghubitta Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "GILBPO",
+        "securityDes": "Global IME Laghubitta Bittiya Sanstha Ltd. Promoter Share"
+    },
+    {
+        "security": "GIMES1",
+        "securityDes": "Global IME Samunnat Scheme-1"
+    },
+    {
+        "security": "GLBSL",
+        "securityDes": "Gurans Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "GLH",
+        "securityDes": "GreenLife Hydropower Limited"
+    },
+    {
+        "security": "GLICL",
+        "securityDes": "Gurans Life Insurance Company Ltd."
+    },
+    {
+        "security": "GLICLP",
+        "securityDes": "Guras Life Insurance Company Ltd. Promoter Share"
+    },
+    {
+        "security": "GMFBS",
+        "securityDes": "Ganapati Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "GMFIL",
+        "securityDes": "Guheshowori Merchant Bank & Finance Co. Ltd."
+    },
+    {
+        "security": "GMFILP",
+        "securityDes": "Guheyshwori Merchant & Finance Ltd. Promoter Share"
+    },
+    {
+        "security": "GMLI",
+        "securityDes": "Guardian Micro Life Insurance Limited"
+    },
+    {
+        "security": "GRANDP",
+        "securityDes": "Grand Bank Limited Promoter Share"
+    },
+    {
+        "security": "GRDBL",
+        "securityDes": "Green Development Bank Ltd."
+    },
+    {
+        "security": "GRDBLP",
+        "securityDes": "Green Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "GRU",
+        "securityDes": "Gorakhkali Rubber Udhyog Limited"
+    },
+    {
+        "security": "GSY",
+        "securityDes": "Garima Samriddhi Yojana"
+    },
+    {
+        "security": "GUFL",
+        "securityDes": "Gurkhas Finance Ltd."
+    },
+    {
+        "security": "GUFLPO",
+        "securityDes": "Gurkhas Finance  Ltd. Promoter Share"
+    },
+    {
+        "security": "GVL",
+        "securityDes": "Green Ventures Limited"
+    },
+    {
+        "security": "GWFD83",
+        "securityDes": "12 % Goodwill Finance Limited Debenture 2083"
+    },
+    {
+        "security": "H8020",
+        "securityDes": "Himalayan 80-20"
+    },
+    {
+        "security": "HAMAPO",
+        "securityDes": "Hama Merchant & Finance Ltd. Promoter Share"
+    },
+    {
+        "security": "HAMRO",
+        "securityDes": "Hamro Bikas Bank Ltd."
+    },
+    {
+        "security": "HAMROP",
+        "securityDes": "Hamro Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "HATH",
+        "securityDes": "Hathway Finance Company Limited"
+    },
+    {
+        "security": "HATHPO",
+        "securityDes": "Hathway Finance Company Limited Promoter Share"
+    },
+    {
+        "security": "HATHY",
+        "securityDes": "Hathway Investment Nepal Limited"
+    },
+    {
+        "security": "HBL",
+        "securityDes": "Himalayan Bank Limited"
+    },
+    {
+        "security": "HBLD83",
+        "securityDes": "10% Himalayan Bank Debenture 2083"
+    },
+    {
+        "security": "HBLD86",
+        "securityDes": "Himalayan Bank Limited Bond, 2086"
+    },
+    {
+        "security": "HBLPO",
+        "securityDes": "Himalayan Bank Ltd. Promoter"
+    },
+    {
+        "security": "HBT",
+        "securityDes": "Harisiddhi Brick And Tiles Limited"
+    },
+    {
+        "security": "HDHPC",
+        "securityDes": "Himal Dolakha Hydropower Company Limited"
+    },
+    {
+        "security": "HDL",
+        "securityDes": "Himalayan Distillery Limited"
+    },
+    {
+        "security": "HEI",
+        "securityDes": "Himalayan Everest Insurance Limited"
+    },
+    {
+        "security": "HEIP",
+        "securityDes": "Himalayan Everest Insurance Limited Promoter"
+    },
+    {
+        "security": "HFIN",
+        "securityDes": "Hotel Forest Inn Limited"
+    },
+    {
+        "security": "HFL",
+        "securityDes": "Himalayan Finance Limited (Bittiya Sanstha)"
+    },
+    {
+        "security": "HHL",
+        "securityDes": "Himalayan Hydropower Limited"
+    },
+    {
+        "security": "HIDCL",
+        "securityDes": "Hydorelectricity Investment and Development Company Ltd"
+    },
+    {
+        "security": "HIDCLP",
+        "securityDes": "Hydorelectricity Investment and Development Company Limited Promoter"
+    },
+    {
+        "security": "HIMSTAR",
+        "securityDes": "Him Star Urja Company Limited"
+    },
+    {
+        "security": "HLBSL",
+        "securityDes": "Himalayan Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "HLBSLP",
+        "securityDes": "Himalayan Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "HLI",
+        "securityDes": "Himalayan Life Insurance Limited"
+    },
+    {
+        "security": "HLICF",
+        "securityDes": "HLI Large Cap Fund"
+    },
+    {
+        "security": "HLIPO",
+        "securityDes": "Himalayan Life Insurance Limited Promoter Share"
+    },
+    {
+        "security": "HPPL",
+        "securityDes": "Himalayan Power Partner Ltd."
+    },
+    {
+        "security": "HRL",
+        "securityDes": "Himalayan Reinsurance Limited"
+    },
+    {
+        "security": "HURJA",
+        "securityDes": "Himalaya Urja Bikas Company Limited"
+    },
+    {
+        "security": "ICFC",
+        "securityDes": "ICFC Finance Limited"
+    },
+    {
+        "security": "ICFCD83",
+        "securityDes": "12% ICFC Finance Limited Debenture 2083"
+    },
+    {
+        "security": "ICFCD88",
+        "securityDes": "9% ICFC Finance Limited Debenture 2088"
+    },
+    {
+        "security": "ICFCD89",
+        "securityDes": "8% ICFC Finance Limited Debenture 2089"
+    },
+    {
+        "security": "ICFCPO",
+        "securityDes": "ICFC Finance Limited Promotor Share"
+    },
+    {
+        "security": "IDBLPO",
+        "securityDes": "Infrastructure Development Bank Limited Promoter Share"
+    },
+    {
+        "security": "IGI",
+        "securityDes": "IGI Prudential insurance Limited"
+    },
+    {
+        "security": "IGIPO",
+        "securityDes": "IGI Prudential insurance Limited Promoter Share"
+    },
+    {
+        "security": "IHL",
+        "securityDes": "Ingwa Hydropower Limited"
+    },
+    {
+        "security": "ILBS",
+        "securityDes": "Infinity Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "ILBSP",
+        "securityDes": "Infinity Laghubitta Bittiya Sanstha Limited Promoter Share"
+    },
+    {
+        "security": "ILI",
+        "securityDes": "IME Life Insurance Company Limited"
+    },
+    {
+        "security": "JALPA",
+        "securityDes": "Jalpa Samudayik Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "JBBD87",
+        "securityDes": "Jyoti Bikash Bank Bond 2087"
+    },
+    {
+        "security": "JBBL",
+        "securityDes": "Jyoti Bikas Bank Limited"
+    },
+    {
+        "security": "JBBLPO",
+        "securityDes": "Jyoti Bikash  Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "JBLB",
+        "securityDes": "Jeevan Bikas Laghubitta  Bittya Sanstha Ltd"
+    },
+    {
+        "security": "JBLBP",
+        "securityDes": "Jeevan Bikas Laghubitta  Bittya Sanstha Ltd Promoter"
+    },
+    {
+        "security": "JBNL",
+        "securityDes": "Janata Bank Nepal Ltd."
+    },
+    {
+        "security": "JBNLPO",
+        "securityDes": "Janata Bank Nepal Ltd. Promoter Share"
+    },
+    {
+        "security": "JEFL",
+        "securityDes": "Jebils Finance Ltd."
+    },
+    {
+        "security": "JEFLPO",
+        "securityDes": "Jebils Finance Ltd. Promoter Share"
+    },
+    {
+        "security": "JFL",
+        "securityDes": "Janaki Finance Company Limited"
+    },
+    {
+        "security": "JFLPO",
+        "securityDes": "Janaki Finance Limited Promoter Share"
+    },
+    {
+        "security": "JHAPA",
+        "securityDes": "Jhapa Energy Limited"
+    },
+    {
+        "security": "JLI",
+        "securityDes": "Jyoti Life Insurance Company Limited"
+    },
+    {
+        "security": "JOSHI",
+        "securityDes": "Joshi Hydropower Development Company Ltd"
+    },
+    {
+        "security": "JSLBB",
+        "securityDes": "Janautthan Samudayic Laghubitta Bittya Sanstha Limited"
+    },
+    {
+        "security": "JSLBBP",
+        "securityDes": "Janautthan Samudayic Laghubitta Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "JSM",
+        "securityDes": "Jyoti Sinning Mills Limited"
+    },
+    {
+        "security": "KADBL",
+        "securityDes": "Kanchan Development Bank Limited"
+    },
+    {
+        "security": "KADBLP",
+        "securityDes": "Kanchan Development Bank Limited Promoter Share"
+    },
+    {
+        "security": "KAFILP",
+        "securityDes": "Kaski Finanace Ltd. Promoter"
+    },
+    {
+        "security": "KBBL",
+        "securityDes": "Kailash Bikas Bank Ltd."
+    },
+    {
+        "security": "KBBLPO",
+        "securityDes": "Kailash Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "KBL",
+        "securityDes": "Kumari Bank Limited"
+    },
+    {
+        "security": "KBLD86",
+        "securityDes": "10.25% KBL Debenture 2086"
+    },
+    {
+        "security": "KBLD89",
+        "securityDes": "11% KBL Debenture 2089"
+    },
+    {
+        "security": "KBLD90",
+        "securityDes": "10% KBL Debenture 2090"
+    },
+    {
+        "security": "KBLPO",
+        "securityDes": "Kumari Bank Limited Promotor Share"
+    },
+    {
+        "security": "KBSH",
+        "securityDes": "Kutheli Bukhari Small Hydropower Limited"
+    },
+    {
+        "security": "KDBLPO",
+        "securityDes": "Kasthamandap Dev. Bank Ltd Promoter Share"
+    },
+    {
+        "security": "KDBY",
+        "securityDes": "Kumari Dhanabriddhi Yojana"
+    },
+    {
+        "security": "KDL",
+        "securityDes": "Kalinchowk Darshan Limited"
+    },
+    {
+        "security": "KDLP",
+        "securityDes": "Kalinchowk Darshan Limited Promoter Share"
+    },
+    {
+        "security": "KEBL",
+        "securityDes": "Kabeli Bikas Bank Limited"
+    },
+    {
+        "security": "KEBLPO",
+        "securityDes": "Kabeli BIkas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "KEF",
+        "securityDes": "Kumari Equity Fund"
+    },
+    {
+        "security": "KKHC",
+        "securityDes": "Khanikhola Hydropower Co. Ltd."
+    },
+    {
+        "security": "KLBS",
+        "securityDes": "Khaptad Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "KLBSL",
+        "securityDes": "Kisan Lagubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "KLBSLP",
+        "securityDes": "Kisan Lagubitta Bittiya Sanstha Limited Promoter Share"
+    },
+    {
+        "security": "KMCDB",
+        "securityDes": "Kalika Laghubitta Bittiya Sanstha Ltd"
+    },
+    {
+        "security": "KMCDBP",
+        "securityDes": "Kalika Laghubitta Bittiya Sanstha Ltd Promoter Share"
+    },
+    {
+        "security": "KNBL",
+        "securityDes": "Kankai Bikas Bank Ltd."
+    },
+    {
+        "security": "KNBLPO",
+        "securityDes": "Kankai Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "KPCL",
+        "securityDes": "Kalika power Company Ltd"
+    },
+    {
+        "security": "KRBL",
+        "securityDes": "Karnali Development Bank Limited"
+    },
+    {
+        "security": "KRBLPO",
+        "securityDes": "Karnali Development Bank Limited Promoter Share"
+    },
+    {
+        "security": "KSBBL",
+        "securityDes": "Kamana Sewa Bikas Bank Limited"
+    },
+    {
+        "security": "KSBBLD87",
+        "securityDes": "9% Kamana Sewa Bikas Bank Limited Debenture 2087"
+    },
+    {
+        "security": "KSBBLP",
+        "securityDes": "Kamana Sewa Bikas Bank Limited Promoter Share"
+    },
+    {
+        "security": "KSBBLPNP",
+        "securityDes": "KSBBL 9% Perpetual Non Cumulative Preference Share",
+        "assetClass": "PS",
+        "maturitydate": "null",
+        "sectorCode": "",
+        "cycle": ""
+    },
+    {
+        "security": "KSY",
+        "securityDes": "Kumari Sabal Yojana"
+    },
+    {
+        "security": "LBBL",
+        "securityDes": "Lumbini Bikas Bank Ltd."
+    },
+    {
+        "security": "LBBLD89",
+        "securityDes": "11% L.B.B.L. Debenture 2089"
+    },
+    {
+        "security": "LBBLPO",
+        "securityDes": "Lumbini Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "LBLD86",
+        "securityDes": "10% Laxmi Bank Debenture 2086"
+    },
+    {
+        "security": "LBLD88",
+        "securityDes": "8.5% Laxmi Bank Debenture 2088"
+    },
+    {
+        "security": "LEC",
+        "securityDes": "Liberty Energy Company Limited"
+    },
+    {
+        "security": "LEMF",
+        "securityDes": "Laxmi Equity Fund"
+    },
+    {
+        "security": "LFC",
+        "securityDes": "Lalitpur Finance Ltd."
+    },
+    {
+        "security": "LFCPO",
+        "securityDes": "Lalitpur Finance Co. Ltd. Promoter Share"
+    },
+    {
+        "security": "LFLCPO",
+        "securityDes": "Lumbini Finance Ltd Promoter Share"
+    },
+    {
+        "security": "LGIL",
+        "securityDes": "Lumbini General Insurance Co. Ltd."
+    },
+    {
+        "security": "LGILPO",
+        "securityDes": "Lumbini General Insurance Co. Ltd. Promoter Share"
+    },
+    {
+        "security": "LICN",
+        "securityDes": "Life Insurance Corporation (Nepal) Limited"
+    },
+    {
+        "security": "LLBS",
+        "securityDes": "Laxmi Laghubitta Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "LLBSPO",
+        "securityDes": "Laxmi Laghubitta Bittiya Sanstha Ltd. Promoter Share"
+    },
+    {
+        "security": "LSL",
+        "securityDes": "Laxmi Sunrise Bank Limited"
+    },
+    {
+        "security": "LSLPO",
+        "securityDes": "Laxmi Sunrise Bank Limited Promoter Share"
+    },
+    {
+        "security": "LUBLPO",
+        "securityDes": "Lumbini Bank Limited Promotor Share"
+    },
+    {
+        "security": "LUK",
+        "securityDes": "Laxmi Unnati Kosh"
+    },
+    {
+        "security": "LVF1",
+        "securityDes": "Laxmi Value Fund-1"
+    },
+    {
+        "security": "LVF2",
+        "securityDes": "Laxmi Value Fund 2"
+    },
+    {
+        "security": "MABEL",
+        "securityDes": "Mabilung Energy Limited"
+    },
+    {
+        "security": "MAKAR",
+        "securityDes": "Makar Jitumaya Suri Hydropower Limited"
+    },
+    {
+        "security": "MANDU",
+        "securityDes": "Mandu Hydropower Limited"
+    },
+    {
+        "security": "MATRI",
+        "securityDes": "Matribhumi Lagubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "MATRIP",
+        "securityDes": "Matribhumi Lagubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "MBBLPO",
+        "securityDes": "Mahakali Bikas Bank Ltd. Promoter"
+    },
+    {
+        "security": "MBJC",
+        "securityDes": "Madhya Bhotekoshi Jalavidyut Company Limited"
+    },
+    {
+        "security": "MBL",
+        "securityDes": "Machhapuchhre Bank Limited"
+    },
+    {
+        "security": "MBLD2085",
+        "securityDes": "10.25% Machhapuchhre Bank Debenture 2085"
+    },
+    {
+        "security": "MBLD87",
+        "securityDes": "8.5% Machhapuchchhre Debenture 2087"
+    },
+    {
+        "security": "MBLEF",
+        "securityDes": "MBL Equity Fund"
+    },
+    {
+        "security": "MBLPO",
+        "securityDes": "MachhaPuchhre  Bank Limited Promotor Share"
+    },
+    {
+        "security": "MCHL",
+        "securityDes": "Menchhiyam Hydropower Limited"
+    },
+    {
+        "security": "MDB",
+        "securityDes": "Miteri Development Bank Limited"
+    },
+    {
+        "security": "MDBLPO",
+        "securityDes": "Malika Development Bank Limited Promoter Share"
+    },
+    {
+        "security": "MDBPO",
+        "securityDes": "Miteri Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "MEGA",
+        "securityDes": "Mega  Bank Nepal Ltd."
+    },
+    {
+        "security": "MEGAPO",
+        "securityDes": "Mega  Bank Nepal Ltd. Promoter Share"
+    },
+    {
+        "security": "MEHL",
+        "securityDes": "Manakamana Engineering Hydropower Limited"
+    },
+    {
+        "security": "MEL",
+        "securityDes": "Modi Energy Limited"
+    },
+    {
+        "security": "MEN",
+        "securityDes": "Mountain Energy Nepal Limited"
+    },
+    {
+        "security": "MERO",
+        "securityDes": "Mero Microfinance Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "MEROPO",
+        "securityDes": "Mero Microfinance Bittiya Sanstha Ltd. Promoter Share"
+    },
+    {
+        "security": "MFIL",
+        "securityDes": "Manjushree Finance Ltd."
+    },
+    {
+        "security": "MFILPO",
+        "securityDes": "Manjushree Finance Ltd. Promoter Share"
+    },
+    {
+        "security": "MFLD85",
+        "securityDes": "9.5% Manjushree Finance Limited Debenture 2085"
+    },
+    {
+        "security": "MFLPO",
+        "securityDes": "Maha Laxmi Finance Co. Ltd. Promoter Share"
+    },
+    {
+        "security": "MHCL",
+        "securityDes": "Molung Hydropower Company Limited"
+    },
+    {
+        "security": "MHL",
+        "securityDes": "Mandakini Hydropower Limited"
+    },
+    {
+        "security": "MHNL",
+        "securityDes": "Mountain Hydro Nepal Limited"
+    },
+    {
+        "security": "MIDBL",
+        "securityDes": "Mission Development Bank Ltd."
+    },
+    {
+        "security": "MIDBLP",
+        "securityDes": "Mission Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "MKCL",
+        "securityDes": "Muktinath Krishi Company Limited"
+    },
+    {
+        "security": "MKHC",
+        "securityDes": "Maya Khola Hydropower Company Limited"
+    },
+    {
+        "security": "MKHL",
+        "securityDes": "Mai Khola Hydropower Limited"
+    },
+    {
+        "security": "MKJC",
+        "securityDes": "Mailung Khola Jal Vidhyut Company Limited"
+    },
+    {
+        "security": "MKLB",
+        "securityDes": "Manakamana Smart Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "MLBBL",
+        "securityDes": "Mithila LaghuBitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "MLBBLP",
+        "securityDes": "Mithila LaghuBitta Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "MLBL",
+        "securityDes": "Mahalaxmi Bikas Bank Ltd."
+    },
+    {
+        "security": "MLBLD89",
+        "securityDes": "11% Mahalaxmi Debenture 2089"
+    },
+    {
+        "security": "MLBLPO",
+        "securityDes": "Mahalxmi Bikas Bank Ltd. Promotor Share"
+    },
+    {
+        "security": "MLBS",
+        "securityDes": "Manushi Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "MLBSL",
+        "securityDes": "Mahila Lagubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "MLBSLP",
+        "securityDes": "Mahila Lagubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "MLBSP",
+        "securityDes": "Manushi Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "MMF1",
+        "securityDes": "Mega Mutual Fund -1"
+    },
+    {
+        "security": "MMFDB",
+        "securityDes": "Mirmire Laghubitta Bittya Sanstha Limited"
+    },
+    {
+        "security": "MMFDBP",
+        "securityDes": "Mirmire Laghubitta Bittya Sanstha Limited Promoter"
+    },
+    {
+        "security": "MMKJL",
+        "securityDes": "Mathillo Mailun Khola Jalvidhyut Limited"
+    },
+    {
+        "security": "MNBBL",
+        "securityDes": "Muktinath Bikas Bank Ltd."
+    },
+    {
+        "security": "MNBBLP",
+        "securityDes": "Muktinath Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "MND84/85",
+        "securityDes": "Muktinath Debenture 2084/85"
+    },
+    {
+        "security": "MNMF1",
+        "securityDes": "Muktinath Mutual Fund 1"
+    },
+    {
+        "security": "MPFL",
+        "securityDes": "Multipurpose Finance Company  Limited"
+    },
+    {
+        "security": "MPFLPO",
+        "securityDes": "Multipurpose Finance Company  Limited Promoter Share"
+    },
+    {
+        "security": "MSHL",
+        "securityDes": "Mid Solu Hydropower Limited"
+    },
+    {
+        "security": "MSLB",
+        "securityDes": "Mahuli Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "MSLBP",
+        "securityDes": "Mahuli Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "MSMBS",
+        "securityDes": "Mahila Sahayatra Microfinance Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "NABBC",
+        "securityDes": "Narayani Development Bank Limited"
+    },
+    {
+        "security": "NABBCP",
+        "securityDes": "Narayani Development Bank Limited Promoter"
+    },
+    {
+        "security": "NABBPO",
+        "securityDes": "Nepal Aawas Finance Limited Promoter Share"
+    },
+    {
+        "security": "NABIL",
+        "securityDes": "Nabil Bank Limited"
+    },
+    {
+        "security": "NABILD2089",
+        "securityDes": "7% Nabil Debenture 2089"
+    },
+    {
+        "security": "NABILD87",
+        "securityDes": "9% Nabil Debenture 2087"
+    },
+    {
+        "security": "NABILP",
+        "securityDes": "NABIL Bank Limited Promotor Share"
+    },
+    {
+        "security": "NABILPNP",
+        "securityDes": "Nabil 8% Perpetual Non Cumulative Preference Share",
+        "assetClass": "PS",
+        "maturitydate": "null",
+        "sectorCode": "",
+        "cycle": ""
+    },
+    {
+        "security": "NADEP",
+        "securityDes": "Nadep Laghubittiya bittya Sanstha Ltd."
+    },
+    {
+        "security": "NADEPP",
+        "securityDes": "Nadep Laghubitta Bittiya Sanstha Ltd. Promoter Share"
+    },
+    {
+        "security": "NAGRO",
+        "securityDes": "Nepal Agro Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "NBB",
+        "securityDes": "Nepal Bangladesh Bank Limited"
+    },
+    {
+        "security": "NBBD2085",
+        "securityDes": "10.25% NBBL Debenture 2085"
+    },
+    {
+        "security": "NBBL",
+        "securityDes": "NagBeli LaghuBitta Bikas Bank Ltd."
+    },
+    {
+        "security": "NBBLPO",
+        "securityDes": "NagBeli LaghuBitta Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "NBBPO",
+        "securityDes": "Nepal Bangladesh Bank Limited Promoter Share"
+    },
+    {
+        "security": "NBBU",
+        "securityDes": "Nepal Bitumin And Barrel Udhyog Limited"
+    },
+    {
+        "security": "NBF2",
+        "securityDes": "NABIL BALANCED FUND-2"
+    },
+    {
+        "security": "NBF3",
+        "securityDes": "Nabil Balanced Fund-3"
+    },
+    {
+        "security": "NBL",
+        "securityDes": "Nepal Bank Limited"
+    },
+    {
+        "security": "NBLD82",
+        "securityDes": "10% Nabil Debenture 2082"
+    },
+    {
+        "security": "NBLD85",
+        "securityDes": "Nabil Debenture 2085"
+    },
+    {
+        "security": "NBLD87",
+        "securityDes": "8.5% Nepal Bank Debenture 2087"
+    },
+    {
+        "security": "NBLP",
+        "securityDes": "Nepal Bank Limited Promotor share"
+    },
+    {
+        "security": "NCCB",
+        "securityDes": "Nepal Credit And Commercial Bank Limited"
+    },
+    {
+        "security": "NCCBPO",
+        "securityDes": "Nepal Credit & Commercial Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "NCCD86",
+        "securityDes": "9.5% NCC Debenture 2086"
+    },
+    {
+        "security": "NCDB",
+        "securityDes": "Nepal Community Development Bank Ltd."
+    },
+    {
+        "security": "NCDBPO",
+        "securityDes": "Nepal Community Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "NCMPO",
+        "securityDes": "NIDC Capital Markets Ltd. Promoter Share"
+    },
+    {
+        "security": "NEF",
+        "securityDes": "Nabil Equity Fund"
+    },
+    {
+        "security": "NEFLPO",
+        "securityDes": "Nepal Express Finance Limited Promoter Share"
+    },
+    {
+        "security": "NESDO",
+        "securityDes": "NESDO Sambridha Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "NFD",
+        "securityDes": "Nepal Film Development Company Limited"
+    },
+    {
+        "security": "NFS",
+        "securityDes": "Nepal Finance Ltd."
+    },
+    {
+        "security": "NFSPO",
+        "securityDes": "Nepal Finance Ltd. Promoter Share"
+    },
+    {
+        "security": "NGPL",
+        "securityDes": "Ngadi Group Power Ltd."
+    },
+    {
+        "security": "NHDL",
+        "securityDes": "Nepal Hydro Developers Ltd."
+    },
+    {
+        "security": "NHPC",
+        "securityDes": "National Hydro Power Company Limited"
+    },
+    {
+        "security": "NIBD2082",
+        "securityDes": "10.5 % NEPAL INVESTMENT DEBENTURE 2082"
+    },
+    {
+        "security": "NIBD84",
+        "securityDes": "8.5% Nepal Investment Bank Debenture 2084"
+    },
+    {
+        "security": "NIBLGF",
+        "securityDes": "NIBL Growth Fund"
+    },
+    {
+        "security": "NIBLPF",
+        "securityDes": "NIBL Pragati Fund"
+    },
+    {
+        "security": "NIBLSTF",
+        "securityDes": "NIBL Stable Fund"
+    },
+    {
+        "security": "NIBSF1",
+        "securityDes": "NIBL Samriddhi Fund 1"
+    },
+    {
+        "security": "NIBSF2",
+        "securityDes": "NIBL Samriddhi Fund -2"
+    },
+    {
+        "security": "NICA",
+        "securityDes": "NIC Asia Bank Ltd."
+    },
+    {
+        "security": "NICAD2091",
+        "securityDes": "7% NIC ASIA Debenture 2091"
+    },
+    {
+        "security": "NICAD8182",
+        "securityDes": "9% NIC Asia Debenture 2081/82"
+    },
+    {
+        "security": "NICAD8283",
+        "securityDes": "11% NIC Asia Debenture 082/83"
+    },
+    {
+        "security": "NICAD85/86",
+        "securityDes": "10% NIC Asia Debenture 2085/86"
+    },
+    {
+        "security": "NICAP",
+        "securityDes": "NIC Asia Bank Limted Promoter Share"
+    },
+    {
+        "security": "NICBF",
+        "securityDes": "NIC Asia Balanced Fund"
+    },
+    {
+        "security": "NICD83/84",
+        "securityDes": "10.25% NIC Asia Debenture 2083/84"
+    },
+    {
+        "security": "NICD88",
+        "securityDes": "NIC ASIA Rinpatra 2088"
+    },
+    {
+        "security": "NICFC",
+        "securityDes": "NIC Asia Flexi CAP Fund"
+    },
+    {
+        "security": "NICGF",
+        "securityDes": "NIC Asia Growth Fund"
+    },
+    {
+        "security": "NICGF2",
+        "securityDes": "NIC ASIA Growth Fund-2"
+    },
+    {
+        "security": "NICL",
+        "securityDes": "Nepal Insurance Co. Ltd."
+    },
+    {
+        "security": "NICLBSL",
+        "securityDes": "NIC ASIA Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "NICLBSLP",
+        "securityDes": "NIC ASIA Laghubitta Bittiya Sanstha Limited Promoter Share"
+    },
+    {
+        "security": "NICLPO",
+        "securityDes": "Nepal Insurance Co. Ltd Promoter Share"
+    },
+    {
+        "security": "NICSF",
+        "securityDes": "NIC Asia Select Fund 30"
+    },
+    {
+        "security": "NIDC",
+        "securityDes": "NIDC Development Bank Ltd."
+    },
+    {
+        "security": "NIDCPO",
+        "securityDes": "NIDC Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "NIFRA",
+        "securityDes": "Nepal Infrastructure Bank Limited"
+    },
+    {
+        "security": "NIFRAGED",
+        "securityDes": "Nifra Green Energy Debenture 6% - 2088/89"
+    },
+    {
+        "security": "NIFRAP",
+        "securityDes": "Nepal Infrastructure Bank Limited Promoter"
+    },
+    {
+        "security": "NIFRAUR85/86",
+        "securityDes": "NIFRA Uraj Rinpatra7%-2085/86"
+    },
+    {
+        "security": "NIL",
+        "securityDes": "Neco Insurance Limited"
+    },
+    {
+        "security": "NILPO",
+        "securityDes": "Neco Insurace Co. Ltd. Promoter"
+    },
+    {
+        "security": "NIMB",
+        "securityDes": "Nepal Investment Mega Bank Limited"
+    },
+    {
+        "security": "NIMBD90",
+        "securityDes": "10% NIMB Debenture 2090"
+    },
+    {
+        "security": "NIMBPO",
+        "securityDes": "Nepal Investment Mega Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "NKU",
+        "securityDes": "Nepal Khadya Udhyog Limited"
+    },
+    {
+        "security": "NLG",
+        "securityDes": "NLG Insurance Company Ltd."
+    },
+    {
+        "security": "NLIC",
+        "securityDes": "Nepal Life Insurance Co. Ltd."
+    },
+    {
+        "security": "NLICL",
+        "securityDes": "National Life Insurance Co. Ltd."
+    },
+    {
+        "security": "NLICLP",
+        "securityDes": "National Life Insurance Co. Ltd. Promoter Share"
+    },
+    {
+        "security": "NLICP",
+        "securityDes": "Nepal Life Insurance Co. Ltd. Promoter"
+    },
+    {
+        "security": "NLO",
+        "securityDes": "Nepal Lube Oil Limited"
+    },
+    {
+        "security": "NMB",
+        "securityDes": "NMB Bank Limited"
+    },
+    {
+        "security": "NMB50",
+        "securityDes": "NMB 50"
+    },
+    {
+        "security": "NMBD2085",
+        "securityDes": "10 % NMB DEBENTURE 2085"
+    },
+    {
+        "security": "NMBD87/88",
+        "securityDes": "NMB Debenture 8.50% - 2087/88"
+    },
+    {
+        "security": "NMBD89/90",
+        "securityDes": "NMB Debenture 10.75%-2089/90"
+    },
+    {
+        "security": "NMBEB92/93",
+        "securityDes": "NMB Energy Bond 4% - 2092/93"
+    },
+    {
+        "security": "NMBHF1",
+        "securityDes": "NMB Hybrid Fund L-1"
+    },
+    {
+        "security": "NMBHF2",
+        "securityDes": "NMB Hybrid Fund L- II"
+    },
+    {
+        "security": "NMBMF",
+        "securityDes": "NMB  Microfinance Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "NMBMFP",
+        "securityDes": "NMB  Microfinance Bittiya Sanstha Ltd. Promoter Share"
+    },
+    {
+        "security": "NMBPO",
+        "securityDes": "NMB Bank Limited Promoter Share"
+    },
+    {
+        "security": "NMBSF1",
+        "securityDes": "NMB Sulav Investment Fund-1"
+    },
+    {
+        "security": "NMBUR93/94",
+        "securityDes": "NMB Energy Bond 4% - 2093/94"
+    },
+    {
+        "security": "NMFBS",
+        "securityDes": "National Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "NMFBSP",
+        "securityDes": "National Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "NMIC",
+        "securityDes": "Nepal Micro Insurance Company Limited"
+    },
+    {
+        "security": "NMLBBL",
+        "securityDes": "Nerude Mirmire Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "NMLBBLP",
+        "securityDes": "Nerude Mirmire Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "NNFCPO",
+        "securityDes": "Narayani National Finance Company Limited Promoter Share"
+    },
+    {
+        "security": "NRIC",
+        "securityDes": "Nepal Reinsurance Company Limited"
+    },
+    {
+        "security": "NRICP",
+        "securityDes": "Nepal Reinsurance Company Limited Promoter Share"
+    },
+    {
+        "security": "NRM",
+        "securityDes": "Nepal Republic Media Limited"
+    },
+    {
+        "security": "NRN",
+        "securityDes": "NRN Infrastructure and Development Limited"
+    },
+    {
+        "security": "NSIF2",
+        "securityDes": "NMB Sulav Investment Fund - 2"
+    },
+    {
+        "security": "NSLB",
+        "securityDes": "Naya Sarathi Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "NSLBP",
+        "securityDes": "Naya Sarathi Laghubitta Bittiya Sanstha Limited Promoter Share"
+    },
+    {
+        "security": "NSM",
+        "securityDes": "Nepal Share Markets Ltd."
+    },
+    {
+        "security": "NSMPO",
+        "securityDes": "Nepal Share Markets Limited Promoter Share"
+    },
+    {
+        "security": "NSY",
+        "securityDes": "Nepal Life Samriddhi Lagani Yojana"
+    },
+    {
+        "security": "NTC",
+        "securityDes": "Nepal Doorsanchar Company Limited"
+    },
+    {
+        "security": "NTL",
+        "securityDes": "Nepal Tading Limited"
+    },
+    {
+        "security": "NUBL",
+        "securityDes": "Nirdhan Utthan Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "NUBLPO",
+        "securityDes": "Nirdhan Utthan Laghubitta Bittiya Sanstha Limited Promoter Share"
+    },
+    {
+        "security": "NVG",
+        "securityDes": "Nepal Vanaspati Ghee Udhyog Limited"
+    },
+    {
+        "security": "NWC",
+        "securityDes": "Nepal Welfare Company Limited"
+    },
+    {
+        "security": "NWCL",
+        "securityDes": "Nepal Warehousing Company Limited"
+    },
+    {
+        "security": "NYADI",
+        "securityDes": "Nyadi Hydropower Limited"
+    },
+    {
+        "security": "ODBL",
+        "securityDes": "Om Development Bank Ltd."
+    },
+    {
+        "security": "ODBLPO",
+        "securityDes": "Om Development Bank Ltd. Promoter"
+    },
+    {
+        "security": "OFLPO",
+        "securityDes": "Om Finance Limited Promoter Share"
+    },
+    {
+        "security": "OHL",
+        "securityDes": "Oriental Hotels Limited"
+    },
+    {
+        "security": "OMPL",
+        "securityDes": "Om Megashree Pharmaceuticals Limited"
+    },
+    {
+        "security": "PADBLP",
+        "securityDes": "Pacific Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "PBD84",
+        "securityDes": "10.15% Prime Debenture 2084"
+    },
+    {
+        "security": "PBD85",
+        "securityDes": "8.75 % Prime Debenture 2085"
+    },
+    {
+        "security": "PBD88",
+        "securityDes": "10% Prime Debenture 2088"
+    },
+    {
+        "security": "PBLD84",
+        "securityDes": "10% Prabhu Bank Debenture 2084"
+    },
+    {
+        "security": "PBLD86",
+        "securityDes": "10.25% Prabhu Bank  Debenture 2086"
+    },
+    {
+        "security": "PBLD87",
+        "securityDes": "8.5% Prabhu Bank Debenture 2087"
+    },
+    {
+        "security": "PCBL",
+        "securityDes": "Prime Commercial Bank Ltd."
+    },
+    {
+        "security": "PCBLP",
+        "securityDes": "Prime Commercial Bank Promoter Share"
+    },
+    {
+        "security": "PCIL",
+        "securityDes": "Palpa Cement Industries Limited"
+    },
+    {
+        "security": "PDBLPO",
+        "securityDes": "Paschimanchal Bikash Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "PFILPO",
+        "securityDes": "Prudential Finance Co. Ltd. Promoter"
+    },
+    {
+        "security": "PFL",
+        "securityDes": "Pokhara Finance Ltd."
+    },
+    {
+        "security": "PFLBSP",
+        "securityDes": "Patan Finance Limited Promoter Share"
+    },
+    {
+        "security": "PFLPO",
+        "securityDes": "Pokhara Finance Company Limited Promoter Share"
+    },
+    {
+        "security": "PHCL",
+        "securityDes": "Peoples Hydropower Company Limited"
+    },
+    {
+        "security": "PICL",
+        "securityDes": "Prudential Insurance Co. Ltd."
+    },
+    {
+        "security": "PICLPO",
+        "securityDes": "Prudential Insurance Co. Ltd. Promoter Share"
+    },
+    {
+        "security": "PMHPL",
+        "securityDes": "Panchakanya Mai Hydropower Ltd"
+    },
+    {
+        "security": "PMLI",
+        "securityDes": "Prabhu Mahalaxmi Life Insurance Limited"
+    },
+    {
+        "security": "PMLIP",
+        "securityDes": "Prabhu Mahalaxmi Life Insurance Limited promotor"
+    },
+    {
+        "security": "PPCL",
+        "securityDes": "Panchthar Power Compant Limited"
+    },
+    {
+        "security": "PPL",
+        "securityDes": "People s Power Limited"
+    },
+    {
+        "security": "PRDBLP",
+        "securityDes": "Professional Diyalo Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "PRFLPO",
+        "securityDes": "Prabhu Finance Ltd. Promoter Share"
+    },
+    {
+        "security": "PRIN",
+        "securityDes": "Prabhu Insurance Ltd."
+    },
+    {
+        "security": "PRINPO",
+        "securityDes": "Prabhu Insurance Company Ltd. Promoter"
+    },
+    {
+        "security": "PROFL",
+        "securityDes": "Progressive Finance Limited"
+    },
+    {
+        "security": "PROFLP",
+        "securityDes": "Progressive Finance Limited Promoter Share"
+    },
+    {
+        "security": "PRSF",
+        "securityDes": "Prabhu Smart Fund"
+    },
+    {
+        "security": "PRVU",
+        "securityDes": "Prabhu  Bank Limited"
+    },
+    {
+        "security": "PRVUPO",
+        "securityDes": "Prabhu  Bank Limited Promoter Share"
+    },
+    {
+        "security": "PSDBLP",
+        "securityDes": "Pashupati Development Bank Limited Promoter Share"
+    },
+    {
+        "security": "PSF",
+        "securityDes": "Prabhu Select Fund"
+    },
+    {
+        "security": "PURBL",
+        "securityDes": "Purnima Bikas Bank Ltd."
+    },
+    {
+        "security": "PURBLP",
+        "securityDes": "Purnima Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "PURE",
+        "securityDes": "Pure Energy Limited"
+    },
+    {
+        "security": "RADHI",
+        "securityDes": "Radhi Bidyut Company Ltd"
+    },
+    {
+        "security": "RAWA",
+        "securityDes": "Rawa Energy Development Limited"
+    },
+    {
+        "security": "RBBD2088",
+        "securityDes": "7% RBBL Debenture 2088"
+    },
+    {
+        "security": "RBBD83",
+        "securityDes": "8.5% RBBL Debenture 2083"
+    },
+    {
+        "security": "RBBF40",
+        "securityDes": "RBB Focus 40"
+    },
+    {
+        "security": "RBCL",
+        "securityDes": "Rastriya Beema Company Limited"
+    },
+    {
+        "security": "RBCLPO",
+        "securityDes": "Rastriya Beema Company Limited Promoter Share"
+    },
+    {
+        "security": "REDBLP",
+        "securityDes": "Reliable Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "RFPL",
+        "securityDes": "River Falls Power Limited"
+    },
+    {
+        "security": "RHGCL",
+        "securityDes": "Rapti Hydro And General Construction Limited"
+    },
+    {
+        "security": "RHPL",
+        "securityDes": "RASUWAGADHI HYDROPOWER COMPANY LIMITED"
+    },
+    {
+        "security": "RIDI",
+        "securityDes": "Ridi Power Company Limited"
+    },
+    {
+        "security": "RJM",
+        "securityDes": "Raghupati Jute Mills Limited"
+    },
+    {
+        "security": "RLEL",
+        "securityDes": "Ridge Line Energy Limited"
+    },
+    {
+        "security": "RLFL",
+        "securityDes": "Reliance Finance Ltd."
+    },
+    {
+        "security": "RLFLPO",
+        "securityDes": "Reliance Finance Ltd. Promoter Share"
+    },
+    {
+        "security": "RLI",
+        "securityDes": "Reliance Life Insurance Limited"
+    },
+    {
+        "security": "RMBFPO",
+        "securityDes": "Royal Merchant Bank & Finance Co. Ltd. Promoter Share"
+    },
+    {
+        "security": "RMDC",
+        "securityDes": "RMDC Laghubitta Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "RMDCPO",
+        "securityDes": "Rural Microfinance Development Centre Ltd. Promoter Share"
+    },
+    {
+        "security": "RMF1",
+        "securityDes": "RBB Mutual Fund 1"
+    },
+    {
+        "security": "RMF2",
+        "securityDes": "RBB Mutual Fund 2"
+    },
+    {
+        "security": "RNLI",
+        "securityDes": "Reliable Nepal Life Insurance Limited"
+    },
+    {
+        "security": "RRHP",
+        "securityDes": "Rairang Hydropower Development Company Ltd."
+    },
+    {
+        "security": "RSDC",
+        "securityDes": "RSDC Laghubitta Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "RSDCP",
+        "securityDes": "RSDC Laghubitta Bittiya Sanstha Ltd. Promoter Share"
+    },
+    {
+        "security": "RSML",
+        "securityDes": "Reliance Spinning Mills Limited"
+    },
+    {
+        "security": "RSY",
+        "securityDes": "Reliable Samriddhi Yojana"
+    },
+    {
+        "security": "RULB",
+        "securityDes": "Rastra Utthan Laghubitta Sanstha Limited"
+    },
+    {
+        "security": "RURU",
+        "securityDes": "Ru Ru Jalbidhyut Pariyojana Limited"
+    },
+    {
+        "security": "SABBL",
+        "securityDes": "Salapa Bikas Bank Limited"
+    },
+    {
+        "security": "SABSL",
+        "securityDes": "Sabaiko Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "SABSLPO",
+        "securityDes": "Sabaiko Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "SADBL",
+        "securityDes": "Shangrila Development Bank Ltd."
+    },
+    {
+        "security": "SADBLP",
+        "securityDes": "Shangrila Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "SAEF",
+        "securityDes": "Sanima Equity Fund"
+    },
+    {
+        "security": "SAFLPO",
+        "securityDes": "Sagarmatha  Finance Limited Promoter Share"
+    },
+    {
+        "security": "SAGAR",
+        "securityDes": "Sagar Distillery Limited"
+    },
+    {
+        "security": "SAGF",
+        "securityDes": "Sanima Growth Fund"
+    },
+    {
+        "security": "SAHAS",
+        "securityDes": "Sahas Urja Limited"
+    },
+    {
+        "security": "SAIL",
+        "securityDes": "Shreenagar Agritech Industries Limited"
+    },
+    {
+        "security": "SALICO",
+        "securityDes": "Sagarmatha Lumbini Insurance Co. Limited"
+    },
+    {
+        "security": "SALICOPO",
+        "securityDes": "Sagarmatha Lumbini Insurance Co. Limited Promoter Share"
+    },
+    {
+        "security": "SAMAJ",
+        "securityDes": "Samaj Laghubittya Bittiya Sanstha Limited"
+    },
+    {
+        "security": "SAMAJP",
+        "securityDes": "Samaj Laghubittya Bittiya Sanstha Limited Promoter Shares"
+    },
+    {
+        "security": "SAND2085",
+        "securityDes": "10% Sanima Bank Limited Debenture"
+    },
+    {
+        "security": "SANIMA",
+        "securityDes": "Sanima Bank Limited"
+    },
+    {
+        "security": "SANVI",
+        "securityDes": "Sanvi Energy Limited"
+    },
+    {
+        "security": "SAPDBL",
+        "securityDes": "Saptakoshi Development Bank Ltd"
+    },
+    {
+        "security": "SAPDBLP",
+        "securityDes": "Saptakoshi Development Bank Ltd Promoter Share"
+    },
+    {
+        "security": "SARBTM",
+        "securityDes": "Sarbottam Cement Limited"
+    },
+    {
+        "security": "SBBLJ",
+        "securityDes": "Sahayogi Bikas Bank Limited"
+    },
+    {
+        "security": "SBBLJP",
+        "securityDes": "Sahayogi Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "SBCF",
+        "securityDes": "Sunrise Bluechip Fund"
+    },
+    {
+        "security": "SBD87",
+        "securityDes": "8.5% Sanima Debenture 2087"
+    },
+    {
+        "security": "SBD89",
+        "securityDes": "10.25% Sanima Debenture 2089"
+    },
+    {
+        "security": "SBI",
+        "securityDes": "Nepal SBI Bank Limited"
+    },
+    {
+        "security": "SBIBD86",
+        "securityDes": "10% Nepal SBI Bank Debenture 2086"
+    },
+    {
+        "security": "SBID2090",
+        "securityDes": "7% Nepal SBI Bank Debenture 2090"
+    },
+    {
+        "security": "SBID83",
+        "securityDes": "10.25% Nepal SBI Bank Debenture 2083"
+    },
+    {
+        "security": "SBID89",
+        "securityDes": "9% Nepal SBI Bank Rinpatra 2089"
+    },
+    {
+        "security": "SBIPO",
+        "securityDes": "Nepal SBI Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "SBL",
+        "securityDes": "Siddhartha Bank Limited"
+    },
+    {
+        "security": "SBLD2082",
+        "securityDes": "10.50% SBL Debenture 2082"
+    },
+    {
+        "security": "SBLD2091",
+        "securityDes": "7.25% SBL Debenture 2091"
+    },
+    {
+        "security": "SBLD83",
+        "securityDes": "10.25% SBL Debenture 2083"
+    },
+    {
+        "security": "SBLD84",
+        "securityDes": "8.5% SBL Debenture 2084"
+    },
+    {
+        "security": "SBLD89",
+        "securityDes": "10.75% SBL Debenture 2089"
+    },
+    {
+        "security": "SBLPO",
+        "securityDes": "Siddhartha Bank Limited Promoter Share"
+    },
+    {
+        "security": "SBPP",
+        "securityDes": "Shree Bhrikuti Pulp And Paper Limited"
+    },
+    {
+        "security": "SCB",
+        "securityDes": "Standard Chartered Bank Limited"
+    },
+    {
+        "security": "SCBD",
+        "securityDes": "10.30% Standard Chartered Bank Limited Debenture"
+    },
+    {
+        "security": "SDBD87",
+        "securityDes": "Shangri-la Development Bank Debenture 2087"
+    },
+    {
+        "security": "SDBLPO",
+        "securityDes": "Siddhartha Development Bank Limited Promoter Share"
+    },
+    {
+        "security": "SDESI",
+        "securityDes": "Swadeshi Laghubitta Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "SDESIP",
+        "securityDes": "SWADESHI LAGHUBITTA BITTIYA SANSTHA LIMITED - PROMOTER SHARE"
+    },
+    {
+        "security": "SDLBSLP",
+        "securityDes": "Sadhana Laghubitta Bittiya Sanstha Limited Promoter Shares"
+    },
+    {
+        "security": "SEF",
+        "securityDes": "Siddhartha Equity Fund"
+    },
+    {
+        "security": "SEOS",
+        "securityDes": "Siddhartha Equity Orineted Scheme"
+    },
+    {
+        "security": "SETIPO",
+        "securityDes": "Seti Finance Ltd. Promoter Share"
+    },
+    {
+        "security": "SEWAPO",
+        "securityDes": "Sewa Bikas Bank Ltd. Promoter"
+    },
+    {
+        "security": "SFC",
+        "securityDes": "Samjhana Finance Co. Ltd."
+    },
+    {
+        "security": "SFCL",
+        "securityDes": "Samriddhi Finance Company Limited"
+    },
+    {
+        "security": "SFCLP",
+        "securityDes": "Samriddhi Finance Company Limited Promoter Share"
+    },
+    {
+        "security": "SFEF",
+        "securityDes": "Sunrise Focused Equity Fund"
+    },
+    {
+        "security": "SFFIL",
+        "securityDes": "Shrijana Finance  (Bittaya Sanstha)"
+    },
+    {
+        "security": "SFFILP",
+        "securityDes": "Shrijana Finance Ltd. Promoter Share"
+    },
+    {
+        "security": "SFLPO",
+        "securityDes": "Siddhartha Finance Ltd. Promoter"
+    },
+    {
+        "security": "SFMF",
+        "securityDes": "Sunrise First Mutual Fund"
+    },
+    {
+        "security": "SGHC",
+        "securityDes": "Swet-Ganga Hydropower & Construction Limited"
+    },
+    {
+        "security": "SGIC",
+        "securityDes": "Sanima GIC Insurance Limited"
+    },
+    {
+        "security": "SGICP",
+        "securityDes": "Sanima GIC Insurance Limited Promoter Share"
+    },
+    {
+        "security": "SHBL",
+        "securityDes": "Sahara Bikas Bank Ltd."
+    },
+    {
+        "security": "SHEL",
+        "securityDes": "Singati Hydro Energy Limited"
+    },
+    {
+        "security": "SHINE",
+        "securityDes": "Shine Resunga Development Bank Ltd."
+    },
+    {
+        "security": "SHINED",
+        "securityDes": "Shine Resunga Debenture"
+    },
+    {
+        "security": "SHINEP",
+        "securityDes": "Shine Resunga Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "SHIVM",
+        "securityDes": "SHIVAM CEMENTS LTD"
+    },
+    {
+        "security": "SHL",
+        "securityDes": "Soaltee Hotel Limited"
+    },
+    {
+        "security": "SHLB",
+        "securityDes": "Shrijanshil Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "SHPC",
+        "securityDes": "Sanima Mai Hydropower Ltd."
+    },
+    {
+        "security": "SICL",
+        "securityDes": "Shikhar Insurance Co. Ltd."
+    },
+    {
+        "security": "SICLPO",
+        "securityDes": "Shikhar Insurance Co. Ltd. Promoter"
+    },
+    {
+        "security": "SIFC",
+        "securityDes": "Shree Investment Finance Co. Ltd."
+    },
+    {
+        "security": "SIFCPO",
+        "securityDes": "Shree Investment & Finance Co. Ltd. Promoter Share"
+    },
+    {
+        "security": "SIGS2",
+        "securityDes": "Siddhartha Investment Growth Scheme - 2"
+    },
+    {
+        "security": "SIGS3",
+        "securityDes": "Siddhartha Investment Growth Scheme 3"
+    },
+    {
+        "security": "SIKLES",
+        "securityDes": "Sikles Hydropower Limited"
+    },
+    {
+        "security": "SIL",
+        "securityDes": "Siddhartha Insurance Ltd."
+    },
+    {
+        "security": "SILPO",
+        "securityDes": "Siddhartha Insurance Ltd. Promoter Share"
+    },
+    {
+        "security": "SINDU",
+        "securityDes": "Sindhu Bikash Bank Ltd"
+    },
+    {
+        "security": "SINDUP",
+        "securityDes": "Sindhu Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "SIPD",
+        "securityDes": "Shikhar power Development Limited"
+    },
+    {
+        "security": "SJCL",
+        "securityDes": "SANJEN JALAVIDHYUT COMPANY LIMITED"
+    },
+    {
+        "security": "SJLIC",
+        "securityDes": "SuryaJyoti Life Insurance Company Limited"
+    },
+    {
+        "security": "SJLICP",
+        "securityDes": "SuryaJyoti Life Insurance Company Limited Promoter"
+    },
+    {
+        "security": "SKBBL",
+        "securityDes": "Sana Kisan Bikas Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "SKBBLP",
+        "securityDes": "Sana Kisan Bikas Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "SKDBL",
+        "securityDes": "Saptakoshi Development Bank Ltd."
+    },
+    {
+        "security": "SKDBLP",
+        "securityDes": "Saptakoshi Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "SKHEL",
+        "securityDes": "Suryakunda Hydro Electric Limited"
+    },
+    {
+        "security": "SKHL",
+        "securityDes": "Super Khudi Hydropower Limited"
+    },
+    {
+        "security": "SLBBL",
+        "securityDes": "Swarojgar Laghubitta Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "SLBBLP",
+        "securityDes": "Swarojgar Laghubitta Bittiya Sanstha Ltd. Promoter Share"
+    },
+    {
+        "security": "SLBS",
+        "securityDes": "Suryodaya Laghubitta Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "SLBSL",
+        "securityDes": "Samudayik Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "SLBSP",
+        "securityDes": "SURYODAYA LAGHUBITTA BITTIYA SANSTHA LIMITED PROMOTER SHARE"
+    },
+    {
+        "security": "SLCF",
+        "securityDes": "Sanima Large Cap Fund"
+    },
+    {
+        "security": "SMATA",
+        "securityDes": "Samata Gharelu Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "SMATAP",
+        "securityDes": "Samata Gharelu Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "SMB",
+        "securityDes": "Support Microfinance Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "SMBPO",
+        "securityDes": "Support Microfinance Bittiya Sanstha Ltd. Promoter Share"
+    },
+    {
+        "security": "SMFBS",
+        "securityDes": "Swabhimaan Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "SMFBSP",
+        "securityDes": "Swabhimaan Laghubitta Bittiya Sanstha LTD Promoter share"
+    },
+    {
+        "security": "SMFDB",
+        "securityDes": "Summit Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "SMFDBP",
+        "securityDes": "Summit Laghubitta Bittiya Sanstha Limited Promoter Share"
+    },
+    {
+        "security": "SMH",
+        "securityDes": "Super Mai Hydropower Limited"
+    },
+    {
+        "security": "SMHL",
+        "securityDes": "Super Madi Hydropower Limited"
+    },
+    {
+        "security": "SMJC",
+        "securityDes": "Sagarmatha Jalabidhyut Company Limited"
+    },
+    {
+        "security": "SMPDA",
+        "securityDes": "Sampada Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "SMPDAP",
+        "securityDes": "Sampada Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "SNLI",
+        "securityDes": "Sun Nepal Life Insurance Company Limited"
+    },
+    {
+        "security": "SNMAPO",
+        "securityDes": "Sanima Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "SODBLP",
+        "securityDes": "Society  Development Bank Limited Promoter Share"
+    },
+    {
+        "security": "SOHL",
+        "securityDes": "Solu Hydropower Limited"
+    },
+    {
+        "security": "SONA",
+        "securityDes": "Sonapur Minerals And Oil Limited"
+    },
+    {
+        "security": "SPARS",
+        "securityDes": "Sparsha Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "SPC",
+        "securityDes": "Samling Power Company Limited"
+    },
+    {
+        "security": "SPDL",
+        "securityDes": "Synergy Power Development Ltd."
+    },
+    {
+        "security": "SPHL",
+        "securityDes": "Sayapatri Hydropower Limited"
+    },
+    {
+        "security": "SPIL",
+        "securityDes": "Siddhartha Premier Insurance Limited"
+    },
+    {
+        "security": "SPILPO",
+        "securityDes": "Siddhartha Premier Insurance Limited Promoter Share"
+    },
+    {
+        "security": "SPL",
+        "securityDes": "Shuvam Power Limited"
+    },
+    {
+        "security": "SRBL",
+        "securityDes": "Sunrise Bank Limited"
+    },
+    {
+        "security": "SRBLD83",
+        "securityDes": "10.25% Sunrise Bank Debenture 2083"
+    },
+    {
+        "security": "SRBLPO",
+        "securityDes": "Sunrise Bank Ltd Promoter Share"
+    },
+    {
+        "security": "SRD80",
+        "securityDes": "10% Sunrise Debenture 2080"
+    },
+    {
+        "security": "SRLI",
+        "securityDes": "Sanima Reliance Life Insurance Limited"
+    },
+    {
+        "security": "SRLIP",
+        "securityDes": "Sanima Reliance Life Insurance Limited Promoter Share"
+    },
+    {
+        "security": "SRS",
+        "securityDes": "Shree Ram Sugar Mills Limited"
+    },
+    {
+        "security": "SSHL",
+        "securityDes": "Shiva Shree Hydropower Ltd"
+    },
+    {
+        "security": "STC",
+        "securityDes": "Salt Trading Corporation"
+    },
+    {
+        "security": "SUBBLP",
+        "securityDes": "Subbecha Bikas Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "SUPRMP",
+        "securityDes": "Supreme Development Bank Ltd. Promoter Share"
+    },
+    {
+        "security": "SWASTIK",
+        "securityDes": "Swastik Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "SWBBL",
+        "securityDes": "Swabalamban Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "SWBBLP",
+        "securityDes": "Swabalamban Laghubitta Bittiya Sanstha Limited Promoter Share"
+    },
+    {
+        "security": "SWMF",
+        "securityDes": "Suryodaya Womi Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "SWMFPO",
+        "securityDes": "Suryodaya Womi Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "SYFL",
+        "securityDes": "Synergy Finance Ltd."
+    },
+    {
+        "security": "SYFLPO",
+        "securityDes": "Synergy Finance Ltd. Promoter Share"
+    },
+    {
+        "security": "SYPNL",
+        "securityDes": "SY Panel Nepal Limited"
+    },
+    {
+        "security": "TAMOR",
+        "securityDes": "Sanima Middle Tamor Hydropower Limited"
+    },
+    {
+        "security": "TBBLP",
+        "securityDes": "Triveni Bikas Bank Ltd Promoter Share"
+    },
+    {
+        "security": "TDBLPO",
+        "securityDes": "Tourism Development Bank Ltd. Prmoter Share"
+    },
+    {
+        "security": "TMDBL",
+        "securityDes": "Tinau Mission Development Bank Limited"
+    },
+    {
+        "security": "TMDBLP",
+        "securityDes": "Tinau Mission Development Bank Limited Promoter Share"
+    },
+    {
+        "security": "TNBL",
+        "securityDes": "Tinau Development Bank Limited"
+    },
+    {
+        "security": "TNBLPO",
+        "securityDes": "Tinau Development Bank Ltd. Promoter"
+    },
+    {
+        "security": "TPC",
+        "securityDes": "Terhathum Power Company Limited"
+    },
+    {
+        "security": "TRH",
+        "securityDes": "Taragaon Regency Hotel Limited"
+    },
+    {
+        "security": "TSHL",
+        "securityDes": "Three Star Hydropower Limited"
+    },
+    {
+        "security": "TTL",
+        "securityDes": "Trade Tower Limited"
+    },
+    {
+        "security": "TVCL",
+        "securityDes": "Trishuli Jal Vidhyut Company Limited"
+    },
+    {
+        "security": "UAIL",
+        "securityDes": "United Ajod Insurance Limited"
+    },
+    {
+        "security": "UAILPO",
+        "securityDes": "United Ajod Insurance Limited Promoter Share"
+    },
+    {
+        "security": "UFCLPO",
+        "securityDes": "Union Finance Co. Ltd. Promoter Share"
+    },
+    {
+        "security": "UFILPO",
+        "securityDes": "Unique Finance Ltd. Promoter Share"
+    },
+    {
+        "security": "UFL",
+        "securityDes": "United Finance Ltd."
+    },
+    {
+        "security": "UFLPO",
+        "securityDes": "United Finance Company Limited Promoter Share"
+    },
+    {
+        "security": "UHEWA",
+        "securityDes": "Upper Hewakhola Hydropower Company Limited"
+    },
+    {
+        "security": "ULBSL",
+        "securityDes": "Upakar Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "ULBSLPO",
+        "securityDes": "Upakar Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "ULHC",
+        "securityDes": "Upper Lohore Khola Hydropower Company Limited"
+    },
+    {
+        "security": "ULI",
+        "securityDes": "Union Life Insurance Company Limited"
+    },
+    {
+        "security": "UMHL",
+        "securityDes": "United Modi Hydropower Ltd."
+    },
+    {
+        "security": "UMRH",
+        "securityDes": "United IDI Mardi RB Hydropower Limited."
+    },
+    {
+        "security": "UNHPL",
+        "securityDes": "Union Hydropower Limited"
+    },
+    {
+        "security": "UNL",
+        "securityDes": "Unilever Nepal Limited"
+    },
+    {
+        "security": "UNLB",
+        "securityDes": "Unique Nepal Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "UNLBP",
+        "securityDes": "Unique Nepal Laghubitta Bittiya Sanstha Limited Promoter"
+    },
+    {
+        "security": "UPCL",
+        "securityDes": "UNIVERSAL POWER COMPANY LTD"
+    },
+    {
+        "security": "UPPER",
+        "securityDes": "Upper Tamakoshi Hydropower Ltd"
+    },
+    {
+        "security": "USHEC",
+        "securityDes": "Upper Solu Hydro Electric Company Limited"
+    },
+    {
+        "security": "USHL",
+        "securityDes": "Upper Syange Hydropower Limited"
+    },
+    {
+        "security": "USLB",
+        "securityDes": "Unnati Sahakarya Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "USLBP",
+        "securityDes": "Unnati Sahakarya Laghubitta Bittiya Sanstha Limited Promoter Share"
+    },
+    {
+        "security": "VLBS",
+        "securityDes": "Vijaya laghubitta Bittiya Sanstha Ltd."
+    },
+    {
+        "security": "VLBSPO",
+        "securityDes": "Vijaya laghubitta Bittiya Sanstha Ltd. Promoter Share"
+    },
+    {
+        "security": "VLUCL",
+        "securityDes": "Vision Lumbini Urja Company Limited"
+    },
+    {
+        "security": "WDBL",
+        "securityDes": "Western Development Bank Limited"
+    },
+    {
+        "security": "WDBLPO",
+        "securityDes": "Western Development Bank Limited Promoter Share"
+    },
+    {
+        "security": "WNLB",
+        "securityDes": "Wean Nepal Laghubitta Bittiya Sanstha Limited"
+    },
+    {
+        "security": "WNLBP",
+        "securityDes": "Wean Nepal Laghubitta Bittiya Sanstha Limited Promoter Share"
+    },
+    {
+        "security": "YHL",
+        "securityDes": "Yak And Yeti Hotel Limited"
+    }
+]

@@ -32,6 +32,7 @@ class ATRADClient:
         self.user_id = user_config.user_id
         self.base_url = user_config.atrad_base_url
         self.login_endpoint = f"{self.base_url}{user_config.atrad_login_endpoint}"
+        self.market_status_endpoint = f"{self.base_url}{user_config.atrad_market_status_endpoint}"
         self.order_endpoint = f"{self.base_url}{user_config.atrad_order_endpoint}"
         self.quote_endpoint = f"{self.base_url}{user_config.atrad_watch_endpoint}"
         self.market_endpoint = f"{self.base_url}{user_config.atrad_market_details_endpoint}"
@@ -637,7 +638,50 @@ class ATRADClient:
         """
         self.ensure_authenticated()
         return self._is_authenticated
-    
+
+    def get_market_status(self, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
+        """
+        Fetch the current market status.
+
+        Args:
+            timeout: Request timeout in seconds.
+
+        Returns:
+            Parsed ATRAD market status response, or None if fetching/parsing fails.
+        """
+        logger.debug(f"[{self.user_id}] Fetching market status")
+
+        endpoint = f"{self.market_status_endpoint}&dojo.preventCache={self._epoch_time_ms()}"
+
+        with self._request_lock:
+            response = self._request_with_reauth("GET", endpoint, timeout=timeout)
+
+            if response is None:
+                return None
+
+            logger.debug(f"[{self.user_id}] Market status fetch response status: {response.status_code}")
+
+            if response.status_code != 200:
+                logger.warning(
+                    f"[{self.user_id}] Market status fetch failed: "
+                    f"{response.status_code} {response.reason}"
+                )
+                return None
+
+            try:
+                result = response.text.strip().replace("'", '"')
+                result = json.loads(result)
+                if str(result.get("code")) != "0":
+                    logger.warning(
+                        f"[{self.user_id}] ATRAD market status request failed: "
+                        f"{result.get('description', 'Unknown error')}"
+                    )
+                    return None
+                return result.get("data", {})
+            except ValueError:
+                logger.error(f"[{self.user_id}] Invalid ATRAD market status response: {response.text}")
+                return None
+
     def get_custom_watchlists(self, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
         """
         Fetch the user's custom watchlists.
@@ -726,13 +770,14 @@ class ATRADClient:
                 logger.error(f"[{self.user_id}] Invalid ATRAD watchlist response: {response.text}")
                 return None
 
-    def get_ltp(self, symbol: str, timeout: float = 5.0) -> Optional[float]:
+    def get_ltp(self, symbol: str, timeout: float = 5.0, complete: bool = False) -> Optional[float]:
         """
         Fetch the Last Traded Price (LTP) for a security (thread-safe).
 
         Args:
             symbol: Symbol to fetch LTP for
             timeout: Request timeout in seconds (default: 5.0)
+            complete: Whether to fetch complete LTP details
 
         Returns:
             LTP as float, or None if fetch fails or times out
@@ -764,6 +809,9 @@ class ATRADClient:
                         logger.warning(f"[{self.user_id}] No security data in response: {data}")
                         return None
 
+                    if complete:
+                        return security
+
                     ltp = security.get('tradeprice')
                     bidqty = security.get('bidqty', '')
                     bidprice = security.get('bidprice', '')
@@ -787,13 +835,14 @@ class ATRADClient:
                 )
                 return None
 
-    def get_market_details(self, symbol: str, timeout: float = 2.0) -> Optional[Dict[str, str]]:
+    def get_market_details(self, symbol: str, timeout: float = 2.0, complete: bool = False) -> Optional[Dict[str, str]]:
         """
         Fetch market details (bid/ask orderbook) for a security (thread-safe).
 
         Args:
             symbol: Symbol to fetch market details for
             timeout: Request timeout in seconds (default: 2.0)
+            complete: Whether to fetch complete market details
 
         Returns:
             List of bid data dictionaries with 'splits', 'qty', 'price', or None if fetch fails
@@ -820,9 +869,12 @@ class ATRADClient:
                     data = json.loads(data)
                     orderbook = data.get('data', {}).get('orderbook', [])
 
-                    if not orderbook or len(orderbook) == 0:
+                    if not orderbook or not isinstance(orderbook, list):
                         logger.debug(f"[{self.user_id}] No orderbook data in response")
                         return None
+
+                    if complete:
+                        return orderbook
 
                     bid_data = orderbook[0].get('bid', [])
                     if not bid_data:
