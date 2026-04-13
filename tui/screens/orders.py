@@ -472,7 +472,23 @@ class OrdersScreen(Screen[None]):
 
     def on_mount(self) -> None:
         table = self.query_one("#orders-table", DataTable)
-        table.add_columns("id", "ticker", "mode", "queue", "execute", "success", "time", "price", "limit", "multi_queue")
+        table.add_columns(
+            "id",
+            "ticker",
+            "mode",
+            "queue",
+            "execute",
+            "success",
+            "time",
+            "multi_queue",
+            "price",
+            "limit",
+            "quantity",
+            "total_cost",
+            "cumulative_cost",
+            "x2",
+            "x3",
+        )
         self.reload_table()
         table.focus()
 
@@ -488,9 +504,15 @@ class OrdersScreen(Screen[None]):
                 "yes" if row.execute else "no",
                 "yes" if row.success else "no",
                 row.time,
+                "yes" if row.multi_queue else "no",
                 str(row.price),
                 str(row.limit) if row.limit is not None else "",
-                "yes" if row.multi_queue else "no",
+                str(row.quantity),
+                f"{int(row.total_cost):,}",
+                f"{int(row.cumulative_cost):,}",
+                f"{int(row.total_cost*2):,}",
+                f"{int(row.total_cost*3):,}",
+
                 key=row.id,
             )
 

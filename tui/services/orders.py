@@ -15,8 +15,18 @@ class OrderStoreService:
         self.store = OrderStore(str(store_path))
 
     def list_rows(self) -> list[OrderRow]:
+        ordered = sorted(
+            self.store.list_orders(),
+            key=lambda order: (int(order.get("queue_id", 999)), str(order.get("id", ""))),
+        )
         rows = []
-        for order in self.store.list_orders():
+        cumulative_cost = 0.0
+        for order in ordered:
+            price = float(order.get("price", 0))
+            limit = float(order.get("limit", 0) if order.get("limit") is not None else 0)
+            quantity = int(order.get("quantity", 0))
+            total_cost = (limit * quantity * 1.1) if limit != 0 else (price * quantity * 1.1)
+            cumulative_cost += total_cost
             rows.append(
                 OrderRow(
                     id=str(order.get("id", "")),
@@ -26,8 +36,11 @@ class OrderStoreService:
                     execute=bool(order.get("execute", False)),
                     success=bool(order.get("success", False)),
                     time=str(order.get("time") or ""),
-                    price=float(order.get("price", 0)),
-                    limit=float(order.get("limit", 0) if order.get("limit") is not None else 0),
+                    price=price,
+                    limit=limit,
+                    quantity=quantity,
+                    total_cost=total_cost,
+                    cumulative_cost=cumulative_cost,
                     multi_queue=bool(order.get("multi_queue", False)),
                 )
             )

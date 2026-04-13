@@ -132,6 +132,14 @@
             "tms01.nepsetms.com.np": 3111
         }
     },
+    "SIPD": {
+        "security_id": 3110,
+        "exchange_security_id": 9329,
+        "name": "Shikhar power Development Limited",
+        "fetch_id": {
+            "tms01.nepsetms.com.np": 3110
+        }
+    },
     "ILI": {
         "security_id": 3013,
         "exchange_security_id": 9184,

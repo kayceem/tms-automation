@@ -1,4 +1,5 @@
 from services.orders.base_order_service import BaseOrderService
+from types import SimpleNamespace
 
 
 class DummyClient:
@@ -9,6 +10,7 @@ class DummyClient:
             (),
             {
                 "trigger_mode_poll_interval_ms": 100,
+                "multi_fetch_poll_interval_ms": 100,
                 "trigger_mode_slow_poll_interval_ms": 500,
                 "trigger_sell_poll_interval_ms": 500,
                 "trigger_mode_refresh_interval_seconds": 60,
@@ -318,6 +320,89 @@ def test_wait_for_no_ladder_trigger_switches_to_slow_then_fast_polling(monkeypat
     assert sleep_calls[:2] == [0.1, 0.02]
 
 
+def test_execute_just_buy_uses_fade_phase_after_main_phase_failure(monkeypatch):
+    service = DummyService()
+    price_fetcher = FakePriceFetcher([])
+    attempts = {"count": 0}
+    sleep_calls = []
+    clock = {"now": 0.0}
+
+    monkeypatch.setattr(
+        "services.orders.base_order_service.time",
+        SimpleNamespace(
+            time=lambda: clock["now"],
+            sleep=lambda seconds: sleep_calls.append(seconds) or clock.__setitem__("now", clock["now"] + seconds),
+        ),
+    )
+
+    def flaky_place(price: float, quantity: int, **params):
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise RuntimeError("temporary")
+        payload = {"status": "ok", "price": price, "quantity": quantity, "params": params}
+        service.placed_orders.append(payload)
+        return payload
+
+    service._place_single_order = flaky_place
+
+    success, response = service._execute_just_buy(
+        final_price=120.0,
+        trigger_price=110.0,
+        order_quantity=10,
+        just_buy_interval_ms=100,
+        just_buy_timeout=5,
+        just_buy_pre_wait_ms=0,
+        price_fetcher=price_fetcher,
+        platform_params={"security_id": 101},
+        just_buy_max_requests=2,
+        just_buy_fade_interval_ms=250,
+        just_buy_fade_timeout=0.2,
+    )
+
+    assert success is True
+    assert response["price"] == 120.0
+    assert attempts["count"] == 3
+    assert price_fetcher.market_started == 1
+    assert price_fetcher.market_stopped == 1
+    assert sleep_calls[:3] == [0.1, 0.1, 0.25]
+
+
+def test_execute_just_buy_returns_failure_when_fade_phase_also_fails(monkeypatch):
+    service = DummyService()
+    price_fetcher = FakePriceFetcher([])
+    sleep_calls = []
+    clock = {"now": 0.0}
+
+    monkeypatch.setattr(
+        "services.orders.base_order_service.time",
+        SimpleNamespace(
+            time=lambda: clock["now"],
+            sleep=lambda seconds: sleep_calls.append(seconds) or clock.__setitem__("now", clock["now"] + seconds),
+        ),
+    )
+    service._place_single_order = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("always fail"))
+
+    success, response = service._execute_just_buy(
+        final_price=120.0,
+        trigger_price=110.0,
+        order_quantity=10,
+        just_buy_interval_ms=100,
+        just_buy_timeout=5,
+        just_buy_pre_wait_ms=0,
+        price_fetcher=price_fetcher,
+        platform_params={"security_id": 101},
+        just_buy_max_requests=2,
+        just_buy_fade_interval_ms=250,
+        just_buy_fade_timeout=0.2,
+    )
+
+    assert success is False
+    assert response is None
+    assert price_fetcher.market_started == 1
+    assert price_fetcher.market_stopped == 1
+    assert sleep_calls[:3] == [0.1, 0.1, 0.25]
+
+
 def test_execute_ipo_trigger_uses_no_ladder_path_and_cleans_up():
     service = DummyService()
     price_fetcher = FakePriceFetcher([100.0])
@@ -522,6 +607,110 @@ def test_execute_single_ipo_order_maps_tms_order_fields(monkeypatch):
     assert captured["no_ladder"] is True
     assert captured["just_buy"] is True
     assert captured["already_triggered"] is True
+
+
+def test_execute_multi_queue_ipo_trigger_preserves_just_buy_and_fade_settings(monkeypatch):
+    service = DummyService()
+    calls = []
+
+    class FakeMultiFetcher:
+        def __init__(self, symbols_config, fetch_clients, poll_interval_ms, user_id, is_atrad):
+            self.symbols_config = symbols_config
+            self.fetch_clients = fetch_clients
+            self.poll_interval_ms = poll_interval_ms
+            self.user_id = user_id
+            self.is_atrad = is_atrad
+
+        def start(self):
+            return None
+
+        def stop(self):
+            return None
+
+        def get_priority_symbol(self):
+            return "BBB"
+
+        def get_all_ltps(self):
+            return {"AAA": 100.0, "BBB": 110.0}
+
+    monkeypatch.setattr(
+        "services.fetchers.multi_symbol_price_fetcher.MultiSymbolSequentialPriceFetcher",
+        FakeMultiFetcher,
+    )
+    monkeypatch.setattr("services.workflows.coordinated_workflows.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        service,
+        "_execute_ipo_trigger",
+        lambda **kwargs: calls.append(kwargs) or {"status": "ok", "ticker": kwargs.get("ticker")},
+    )
+
+    result = service._execute_multi_queue_ipo_trigger(
+        orders=[
+            {
+                "id": "order-a",
+                "ticker": "AAA",
+                "price": 100.0,
+                "quantity": 10,
+                "security_id": 101,
+                "exchange_security_id": 201,
+                "fetch_id": 301,
+                "mode": "ipo-trigger",
+                "queue_id": 1,
+                "multi_queue": True,
+                "no_ladder": True,
+                "just_buy": True,
+                "just_buy_interval_ms": 100,
+                "just_buy_timeout": 5,
+                "just_buy_pre_wait_ms": 0,
+                "just_buy_max_requests": None,
+                "just_buy_fade_interval_ms": 250,
+                "just_buy_fade_timeout": 2,
+            },
+            {
+                "id": "order-b",
+                "ticker": "BBB",
+                "price": 110.0,
+                "quantity": 11,
+                "security_id": 102,
+                "exchange_security_id": 202,
+                "fetch_id": 302,
+                "mode": "ipo-trigger",
+                "queue_id": 1,
+                "multi_queue": True,
+                "no_ladder": True,
+                "just_buy": True,
+                "just_buy_interval_ms": 120,
+                "just_buy_timeout": 6,
+                "just_buy_pre_wait_ms": 100,
+                "just_buy_max_requests": None,
+                "just_buy_fade_interval_ms": 300,
+                "just_buy_fade_timeout": 3,
+            },
+        ],
+        fetch_clients=[object()],
+    )
+
+    assert result["successful_orders"] == ["order-b", "order-a"]
+    assert len(calls) == 2
+
+    priority_call = calls[0]
+    assert priority_call["ticker"] == "BBB"
+    assert priority_call["already_triggered"] is True
+    assert priority_call["just_buy"] is True
+    assert priority_call["just_buy_interval_ms"] == 120
+    assert priority_call["just_buy_timeout"] == 6
+    assert priority_call["just_buy_pre_wait_ms"] == 100
+    assert priority_call["just_buy_fade_interval_ms"] == 300
+    assert priority_call["just_buy_fade_timeout"] == 3
+
+    remaining_call = calls[1]
+    assert remaining_call["ticker"] == "AAA"
+    assert remaining_call["already_triggered"] is False
+    assert remaining_call["just_buy"] is True
+    assert remaining_call["just_buy_interval_ms"] == 100
+    assert remaining_call["just_buy_timeout"] == 5
+    assert remaining_call["just_buy_fade_interval_ms"] == 250
+    assert remaining_call["just_buy_fade_timeout"] == 2
 
 
 def test_place_sell_order_with_retry_retries_and_sets_response(monkeypatch):

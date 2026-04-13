@@ -16,6 +16,9 @@ class OrderRow:
     time: str
     price: float
     limit: float
+    quantity: int
+    total_cost: float
+    cumulative_cost: float
     multi_queue: bool = False
 
 

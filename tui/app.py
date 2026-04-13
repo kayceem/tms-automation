@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 try:
     from textual.app import App
 except ImportError as exc:  # pragma: no cover - dependency is optional until installed
@@ -10,7 +12,7 @@ except ImportError as exc:  # pragma: no cover - dependency is optional until in
 else:
     _IMPORT_ERROR = None
 
-from utils.logger import attach_handlers, detach_console_handlers
+from utils.logger import setup_logger
 
 
 CSS = """
@@ -480,14 +482,30 @@ if App is not None:
 
         def __init__(self) -> None:
             super().__init__()
-            self._detached_log_handlers = []
+            self._original_log_handlers = []
+            self._original_log_level = logging.INFO
 
         def on_mount(self) -> None:
-            self._detached_log_handlers = detach_console_handlers("main")
+            logger = logging.getLogger("main")
+            self._original_log_handlers = list(logger.handlers)
+            self._original_log_level = logger.level or logging.INFO
+            logger.handlers.clear()
+            setup_logger(
+                name="main",
+                log_file="tui.log",
+                level=self._original_log_level,
+                console_output=False,
+                log_root="logs/tui",
+            )
             self.push_screen("main")
 
         def on_exit(self) -> None:
-            attach_handlers("main", self._detached_log_handlers)
+            logger = logging.getLogger("main")
+            logger.handlers.clear()
+            logger.setLevel(self._original_log_level)
+            logger.propagate = False
+            for handler in self._original_log_handlers:
+                logger.addHandler(handler)
 
 
 def main() -> None:

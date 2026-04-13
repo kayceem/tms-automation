@@ -85,7 +85,8 @@ def setup_logger(
     name: str = 'main',
     log_file: Optional[str] = None,
     level: int = logging.INFO,
-    console_output: bool = True
+    console_output: bool = True,
+    log_root: str = "logs",
 ) -> logging.Logger:
     """
     Set up a logger with both file and console handlers.
@@ -128,7 +129,10 @@ def setup_logger(
 
     # File handler (if log file specified)
     if log_file:
-        log_file = f'logs/{datetime.now().strftime("%Y%m%d")}/' + log_file.replace('.log', f'_{datetime.now().strftime("%H%M%S")}.log')
+        log_file = (
+            f"{log_root}/{datetime.now().strftime('%Y%m%d')}/"
+            + log_file.replace('.log', f'_{datetime.now().strftime("%H%M%S")}.log')
+        )
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 

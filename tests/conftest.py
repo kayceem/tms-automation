@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from collections import deque
 from dataclasses import dataclass
@@ -12,6 +13,11 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import ATRADUserConfig, UserConfig
+from utils.logger import setup_logger
+
+
+TEST_LOGGER_NAME = "main"
+TEST_LOG_DIR = "logs/tests"
 
 
 @dataclass
@@ -154,6 +160,42 @@ def http_interceptor(monkeypatch: pytest.MonkeyPatch) -> HttpInterceptor:
     monkeypatch.setattr(requests.sessions.Session, "request", fake_request)
     yield interceptor
     interceptor.assert_all_consumed()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def configure_test_logging() -> None:
+    logger = logging.getLogger(TEST_LOGGER_NAME)
+    logger.handlers.clear()
+    setup_logger(
+        name=TEST_LOGGER_NAME,
+        log_file="pytest.log",
+        level=logging.DEBUG,
+        console_output=False,
+        log_root=TEST_LOG_DIR,
+    )
+    logger.info("Test session started")
+    yield
+    logger.info("Test session finished")
+
+
+@pytest.fixture(autouse=True)
+def log_test_case(request: pytest.FixtureRequest) -> None:
+    logger = logging.getLogger(TEST_LOGGER_NAME)
+    node_id = request.node.nodeid
+    logger.info("=" * 70)
+    logger.info(f"TEST START: {node_id}")
+    yield
+    logger.info(f"TEST END: {node_id}")
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo):
+    outcome = yield
+    report = outcome.get_result()
+    if report.when != "call":
+        return
+    logger = logging.getLogger(TEST_LOGGER_NAME)
+    logger.info(f"TEST RESULT: {item.nodeid} -> {report.outcome.upper()}")
 
 
 @pytest.fixture

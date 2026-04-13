@@ -548,7 +548,7 @@ class ATRADClient:
         )
 
         with self._request_lock:
-            response = self._request_with_reauth("POST", cancel_url, timeout=timeout)
+            response = self._request_with_reauth("GET", cancel_url, timeout=timeout)
 
             if response is None:
                 raise RuntimeError("Order cancellation failed: no response from ATRAD server")

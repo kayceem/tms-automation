@@ -456,3 +456,250 @@ def test_execute_from_order_store_marks_failed_when_trigger_mode_has_no_fetch_us
         )
 
     assert holder["store"].marked_failed == ["trigger-1"]
+
+
+def test_execute_from_order_store_characterizes_mixed_multi_queue_and_trigger_orders(monkeypatch):
+    holder = {}
+
+    class FakeOrderStore:
+        def __init__(self, _path):
+            self.orders = [
+                {
+                    "id": "mq1-a",
+                    "ticker": "aaa",
+                    "price": 100.0,
+                    "quantity": 10,
+                    "mode": "ipo-trigger",
+                    "queue_id": 1,
+                    "multi_queue": True,
+                    "no_ladder": True,
+                    "just_buy": True,
+                    "just_buy_interval_ms": 100,
+                    "just_buy_timeout": 5,
+                    "just_buy_pre_wait_ms": 0,
+                    "just_buy_max_requests": None,
+                    "just_buy_fade_interval_ms": 250,
+                    "just_buy_fade_timeout": 2,
+                    "time": None,
+                },
+                {
+                    "id": "mq1-b",
+                    "ticker": "bbb",
+                    "price": 110.0,
+                    "quantity": 11,
+                    "mode": "ipo-trigger",
+                    "queue_id": 1,
+                    "multi_queue": True,
+                    "no_ladder": True,
+                    "just_buy": True,
+                    "just_buy_interval_ms": 100,
+                    "just_buy_timeout": 5,
+                    "just_buy_pre_wait_ms": 0,
+                    "just_buy_max_requests": None,
+                    "just_buy_fade_interval_ms": 250,
+                    "just_buy_fade_timeout": 2,
+                    "time": None,
+                },
+                {
+                    "id": "trigger-standalone",
+                    "ticker": "ccc",
+                    "price": 120.0,
+                    "quantity": 12,
+                    "mode": "ipo-trigger",
+                    "queue_id": 2,
+                    "multi_queue": False,
+                    "no_ladder": True,
+                    "just_buy": True,
+                    "just_buy_interval_ms": 120,
+                    "just_buy_timeout": 9,
+                    "just_buy_pre_wait_ms": 100,
+                    "just_buy_max_requests": None,
+                    "just_buy_fade_interval_ms": None,
+                    "just_buy_fade_timeout": None,
+                    "time": None,
+                },
+                {
+                    "id": "mq2-a",
+                    "ticker": "ddd",
+                    "price": 130.0,
+                    "quantity": 13,
+                    "mode": "ipo-trigger",
+                    "queue_id": 3,
+                    "multi_queue": True,
+                    "no_ladder": True,
+                    "just_buy": True,
+                    "just_buy_interval_ms": 90,
+                    "just_buy_timeout": 4,
+                    "just_buy_pre_wait_ms": 0,
+                    "just_buy_max_requests": None,
+                    "just_buy_fade_interval_ms": None,
+                    "just_buy_fade_timeout": None,
+                    "time": None,
+                },
+                {
+                    "id": "mq2-b",
+                    "ticker": "eee",
+                    "price": 140.0,
+                    "quantity": 14,
+                    "mode": "ipo-trigger",
+                    "queue_id": 3,
+                    "multi_queue": True,
+                    "no_ladder": True,
+                    "just_buy": True,
+                    "just_buy_interval_ms": 90,
+                    "just_buy_timeout": 4,
+                    "just_buy_pre_wait_ms": 0,
+                    "just_buy_max_requests": None,
+                    "just_buy_fade_interval_ms": None,
+                    "just_buy_fade_timeout": None,
+                    "time": None,
+                },
+                {
+                    "id": "trigger-low",
+                    "ticker": "fff",
+                    "price": 150.0,
+                    "quantity": 15,
+                    "mode": "ipo-trigger-low",
+                    "queue_id": 4,
+                    "multi_queue": False,
+                    "no_ladder": False,
+                    "just_buy": False,
+                    "just_buy_interval_ms": 100,
+                    "just_buy_timeout": 5,
+                    "just_buy_pre_wait_ms": 0,
+                    "just_buy_max_requests": None,
+                    "just_buy_fade_interval_ms": None,
+                    "just_buy_fade_timeout": None,
+                    "time": None,
+                },
+            ]
+            self.marked_success = []
+            self.marked_failed = []
+            holder["store"] = self
+
+        def get_order_summary(self):
+            return "summary"
+
+        def get_executable_orders(self):
+            return list(self.orders)
+
+        def validate_order(self, order):
+            normalized = {
+                "sell": False,
+                "skip_first": False,
+                "skip_second_last": False,
+                "limit": None,
+                "base_quantity": 10,
+                "double_buy": False,
+                "double_buy_quantity": None,
+                "refresh_before": 20,
+                "seller_config": None,
+                "buyer_config": None,
+                "sell_quantity": None,
+                "sell_pre_wait_ms": 5000,
+            }
+            normalized.update(order)
+            return normalized
+
+        def mark_success(self, order_id):
+            self.marked_success.append(order_id)
+
+        def mark_failed(self, order_id):
+            self.marked_failed.append(order_id)
+
+    calls = {"multi_queue": [], "single": []}
+
+    def fake_execute_multi_queue_group(user_config, orders, order_store, fetch_user_configs=None, is_atrad_fetch=False):
+        for order in orders:
+            order_store.mark_success(order["id"])
+        calls["multi_queue"].append(
+            {
+                "user_config": user_config,
+                "order_ids": [order["id"] for order in orders],
+                "orders": orders,
+                "order_store": order_store,
+                "fetch_user_configs": fetch_user_configs,
+                "is_atrad_fetch": is_atrad_fetch,
+            }
+        )
+        return {
+            "responses": [],
+            "successful_orders": [order["id"] for order in orders],
+            "failed_orders": [],
+        }
+
+    def fake_resolve_ticker(ticker, fetch_user_configs=None, is_atrad_fetch=False):
+        return ResolvedTicker(
+            ticker=ticker.upper(),
+            security_id=100 + len(ticker),
+            exchange_security_id=200 + len(ticker),
+            fetch_id=300 + len(ticker),
+            symbol=ticker.upper(),
+        )
+
+    def fake_execute_order_for_user(user_config, order_params, scheduled_time=None, fetch_user_configs=None, is_atrad_fetch=False):
+        calls["single"].append(
+            {
+                "user_config": user_config,
+                "order_params": order_params,
+                "scheduled_time": scheduled_time,
+                "fetch_user_configs": fetch_user_configs,
+                "is_atrad_fetch": is_atrad_fetch,
+            }
+        )
+        return {"status": "ok", "symbol": order_params["symbol"]}
+
+    monkeypatch.setattr(execution, "OrderStore", FakeOrderStore)
+    monkeypatch.setattr(execution, "execute_multi_queue_group", fake_execute_multi_queue_group)
+    monkeypatch.setattr(execution, "resolve_ticker", fake_resolve_ticker)
+    monkeypatch.setattr(execution, "execute_order_for_user", fake_execute_order_for_user)
+
+    result = main.execute_from_order_store(
+        user_config=DummyConfig("main-user"),
+        order_store_path="stores/order_store.json",
+        fetch_user_configs=[DummyConfig("fetch-user")],
+        is_atrad_fetch=False,
+    )
+
+    assert result == {"status": "ok", "symbol": "FFF"}
+    assert [call["order_ids"] for call in calls["multi_queue"]] == [
+        ["mq1-a", "mq1-b"],
+        ["mq2-a", "mq2-b"],
+    ]
+
+    first_multi_queue_orders = calls["multi_queue"][0]["orders"]
+    assert all(order["mode"] == "ipo-trigger" for order in first_multi_queue_orders)
+    assert all(order["multi_queue"] is True for order in first_multi_queue_orders)
+    assert all(order["no_ladder"] is True for order in first_multi_queue_orders)
+    assert all(order["just_buy"] is True for order in first_multi_queue_orders)
+    assert all(order["just_buy_fade_interval_ms"] == 250 for order in first_multi_queue_orders)
+    assert all(order["just_buy_fade_timeout"] == 2 for order in first_multi_queue_orders)
+
+    assert len(calls["single"]) == 2
+    standalone_trigger = calls["single"][0]["order_params"]
+    assert standalone_trigger["ticker"] == "ccc"
+    assert standalone_trigger["ipo_trigger_mode"] is True
+    assert standalone_trigger["ipo_trigger_low_mode"] is False
+    assert standalone_trigger["no_ladder"] is True
+    assert standalone_trigger["just_buy"] is True
+    assert standalone_trigger["just_buy_interval_ms"] == 120
+    assert standalone_trigger["just_buy_timeout"] == 9
+    assert standalone_trigger["just_buy_pre_wait_ms"] == 100
+    assert standalone_trigger["just_buy_fade_interval_ms"] is None
+    assert standalone_trigger["just_buy_fade_timeout"] is None
+
+    trigger_low = calls["single"][1]["order_params"]
+    assert trigger_low["ticker"] == "fff"
+    assert trigger_low["ipo_trigger_mode"] is False
+    assert trigger_low["ipo_trigger_low_mode"] is True
+    assert trigger_low["just_buy"] is False
+
+    assert holder["store"].marked_success == [
+        "mq1-a",
+        "mq1-b",
+        "trigger-standalone",
+        "mq2-a",
+        "mq2-b",
+        "trigger-low",
+    ]
+    assert holder["store"].marked_failed == []

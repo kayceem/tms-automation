@@ -276,7 +276,7 @@ def test_cancel_order_logs_in_and_uses_built_url(atrad_user_config, http_interce
         cookies=[{"name": "JSESSIONID", "value": "session-10", "domain": "atrad.test"}],
     )
     http_interceptor.add_text(
-        "POST",
+        "GET",
         cancel_matcher,
         text='{"code":"0", "description":"javascriptOrderSuccessesFullySubmitted", "data":"success"}',
     )
@@ -300,7 +300,7 @@ def test_cancel_order_logs_in_and_uses_built_url(atrad_user_config, http_interce
     )
 
     assert result["code"] == "0"
-    assert http_interceptor.calls[-1]["method"] == "POST"
+    assert http_interceptor.calls[-1]["method"] == "GET"
 
 
 def test_cancel_order_raises_runtime_error_on_failed_atrad_response(atrad_user_config, http_interceptor):
@@ -312,7 +312,7 @@ def test_cancel_order_raises_runtime_error_on_failed_atrad_response(atrad_user_c
         and "&dojo.preventCache=" in url
     )
     http_interceptor.add_text(
-        "POST",
+        "GET",
         cancel_matcher,
         text='{"code":"9", "description":"rejected", "data":"failed"}',
     )

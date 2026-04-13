@@ -207,7 +207,7 @@ def execute_ipo_trigger_low(
     service.logger.info(f"Security: {service._get_identifier_for_logging(**platform_params)}")
     service.logger.info("=" * 70)
 
-    poll_interval_ms = service.client.user_config.trigger_mode_poll_interval_ms
+    poll_interval_ms = service.client.user_config.trigger_mode_slow_poll_interval_ms
     price_fetcher = service._setup_price_fetcher(
         fetch_clients, fetch_security_id, symbol, ticker, poll_interval_ms
     )
