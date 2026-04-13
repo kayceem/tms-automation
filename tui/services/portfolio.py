@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -100,7 +101,7 @@ class PortfolioService:
             for item in payload
         ]
 
-    def fetch_watchlist(self, path: str | Path, watch_id: int) -> list[WatchlistEntryRow]:
+    def fetch_watchlist(self, path: str | Path, watch_id: int) -> tuple[list[WatchlistEntryRow], str]:
         client = ATRADClient(self.load_user_config(path))
         payload = client.get_watchlist(watch_id)
         if payload is None:
@@ -127,7 +128,7 @@ class PortfolioService:
             for item in payload
         ]
         rows.sort(key=lambda row: row.security_code)
-        return rows
+        return rows, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     def build_cancel_url(self, path: str | Path, order: dict) -> str:
         client = ATRADClient(self.load_user_config(path))
@@ -136,3 +137,7 @@ class PortfolioService:
     def cancel_order(self, path: str | Path, order: dict) -> dict:
         client = ATRADClient(self.load_user_config(path))
         return client.cancel_order(order)
+
+    def add_symbol_to_watchlist(self, path: str | Path, watch_id: int, symbol: str) -> dict:
+        client = ATRADClient(self.load_user_config(path))
+        return client.add_security_to_watchlist(watch_id, symbol)

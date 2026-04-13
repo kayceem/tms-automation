@@ -88,7 +88,7 @@ Screen {
 
 .menu-item:focus,
 .menu-item.-active {
-    background: #ff9e1b 22%;
+    background: #ffffff 22%;
     color: #ffffff;
     text-style: bold;
 }
@@ -219,7 +219,8 @@ DataTable > .datatable--header {
 }
 
 DataTable > .datatable--cursor {
-    background: #ff9e1b 28%;
+    background: #ffffff 20%;
+    color: #ffffff;
     text-style: bold;
 }
 
@@ -414,11 +415,21 @@ Checkbox:focus {
     color: #5fd7ff;
 }
 
-#order-book-response {
+.response-scroll {
+    width: 100%;
+    height: 6;
+    margin: 1 0 0 0;
+    background: #0a0a0a;
+    scrollbar-background: #000000;
+    scrollbar-color: #7a4a00;
+    scrollbar-color-hover: #ff9e1b;
+    scrollbar-size-vertical: 1;
+}
+
+.response-text {
     width: 100%;
     height: auto;
     padding: 0 1;
-    margin: 1 0 0 0;
     background: #0a0a0a;
     color: #5fd7ff;
 }
@@ -442,6 +453,42 @@ Label {
     align: left middle;
     padding: 1 0 0 0;
     margin: 0 0 1 0;
+}
+
+#portfolio-actions-spacer {
+    width: 1fr;
+    height: 1;
+    background: #000000;
+}
+
+#portfolio-actions #watchlist-selector {
+    width: 24;
+    height: 1;
+    margin: 0;
+    border: none;
+    background: #000000;
+    color: #ff9e1b;
+}
+
+#portfolio-actions #watchlist-selector:focus {
+    background: #1a1000;
+    color: #ffd166;
+    border: none;
+}
+
+#portfolio-actions #watchlist-selector SelectCurrent {
+    width: 24;
+    height: 1;
+    border: none;
+    padding: 0 1;
+    background: #000000;
+    color: #ff9e1b;
+}
+
+#portfolio-actions #watchlist-selector SelectCurrent:focus {
+    background: #1a1000;
+    color: #ffd166;
+    border: none;
 }
 
 Header {

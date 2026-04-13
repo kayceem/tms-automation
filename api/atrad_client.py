@@ -41,6 +41,7 @@ class ATRADClient:
         self.quick_watch_endpoint = f"{self.base_url}{user_config.atrad_quick_watch_endpoint}"
         self.custom_watchlists_endpoint = f"{self.base_url}{user_config.atrad_custom_watchlists_endpoint}"
         self.watchlist_endpoint = f"{self.base_url}{user_config.atrad_watchlist_endpoint}"
+        self.add_security_watchlist_endpoint = f"{self.base_url}{user_config.atrad_add_security_watchlist_endpoint}"
         # Thread-safe session
         self.session = requests.Session()
         self._login_lock = threading.Lock()
@@ -579,6 +580,55 @@ class ATRADClient:
             error_msg = result.get("description", "Unknown error")
             logger.error(f"[{self.user_id}] ATRAD cancel failed: {error_msg}")
             raise RuntimeError(f"Order cancellation failed: {error_msg}")
+
+    def add_security_to_watchlist(self, watch_id: int, symbol: str, timeout: float = 5.0) -> Dict[str, Any]:
+        """
+        Add a security to a custom watchlist.
+
+        Args:
+            watch_id: ID of the watchlist to add the security to
+            symbol: Symbol of the security to add
+            timeout: Request timeout in seconds
+
+        Returns:
+            Parsed ATRAD response as a dictionary
+
+        Raises:
+            RuntimeError: If the request fails or ATRAD returns an error
+        """
+        if not self._is_authenticated:
+            logger.warning(f"[{self.user_id}] Not authenticated, attempting login...")
+            self.login()
+
+        endpoint = f"{self.add_security_watchlist_endpoint}&watchId={watch_id}&securityid={symbol}&dojo.preventCache={self._epoch_time_ms()}"
+
+        logger.info(f"[{self.user_id}] Adding symbol {symbol} to watchlist ID {watch_id}")
+
+        with self._request_lock:
+            response = self._request_with_reauth("GET", endpoint, timeout=timeout)
+
+            if response is None:
+                raise RuntimeError("Failed to add security to watchlist: no response from ATRAD server")
+
+            logger.debug(f"[{self.user_id}] Add to watchlist response status: {response.status_code}")
+
+            response.raise_for_status()
+
+            try:
+                result = response.text.strip().replace("'", '"')
+                result = json.loads(result)
+                logger.debug(f"[{self.user_id}] Add to watchlist response: {json.dumps(result, indent=2)}")
+            except ValueError:
+                logger.error(f"[{self.user_id}] Invalid add to watchlist response: {response.text}")
+                raise RuntimeError(f"Invalid response from ATRAD server: {response.text}")
+
+            if str(result.get("code")) == "0":
+                logger.info(f"[{self.user_id}] ATRAD security added to watchlist successfully")
+                return result
+
+            error_msg = result.get("description", "Unknown error")
+            logger.error(f"[{self.user_id}] ATRAD add to watchlist failed: {error_msg}")
+            raise RuntimeError(f"Failed to add security to watchlist: {error_msg}")
 
     def refresh_tokens(self) -> bool:
         """

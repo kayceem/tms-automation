@@ -9,9 +9,9 @@ from pathlib import Path
 
 from textual import work
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Button, DataTable, Footer, Header, Select, Static, TabbedContent, TabPane
+from textual.widgets import Button, DataTable, Footer, Header, Input, Select, Static, TabbedContent, TabPane
 
 from tui.models import CustomWatchlistRow, OrderBookRow, WatchlistEntryRow
 from tui.services.portfolio import PortfolioService
@@ -169,6 +169,49 @@ class CancelConfirmScreen(ModalScreen[bool]):
         self.dismiss(True)
 
 
+class AddSymbolScreen(ModalScreen[str | None]):
+    BINDINGS = [
+        ("escape", "dismiss(None)", "Close"),
+    ]
+
+    def __init__(self, watchlist_name: str) -> None:
+        super().__init__()
+        self.watchlist_name = watchlist_name
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm-shell"):
+            yield Static(
+                f" WATCHLIST ▸ ADD SYMBOL ▸ {self.watchlist_name.upper()} ",
+                classes="screen-title",
+            )
+            with Horizontal(classes="form-row"):
+                yield Static("Symbol", classes="form-label")
+                yield Input(placeholder="e.g. NABIL", id="symbol-input", classes="form-input")
+            yield Static("", id="add-symbol-status")
+            with Horizontal():
+                yield Button("[Enter] Add", id="add", classes="action-button")
+                yield Button("[Esc] Cancel", id="cancel", classes="action-button")
+
+    def on_mount(self) -> None:
+        self.query_one("#symbol-input", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "add":
+            self._submit()
+        else:
+            self.dismiss(None)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._submit()
+
+    def _submit(self) -> None:
+        value = self.query_one("#symbol-input", Input).value.strip().upper()
+        if not value:
+            self.query_one("#add-symbol-status", Static).update("[#ff4757]Enter a symbol.[/]")
+            return
+        self.dismiss(value)
+
+
 class OrderBookScreen(Screen[None]):
     BINDINGS = [
         ("ctrl+1", "show_active_panel", "Active"),
@@ -178,6 +221,9 @@ class OrderBookScreen(Screen[None]):
         ("right", "next_panel", "Next Panel"),
         ("r", "refresh_book", "Refresh"),
         ("c", "cancel_selected", "Cancel"),
+        ("t", "cycle_watchlist", "Cycle Watchlist"),
+        ("a", "add_symbol", "Add Symbol"),
+        ("g", "clear_response", "Clear Response"),
         ("enter", "open_selected_watchlist", "Open Watchlist"),
         ("escape", "app.pop_screen", "Back"),
     ]
@@ -217,13 +263,6 @@ class OrderBookScreen(Screen[None]):
                 yield table
 
             with TabPane("Watchlists", id="tab-watchlists"):
-                with Horizontal():
-                    yield Static("Watchlist", classes="form-label")
-                    yield Select(
-                        [],
-                        prompt="Select watchlist",
-                        id="watchlist-selector",
-                    )
                 watchlist_table = DataTable(
                     id="watchlist-table",
                     cursor_foreground_priority="renderable",
@@ -233,10 +272,21 @@ class OrderBookScreen(Screen[None]):
                 yield watchlist_table
         yield Static("", id="portfolio-total")
         yield Static("", id="portfolio-status")
-        yield Static("", id="order-book-response")
+        with VerticalScroll(id="active-response-scroll", classes="response-scroll"):
+            yield Static("", id="active-response", classes="response-text")
+        with VerticalScroll(id="completed-response-scroll", classes="response-scroll"):
+            yield Static("", id="completed-response", classes="response-text")
+        with VerticalScroll(id="watchlist-response-scroll", classes="response-scroll"):
+            yield Static("", id="watchlist-response", classes="response-text")
         with Horizontal(id="portfolio-actions"):
             yield Button("[R] Refresh", id="refresh", classes="action-button")
             yield Button("[C] Cancel Selected", id="cancel", classes="action-button")
+            yield Static("", id="portfolio-actions-spacer")
+            yield Select(
+                [],
+                prompt="Watchlist",
+                id="watchlist-selector",
+            )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -273,19 +323,19 @@ class OrderBookScreen(Screen[None]):
         watchlist_table = self.query_one("#watchlist-table", DataTable)
         watchlist_table.add_columns(
             "symbol",
+            "ltp",
+            "open",
+            "high",
+            "low",
+            "net",
+            "%",
+            "volume",
+            "turnover",
             "bid qty",
             "bid",
             "ask qty",
             "ask",
-            "net",
-            "%",
-            "ltp",
             "last trade",
-            "open",
-            "high",
-            "low",
-            "volume",
-            "turnover",
         )
         self.action_show_active_panel()
         active_table.focus()
@@ -327,11 +377,22 @@ class OrderBookScreen(Screen[None]):
         elif panel == "tab-completed":
             self.query_one("#completed-order-book-table", DataTable).focus()
         else:
-            self.query_one("#watchlist-selector", Select).focus()
+            self.query_one("#watchlist-table", DataTable).focus()
+
+    _PANEL_KEY = {
+        "tab-active": "active",
+        "tab-completed": "completed",
+        "tab-watchlists": "watchlist",
+    }
 
     def _update_action_buttons(self) -> None:
+        panel = self._active_panel()
         cancel_button = self.query_one("#cancel", Button)
-        cancel_button.disabled = self._active_panel() != "tab-active"
+        cancel_button.display = panel == "tab-active"
+        selector = self.query_one("#watchlist-selector", Select)
+        selector.display = panel == "tab-watchlists"
+        for key in ("active", "completed", "watchlist"):
+            self.query_one(f"#{key}-response-scroll").display = self._PANEL_KEY.get(panel) == key
 
     def on_tabbed_content_tab_activated(self, _event: TabbedContent.TabActivated) -> None:
         self._focus_current_panel()
@@ -345,8 +406,15 @@ class OrderBookScreen(Screen[None]):
         }[panel]
         self.query_one("#portfolio-status", Static).update(f"{panel_label}: {message}")
 
-    def _set_response(self, message: str) -> None:
-        self.query_one("#order-book-response", Static).update(message)
+    def _set_response(self, message: str, panel: str = "active") -> None:
+        key = "watchlist" if panel == "watchlists" else panel
+        self.query_one(f"#{key}-response", Static).update(message)
+
+    def action_clear_response(self) -> None:
+        panel = self._PANEL_KEY.get(self._active_panel())
+        if panel is None:
+            return
+        self.query_one(f"#{panel}-response", Static).update("")
 
     @staticmethod
     def _styled_cell(value: str, color: str) -> str:
@@ -397,8 +465,8 @@ class OrderBookScreen(Screen[None]):
                 self.app.call_from_thread(self._set_status, "No watchlist selected.", "watchlists")
                 return
             watch_id = int(self._selected_watchlist_id)
-            rows = self.service.fetch_watchlist(self.user_path, watch_id)
-            self.app.call_from_thread(self._apply_watchlist_rows, watch_id, rows)
+            rows, last_updated_time = self.service.fetch_watchlist(self.user_path, watch_id)
+            self.app.call_from_thread(self._apply_watchlist_rows, watch_id, rows, last_updated_time)
             return
         except RuntimeError as exc:
             self.app.call_from_thread(
@@ -490,36 +558,59 @@ class OrderBookScreen(Screen[None]):
     @work(thread=True)
     def _load_watchlist(self, watch_id: int) -> None:
         try:
-            rows = self.service.fetch_watchlist(self.user_path, watch_id)
+            rows, last_updated_time = self.service.fetch_watchlist(self.user_path, watch_id)
         except RuntimeError as exc:
             self.app.call_from_thread(self._set_status, str(exc), "watchlists")
             return
-        self.app.call_from_thread(self._apply_watchlist_rows, watch_id, rows)
+        self.app.call_from_thread(self._apply_watchlist_rows, watch_id, rows, last_updated_time)
 
-    def _apply_watchlist_rows(self, watch_id: int, rows: list[WatchlistEntryRow]) -> None:
+    @staticmethod
+    def _watchlist_row_color(net: str, pct: str) -> str | None:
+        try:
+            n = float(str(net).replace(",", ""))
+        except (ValueError, TypeError):
+            return None
+        try:
+            p = abs(float(str(pct).replace("%", "").replace(",", "")))
+        except (ValueError, TypeError):
+            p = 0.0
+        if n > 0:
+            return "#33c000" if p > 9.9 else "#047200"
+        if n < 0:
+            return "#ff1a31" if p > 9.9 else "#b11824"
+        return None
+
+    def _apply_watchlist_rows(self, watch_id: int, rows: list[WatchlistEntryRow], last_updated_time: str) -> None:
         self.watchlist_rows = rows
         table = self.query_one("#watchlist-table", DataTable)
         table.clear()
         for row in rows:
+            color = self._watchlist_row_color(row.net_change, row.percent_change)
+            def paint(value: str, bold: bool = False) -> str:
+                text = value or "-"
+                if color is None:
+                    return text
+                prefix = "bold " if bold else ""
+                return f"[{prefix}{color}]{text}[/]"
             table.add_row(
-                f"[bold #5fd7ff]{row.security_code}[/]",
-                row.bid_quantity,
-                row.bid_price,
-                row.ask_quantity,
-                row.ask_price,
-                row.net_change,
-                row.percent_change,
-                row.last_price,
-                row.last_traded_time,
-                row.opening_price,
-                row.high_price,
-                row.low_price,
-                row.volume,
-                row.turnover,
+                paint(row.security_code, bold=True) if color else f"[bold #5fd7ff]{row.security_code}[/]",
+                paint(row.last_price),
+                paint(row.opening_price),
+                paint(row.high_price),
+                paint(row.low_price),
+                paint(row.net_change),
+                paint(row.percent_change),
+                paint(row.volume),
+                paint(row.turnover),
+                paint(row.bid_quantity),
+                paint(row.bid_price),
+                paint(row.ask_quantity),
+                paint(row.ask_price),
+                paint(row.last_traded_time),
                 key=row.security_code,
             )
         self._set_status(
-            f"Loaded watchlist {watch_id} with {len(rows)} symbol(s).",
+            f"Loaded watchlist {watch_id} with {len(rows)} symbol(s). | Last updated: {last_updated_time}",
             "watchlists",
         )
         self.query_one("#portfolio-total", Static).update("")
@@ -532,6 +623,70 @@ class OrderBookScreen(Screen[None]):
             return
         self._selected_watchlist_id = row.watch_list_id
         self._load_watchlist(watch_id)
+
+    def action_cycle_watchlist(self) -> None:
+        if not self.watchlists:
+            self._set_status("No watchlists loaded.", "watchlists")
+            return
+        ids = [row.watch_list_id for row in self.watchlists]
+        try:
+            idx = ids.index(self._selected_watchlist_id) if self._selected_watchlist_id else -1
+        except ValueError:
+            idx = -1
+        next_row = self.watchlists[(idx + 1) % len(self.watchlists)]
+        selector = self.query_one("#watchlist-selector", Select)
+        selector.value = next_row.watch_list_id
+        self._open_watchlist_by_row(next_row)
+
+    def action_add_symbol(self) -> None:
+        if self._active_panel() != "tab-watchlists":
+            return
+        if not self._selected_watchlist_id:
+            self._set_status("Select a watchlist first.", "watchlists")
+            return
+        row = next(
+            (item for item in self.watchlists if item.watch_list_id == self._selected_watchlist_id),
+            None,
+        )
+        if row is None:
+            self._set_status("Watchlist not found.", "watchlists")
+            return
+        self.app.push_screen(
+            AddSymbolScreen(row.watch_list_name),
+            lambda symbol: self._handle_add_symbol_result(row, symbol),
+        )
+
+    def _handle_add_symbol_result(self, row: CustomWatchlistRow, symbol: str | None) -> None:
+        if not symbol:
+            return
+        try:
+            watch_id = int(row.watch_list_id)
+        except ValueError:
+            self._set_status(f"Invalid watchlist ID: {row.watch_list_id}", "watchlists")
+            return
+        self._add_symbol(watch_id, symbol)
+
+    @work(thread=True)
+    def _add_symbol(self, watch_id: int, symbol: str) -> None:
+        try:
+            result = self.service.add_symbol_to_watchlist(self.user_path, watch_id, symbol)
+        except RuntimeError as exc:
+            self.app.call_from_thread(
+                self._set_status, f"Add failed: {exc}", "watchlists",
+            )
+            return
+        except Exception as exc:
+            self.app.call_from_thread(
+                self._set_status, f"Unexpected error: {exc}", "watchlists",
+            )
+            return
+        self.app.call_from_thread(
+            self._set_response, json.dumps(result, indent=2, sort_keys=True), "watchlist",
+        )
+        self.app.call_from_thread(
+            self._set_status, f"Added {symbol} to watchlist. Refreshing...", "watchlists",
+        )
+        self.app.call_from_thread(self._load_watchlist, watch_id)
 
     def action_open_selected_watchlist(self) -> None:
         if self._active_panel() != "tab-watchlists":
@@ -579,7 +734,7 @@ class OrderBookScreen(Screen[None]):
             self.app.call_from_thread(self._set_status, str(exc), "active")
             return
         response_text = json.dumps(result, indent=2, sort_keys=True)
-        self.app.call_from_thread(self._set_response, response_text)
+        self.app.call_from_thread(self._set_response, response_text, "active")
         time.sleep(1)
         self.app.call_from_thread(
             self._set_status,
