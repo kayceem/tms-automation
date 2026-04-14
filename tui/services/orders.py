@@ -42,9 +42,14 @@ class OrderStoreService:
                     total_cost=total_cost,
                     cumulative_cost=cumulative_cost,
                     multi_queue=bool(order.get("multi_queue", False)),
+                    no_ladder=bool(order.get("no_ladder", False)),
+                    just_buy=bool(order.get("just_buy", False)),
                 )
             )
         return rows
+
+    def refresh_store(self) -> None:
+        self.store.refresh()
 
     def get_order(self, order_id: str) -> dict | None:
         return self.store.get_order(order_id)

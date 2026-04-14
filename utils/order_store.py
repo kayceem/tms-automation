@@ -539,3 +539,7 @@ class OrderStore:
 
         lines.append("=" * 70)
         return "\n".join(lines)
+
+    def refresh(self):
+        """Reload the store data from the JSON file."""
+        self._load_store()

@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 import argparse
-import json
 import statistics
 import sys
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +24,8 @@ from utils.logger import get_logger
 
 
 logger = get_logger(__name__)
+for h in logger.handlers:
+    logger.removeHandler(h)
 
 ENDPOINT_CHOICES = ("quote", "market", "orderbook", "quickwatch", "order")
 READ_ONLY_ENDPOINTS = {"quote", "market", "orderbook", "quickwatch"}
@@ -39,7 +41,10 @@ class ProbeSpec:
 @dataclass(frozen=True)
 class ProbeResult:
     index: int
+    user_id: str
+    sent_at_ms: float
     latency_ms: float
+    completed_at_ms: float
     success: bool
     status_code: Optional[int]
     error: Optional[str] = None
@@ -80,6 +85,36 @@ class UserLatencyResult:
         values = self.successful_latencies
         return max(values) if values else None
 
+    @property
+    def average_time_between_responses_ms(self) -> float:
+        if self.request_count <= 1 or len(self.samples) <= 1:
+            return 0.0
+        ordered = sorted(self.samples, key=lambda sample: sample.completed_at_ms)
+        gap_total = 0.0
+        for previous, current in zip(ordered, ordered[1:]):
+            gap_total += current.completed_at_ms - previous.completed_at_ms
+        return gap_total / self.request_count
+
+    @property
+    def samples_by_response_time(self) -> list[ProbeResult]:
+        return sorted(self.samples, key=lambda sample: sample.completed_at_ms)
+
+
+@dataclass(frozen=True)
+class CycleBenchmarkResult:
+    user_results: list[UserLatencyResult]
+    cycle_samples: list[ProbeResult]
+
+
+def _average_request_interval_ms(samples: list[ProbeResult]) -> float:
+    if len(samples) <= 1:
+        return 0.0
+    ordered = sorted(samples, key=lambda sample: sample.sent_at_ms)
+    gap_total = 0.0
+    for previous, current in zip(ordered, ordered[1:]):
+        gap_total += current.sent_at_ms - previous.sent_at_ms
+    return gap_total / len(samples)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -118,10 +153,26 @@ def parse_args() -> argparse.Namespace:
         help="Run each probe request in its own thread with staggered spawn",
     )
     parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="Enforce a strict global minimum gap of --spawn-interval-ms between dispatches",
+    )
+    parser.add_argument(
+        "--cycle-users",
+        action="store_true",
+        help="Cycle requests across all users in one pooled stream instead of benchmarking users separately",
+    )
+    parser.add_argument(
         "--spawn-interval-ms",
         type=float,
         default=5.0,
         help="Thread spawn interval in milliseconds when --parallel is used (default: 5)",
+    )
+    parser.add_argument(
+        "--cycle-timeout-ms",
+        type=float,
+        default=20.0,
+        help="No-response timeout in milliseconds for --cycle-users parallel scheduling (default: 20)",
     )
     parser.add_argument(
         "--output",
@@ -150,6 +201,10 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--timeout must be greater than 0")
     if args.parallel and args.spawn_interval_ms < 0:
         raise ValueError("--spawn-interval-ms must be 0 or greater")
+    if args.cycle_users and args.cycle_timeout_ms <= 0:
+        raise ValueError("--cycle-timeout-ms must be greater than 0")
+    if args.wait and not args.parallel:
+        raise ValueError("--wait requires --parallel")
 
     if args.endpoint in {"quote", "market", "quickwatch"} and not args.symbol:
         raise ValueError(f"--symbol is required for endpoint '{args.endpoint}'")
@@ -305,11 +360,16 @@ def benchmark_user(
                 side=side,
             )
             start = time.perf_counter()
+            sent_at_ms = start * 1000
             success, status_code, error = _execute_probe_with_session(client.session, spec, timeout)
-            latency_ms = (time.perf_counter() - start) * 1000
+            completed_at_ms = time.perf_counter() * 1000
+            latency_ms = completed_at_ms - (start * 1000)
             collected[index] = ProbeResult(
                 index=index + 1,
+                user_id=user_config.user_id,
+                sent_at_ms=sent_at_ms,
                 latency_ms=latency_ms,
+                completed_at_ms=completed_at_ms,
                 success=success,
                 status_code=status_code,
                 error=error,
@@ -340,12 +400,17 @@ def benchmark_user(
                 side=side,
             )
             start = time.perf_counter()
+            sent_at_ms = start * 1000
             success, status_code, error = _execute_probe_with_client(client, spec, timeout)
-            latency_ms = (time.perf_counter() - start) * 1000
+            completed_at_ms = time.perf_counter() * 1000
+            latency_ms = completed_at_ms - (start * 1000)
             samples.append(
                 ProbeResult(
                     index=index + 1,
+                    user_id=user_config.user_id,
+                    sent_at_ms=sent_at_ms,
                     latency_ms=latency_ms,
+                    completed_at_ms=completed_at_ms,
                     success=success,
                     status_code=status_code,
                     error=error,
@@ -362,37 +427,312 @@ def benchmark_user(
     )
 
 
-def render_report(results: list[UserLatencyResult], args: argparse.Namespace) -> str:
+def benchmark_cycle_users(
+    user_paths: list[str],
+    *,
+    endpoint: str,
+    symbol: Optional[str],
+    request_count: int,
+    timeout: float,
+    parallel: bool,
+    spawn_interval_ms: float,
+    cycle_timeout_ms: float,
+    wait: bool,
+    allow_live_order: bool,
+    price: Optional[float],
+    quantity: Optional[int],
+    side: str,
+) -> CycleBenchmarkResult:
+    clients: list[ATRADClient] = []
+    per_user_samples: dict[str, list[ProbeResult]] = {}
+    last_dispatch_ms: dict[str, float] = {}
+    sent_counts: dict[str, int] = {}
+
+    for user_path in user_paths:
+        user_config = ATRADUserConfig.from_file(user_path)
+        client = ATRADClient(user_config)
+        if not client.ensure_authenticated():
+            raise RuntimeError(f"[{user_config.user_id}] authentication failed")
+        clients.append(client)
+        per_user_samples[user_config.user_id] = []
+        last_dispatch_ms[user_config.user_id] = 0.0
+        sent_counts[user_config.user_id] = 0
+
+    if endpoint == "order" and not allow_live_order:
+        raise ValueError("Live order probing is disabled")
+
+    total_target = request_count
+    cycle_samples: list[ProbeResult] = []
+
+    if not parallel:
+        probe_index = 0
+        client_index = 0
+        while probe_index < total_target:
+            client = clients[client_index % len(clients)]
+            client_index += 1
+
+            spec = build_probe_spec(
+                client,
+                endpoint=endpoint,
+                symbol=symbol,
+                price=price,
+                quantity=quantity,
+                side=side,
+            )
+            sent_counts[client.user_id] += 1
+            start = time.perf_counter()
+            sent_at_ms = start * 1000
+            success, status_code, error = _execute_probe_with_client(client, spec, timeout)
+            completed_at_ms = time.perf_counter() * 1000
+            latency_ms = completed_at_ms - (start * 1000)
+            probe_index += 1
+            sample = ProbeResult(
+                index=probe_index,
+                user_id=client.user_id,
+                sent_at_ms=sent_at_ms,
+                latency_ms=latency_ms,
+                completed_at_ms=completed_at_ms,
+                success=success,
+                status_code=status_code,
+                error=error,
+            )
+            per_user_samples[client.user_id].append(sample)
+            cycle_samples.append(sample)
+    else:
+        state_lock = threading.Lock()
+        completion_queue: deque[str] = deque()
+        threads: list[threading.Thread] = []
+        probe_counter = 0
+        completed_count = 0
+        last_spawn_wall_ms = 0.0
+        last_dispatch_any_ms = 0.0
+
+        def dispatch_probe(client: ATRADClient) -> bool:
+            nonlocal probe_counter, last_spawn_wall_ms, last_dispatch_any_ms
+            with state_lock:
+                if probe_counter >= total_target:
+                    return False
+                now_ms = time.perf_counter() * 1000
+                if wait and last_dispatch_any_ms and (now_ms - last_dispatch_any_ms) < spawn_interval_ms:
+                    return False
+                probe_counter += 1
+                probe_index = probe_counter
+                sent_counts[client.user_id] += 1
+                last_dispatch_ms[client.user_id] = now_ms
+                last_spawn_wall_ms = last_dispatch_ms[client.user_id]
+                last_dispatch_any_ms = now_ms
+
+            def run_probe() -> None:
+                nonlocal completed_count
+                spec = build_probe_spec(
+                    client,
+                    endpoint=endpoint,
+                    symbol=symbol,
+                    price=price,
+                    quantity=quantity,
+                    side=side,
+                )
+                start = time.perf_counter()
+                sent_at_ms = start * 1000
+                success, status_code, error = _execute_probe_with_session(client.session, spec, timeout)
+                completed_at_ms = time.perf_counter() * 1000
+                latency_ms = completed_at_ms - (start * 1000)
+                sample = ProbeResult(
+                    index=probe_index,
+                    user_id=client.user_id,
+                    sent_at_ms=sent_at_ms,
+                    latency_ms=latency_ms,
+                    completed_at_ms=completed_at_ms,
+                    success=success,
+                    status_code=status_code,
+                    error=error,
+                )
+                with state_lock:
+                    per_user_samples[client.user_id].append(sample)
+                    cycle_samples.append(sample)
+                    completed_count += 1
+                    completion_queue.append(client.user_id)
+
+            thread = threading.Thread(
+                target=run_probe,
+                name=f"{client.user_id}-cycle-probe-{probe_index}",
+            )
+            threads.append(thread)
+            thread.start()
+            return True
+
+        for client in clients[:total_target]:
+            dispatch_probe(client)
+            time.sleep(spawn_interval_ms / 1000.0)
+
+        while True:
+            with state_lock:
+                if completed_count >= total_target:
+                    break
+                completed_user_id = completion_queue.popleft() if completion_queue else None
+
+            if completed_user_id is not None:
+                client = next(item for item in clients if item.user_id == completed_user_id)
+                if dispatch_probe(client):
+                    continue
+
+            now_ms = time.perf_counter() * 1000
+            timeout_threshold_ms = spawn_interval_ms if wait else cycle_timeout_ms
+            if now_ms - last_spawn_wall_ms >= timeout_threshold_ms:
+                with state_lock:
+                    eligible_clients = sorted(
+                        clients,
+                        key=lambda client: last_dispatch_ms[client.user_id],
+                    )
+                if eligible_clients:
+                    dispatch_probe(eligible_clients[0])
+                    continue
+
+            time.sleep(0.001)
+
+        for thread in threads:
+            thread.join()
+
+    user_results = [
+        UserLatencyResult(
+            user_id=client.user_id,
+            endpoint=endpoint,
+            request_count=len(per_user_samples[client.user_id]),
+            parallel=parallel,
+            samples=sorted(per_user_samples[client.user_id], key=lambda sample: sample.index),
+        )
+        for client in clients
+    ]
+
+    return CycleBenchmarkResult(
+        user_results=user_results,
+        cycle_samples=sorted(cycle_samples, key=lambda sample: sample.completed_at_ms),
+    )
+
+
+def render_report(
+    results: list[UserLatencyResult],
+    args: argparse.Namespace,
+    cycle_samples: list[ProbeResult] | None = None,
+) -> str:
     def fmt(value: Optional[float]) -> str:
         return f"{value:.2f}ms" if value is not None else "N/A"
+
+    def aggregate_cycle_results() -> UserLatencyResult:
+        return UserLatencyResult(
+            user_id="ALL_USERS",
+            endpoint=args.endpoint,
+            request_count=len(cycle_samples or []),
+            parallel=args.parallel,
+            samples=list(cycle_samples or []),
+        )
 
     lines = [
         "ATRAD Latency Benchmark",
         "=" * 70,
         f"Date: {datetime.now().isoformat(timespec='seconds')}",
         f"Endpoint: {args.endpoint}",
-        f"Requests per user: {args.requests}",
+        (
+            f"Requests total: {args.requests}"
+            if getattr(args, "cycle_users", False)
+            else f"Requests per user: {args.requests}"
+        ),
         f"Mode: {'parallel' if args.parallel else 'sequential'}",
+        f"Scheduling: {'cycle-users' if getattr(args, 'cycle_users', False) else 'per-user'}",
     ]
     if args.symbol:
         lines.append(f"Symbol: {args.symbol}")
     if args.parallel:
         lines.append(f"Spawn interval: {args.spawn_interval_ms}ms")
+    if getattr(args, "cycle_users", False) and args.parallel:
+        lines.append(f"Cycle timeout: {args.cycle_timeout_ms}ms")
+    if args.wait:
+        lines.append("Strict wait: enabled")
     lines.append("=" * 70)
+    summary_results = [aggregate_cycle_results()] if cycle_samples is not None else results
     lines.append(
-        f"{'user_id':<18} {'success':>9} {'failure':>9} {'avg':>12} {'min':>12} {'max':>12}"
+        f"{'user_id':<18} {'success':>9} {'failure':>9} {'avg':>12} {'min':>12} {'max':>12} {'resp_gap':>12}"
     )
     lines.append("-" * 70)
-    for result in results:
+    for result in summary_results:
         lines.append(
             f"{result.user_id:<18} "
             f"{result.success_count:>9} "
             f"{result.failure_count:>9} "
             f"{fmt(result.average_latency_ms):>12} "
             f"{fmt(result.min_latency_ms):>12} "
-            f"{fmt(result.max_latency_ms):>12}"
+            f"{fmt(result.max_latency_ms):>12} "
+            f"{fmt(result.average_time_between_responses_ms):>12}"
         )
     lines.append("=" * 70)
+
+    if cycle_samples is not None:
+        lines.append("Cycle Request Interval By User")
+        lines.append("-" * 70)
+        lines.append(f"{'user_id':<18} {'avg_req_interval':>18}")
+        lines.append("-" * 70)
+        for result in results:
+            lines.append(
+                f"{result.user_id:<18} "
+                f"{fmt(_average_request_interval_ms(result.samples)):>18}"
+            )
+        lines.append("=" * 70)
+
+        lines.append("Cycle Response Timeline")
+        lines.append("-" * 70)
+        lines.append(
+            f"{'recv#':<8} {'probe#':<8} {'user':<18} {'req_at':>12} {'recv_at':>12} {'recv_at_interval':>18} {'latency':>12} {'status':>8} {'result':>10}"
+        )
+        if cycle_samples:
+            base_sent_at_ms = min(sample.sent_at_ms for sample in cycle_samples)
+        else:
+            base_sent_at_ms = 0.0
+        previous_completed_at_ms = base_sent_at_ms
+        for receive_index, sample in enumerate(cycle_samples, start=1):
+            request_offset_ms = sample.sent_at_ms - base_sent_at_ms
+            receive_offset_ms = sample.completed_at_ms - base_sent_at_ms
+            receive_interval_ms = sample.completed_at_ms - previous_completed_at_ms
+            lines.append(
+                f"{receive_index:<8} "
+                f"{sample.index:<8} "
+                f"{sample.user_id:<18} "
+                f"{request_offset_ms:>10.2f}ms "
+                f"{receive_offset_ms:>10.2f}ms "
+                f"{receive_interval_ms:>16.2f}ms "
+                f"{sample.latency_ms:>10.2f}ms "
+                f"{str(sample.status_code or '-'):>8} "
+                f"{('ok' if sample.success else 'fail'):>10}"
+            )
+            previous_completed_at_ms = sample.completed_at_ms
+        lines.append("=" * 70)
+    else:
+        for result in results:
+            lines.append(f"Response Timeline :: {result.user_id}")
+            lines.append("-" * 70)
+            lines.append(
+                f"{'recv#':<8} {'probe#':<8} {'req_at':>12} {'recv_at':>12} {'recv_at_interval':>18} {'latency':>12} {'status':>8} {'result':>10}"
+            )
+            if result.samples_by_response_time:
+                base_sent_at_ms = min(sample.sent_at_ms for sample in result.samples_by_response_time)
+            else:
+                base_sent_at_ms = 0.0
+            previous_completed_at_ms = base_sent_at_ms
+            for receive_index, sample in enumerate(result.samples_by_response_time, start=1):
+                request_offset_ms = sample.sent_at_ms - base_sent_at_ms
+                receive_offset_ms = sample.completed_at_ms - base_sent_at_ms
+                receive_interval_ms = sample.completed_at_ms - previous_completed_at_ms
+                lines.append(
+                    f"{receive_index:<8} "
+                    f"{sample.index:<8} "
+                    f"{request_offset_ms:>10.2f}ms "
+                    f"{receive_offset_ms:>10.2f}ms "
+                    f"{receive_interval_ms:>16.2f}ms "
+                    f"{sample.latency_ms:>10.2f}ms "
+                    f"{str(sample.status_code or '-'):>8} "
+                    f"{('ok' if sample.success else 'fail'):>10}"
+                )
+                previous_completed_at_ms = sample.completed_at_ms
+            lines.append("=" * 70)
 
     return "\n".join(lines) + "\n"
 
@@ -407,25 +747,45 @@ def main() -> None:
     args = parse_args()
     validate_args(args)
 
-    results = []
-    for user_path in args.user_configs:
-        results.append(
-            benchmark_user(
-                user_path=user_path,
-                endpoint=args.endpoint,
-                symbol=args.symbol,
-                request_count=args.requests,
-                timeout=args.timeout,
-                parallel=args.parallel,
-                spawn_interval_ms=args.spawn_interval_ms,
-                allow_live_order=args.allow_live_order,
-                price=args.price,
-                quantity=args.quantity,
-                side=args.side,
-            )
+    cycle_samples: list[ProbeResult] | None = None
+    if args.cycle_users:
+        cycle_result = benchmark_cycle_users(
+            user_paths=args.user_configs,
+            endpoint=args.endpoint,
+            symbol=args.symbol,
+            request_count=args.requests,
+            timeout=args.timeout,
+            parallel=args.parallel,
+            spawn_interval_ms=args.spawn_interval_ms,
+            cycle_timeout_ms=args.cycle_timeout_ms,
+            wait=args.wait,
+            allow_live_order=args.allow_live_order,
+            price=args.price,
+            quantity=args.quantity,
+            side=args.side,
         )
+        results = cycle_result.user_results
+        cycle_samples = cycle_result.cycle_samples
+    else:
+        results = []
+        for user_path in args.user_configs:
+            results.append(
+                benchmark_user(
+                    user_path=user_path,
+                    endpoint=args.endpoint,
+                    symbol=args.symbol,
+                    request_count=args.requests,
+                    timeout=args.timeout,
+                    parallel=args.parallel,
+                    spawn_interval_ms=args.spawn_interval_ms,
+                    allow_live_order=args.allow_live_order,
+                    price=args.price,
+                    quantity=args.quantity,
+                    side=args.side,
+                )
+            )
 
-    report = render_report(results, args)
+    report = render_report(results, args, cycle_samples=cycle_samples)
     output_path = Path(args.output) if args.output else default_output_path(args.endpoint)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report, encoding="utf-8")

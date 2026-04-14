@@ -49,6 +49,9 @@ class ATRADClient:
         self._request_lock = threading.Lock()
         self._is_authenticated = False
 
+        self._sucessful_orders = []
+        self._sucessful_orders_lock = threading.Lock()
+
         self._setup_headers()
 
         # Pre-build static parts of order payload
@@ -342,11 +345,6 @@ class ATRADClient:
         # Convert side to actionSelect value
         action_select = "2" if side.upper() == "SELL" else "1"
 
-        logger.info(
-            f"[{self.user_id}] Placing {side} order: "
-            f"Symbol={symbol}, Price={price}, Qty={quantity}, MKT={market_price}"
-        )
-
         # Generate duplicate order ID
         duplicate_order_id = self._generate_duplicate_order_id()
         logger.debug(f"[{self.user_id}] Generated duplicateOrderId: {duplicate_order_id}")
@@ -371,8 +369,14 @@ class ATRADClient:
 
         # Make thread-safe API request
         with self._request_lock:
+            start_time = int(time.time() * 1000)
             response = self._request_with_reauth("POST", self.order_endpoint, data=body)
+            end_time = int(time.time() * 1000)
 
+            logger.info(
+                f"[{self.user_id}] Placed {side} order: "
+                f"Symbol={symbol}, Price={price}, Qty={quantity}, MKT={market_price} @ {start_time}ms - {end_time}ms"
+            )
             if response is None:
                 raise RuntimeError("Order placement failed: no response from ATRAD server")
 
@@ -390,6 +394,9 @@ class ATRADClient:
                 
             if str(result.get("code")) == "0":
                 logger.info(f"[{self.user_id}] ATRAD order placed successfully")
+                order = {"symbol": symbol, "price": price, "quantity": quantity, "start_time_ms": start_time, "end_time_ms": end_time}
+                with self._sucessful_orders_lock:
+                    self._sucessful_orders.append(order)
                 return result
 
             error_msg = result.get("description", "Unknown error")
@@ -813,11 +820,8 @@ class ATRADClient:
                         return security
 
                     ltp = security.get('tradeprice')
-                    bidqty = security.get('bidqty', '')
-                    bidprice = security.get('bidprice', '')
                     if ltp and ltp != '':
                         ltp_str = str(ltp).replace(',', '')
-                        logger.debug(f"[{self.user_id}] LTP response: ltp={ltp}, bidqty={bidqty}, bidprice={bidprice}")
                         return float(ltp_str)
                     else:
                         logger.warning(f"[{self.user_id}] No LTP (tradeprice) in security data.")

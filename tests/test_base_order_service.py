@@ -1,5 +1,7 @@
 from services.orders.base_order_service import BaseOrderService
 from types import SimpleNamespace
+import threading
+import time
 
 
 class DummyClient:
@@ -401,6 +403,50 @@ def test_execute_just_buy_returns_failure_when_fade_phase_also_fails(monkeypatch
     assert price_fetcher.market_started == 1
     assert price_fetcher.market_stopped == 1
     assert sleep_calls[:3] == [0.1, 0.1, 0.25]
+
+
+def test_execute_just_buy_stops_with_success_even_if_multiple_threads_were_spawned():
+    service = DummyService()
+    price_fetcher = FakePriceFetcher([])
+    allow_first_finish = threading.Event()
+    first_started = threading.Event()
+    attempts = {"count": 0}
+    result = {}
+
+    def controlled_place(price: float, quantity: int, **params):
+        attempts["count"] += 1
+        first_started.set()
+        allow_first_finish.wait(timeout=1)
+        payload = {"status": "ok", "price": price, "quantity": quantity, "params": params}
+        service.placed_orders.append(payload)
+        return payload
+
+    service._place_single_order = controlled_place
+
+    def run_just_buy():
+        result["value"] = service._execute_just_buy(
+            final_price=120.0,
+            trigger_price=110.0,
+            order_quantity=10,
+            just_buy_interval_ms=1,
+            just_buy_timeout=5,
+            just_buy_pre_wait_ms=0,
+            price_fetcher=price_fetcher,
+            platform_params={"security_id": 101},
+            just_buy_max_requests=2,
+        )
+
+    runner = threading.Thread(target=run_just_buy)
+    runner.start()
+
+    assert first_started.wait(timeout=1) is True
+    time.sleep(0.05)
+    allow_first_finish.set()
+    runner.join(timeout=2)
+
+    assert result["value"][0] is True
+    assert attempts["count"] >= 1
+    assert len(service.placed_orders) >= 1
 
 
 def test_execute_ipo_trigger_uses_no_ladder_path_and_cleans_up():

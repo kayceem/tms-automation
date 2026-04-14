@@ -45,6 +45,66 @@ MODE_OPTIONS = [
     ("ipo-sell-buy-trigger", "ipo-sell-buy-trigger"),
 ]
 
+TIME_OPTIONS = [
+    ("10:55:00", "10:55:00"),
+    ("10:59:00", "10:59:00"),
+    ("11:00:05", "11:00:05"),
+    ("11:00:10", "11:00:10"),
+]
+
+JUST_BUY_PRESETS: dict[str, dict] = {
+    "fast-no-fade": {
+        "label": "Fast No Fade",
+        "just_buy_pre_wait_ms": 1500,
+        "just_buy_interval_ms": 10,
+        "just_buy_max_requests": 400,
+        "just_buy_fade_interval_ms": None,
+        "just_buy_fade_timeout": None,
+    },
+    "fast-fade": {
+        "label": "Fast Fade",
+        "just_buy_pre_wait_ms": 1500,
+        "just_buy_interval_ms": 10,
+        "just_buy_max_requests": 400,
+        "just_buy_fade_interval_ms": 40,
+        "just_buy_fade_timeout": 60,
+    },
+    "no-fade": {
+        "label": "No Fade",
+        "just_buy_pre_wait_ms": 2000,
+        "just_buy_interval_ms": 20,
+        "just_buy_max_requests": 400,
+        "just_buy_fade_interval_ms": None,
+        "just_buy_fade_timeout": None,
+    },
+    "fade": {
+        "label": "Fade",
+        "just_buy_pre_wait_ms": 2000,
+        "just_buy_interval_ms": 20,
+        "just_buy_max_requests": 400,
+        "just_buy_fade_interval_ms": 40,
+        "just_buy_fade_timeout": 60,
+    },
+    "slow-no-fade": {
+        "label": "Slow No Fade",
+        "just_buy_pre_wait_ms": 5000,
+        "just_buy_interval_ms": 50,
+        "just_buy_max_requests": 400,
+        "just_buy_fade_interval_ms": None,
+        "just_buy_fade_timeout": None,
+    },
+    "slow-fade": {
+        "label": "Slow Fade",
+        "just_buy_pre_wait_ms": 5000,
+        "just_buy_interval_ms": 50,
+        "just_buy_max_requests": 400,
+        "just_buy_fade_interval_ms": 50,
+        "just_buy_fade_timeout": 60,
+    },
+}
+
+JUST_BUY_PRESET_OPTIONS = [(spec["label"], key) for key, spec in JUST_BUY_PRESETS.items()]
+
 YES_NO_DEFAULTS = {
     "sell": False,
     "skip_first": False,
@@ -103,7 +163,7 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
     """Full-screen keyboard-first editor for all OrderStore-supported fields."""
 
     BINDINGS = [
-        ("up", "focus_previous_control", "Previous"),
+        ("up", "focus_previous_control", "Prev"),
         ("down", "focus_next_control", "Next"),
         ("ctrl+1", "show_main", "Main"),
         ("ctrl+2", "show_buy", "Buy"),
@@ -142,7 +202,7 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
             with TabPane("Main", id="tab-main"):
                 with VerticalScroll(id="order-main-scroll"):
                     with Vertical(id="order-editor-form"):
-                        yield Static("── STATUS ──", classes="form-section")
+                        yield Static(" STATUS", classes="form-section")
                         yield from self._compose_flag_row(
                             (
                                 ("execute", "Execute"),
@@ -150,21 +210,9 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
                             )
                         )
 
-                        yield Static("── IDENTITY ──", classes="form-section")
-                        with Horizontal(classes="form-row"):
-                            yield Label("Order ID", classes="form-label")
-                            yield Input(
-                                str(self.order_payload.get("id", "")),
-                                id="order-id",
-                                classes="form-input",
-                            )
-                        with Horizontal(classes="form-row"):
-                            yield Label("Ticker", classes="form-label")
-                            yield Input(
-                                str(self.order_payload.get("ticker", "")),
-                                id="order-ticker",
-                                classes="form-input",
-                            )
+                        yield Static(" IDENTITY", classes="form-section")
+                        yield from self._compose_input_row("Order ID", "order-id", str(self.order_payload.get("id", "")))
+                        yield from self._compose_input_row("Ticker", "order-ticker", str(self.order_payload.get("ticker", "")))
                         with Horizontal(classes="form-row"):
                             yield Label("Mode", classes="form-label")
                             yield Select(
@@ -173,17 +221,33 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
                                 value=str(self.order_payload.get("mode", "normal")),
                                 id="order-mode",
                             )
-                        yield Static("── CORE FIELDS ──", classes="form-section")
+
+                        yield Static(" CORE FIELDS", classes="form-section")
                         yield from self._compose_field("queue_id")
-                        yield from self._compose_field("time")
+                        with Horizontal(classes="form-row"):
+                            yield Label("Time", classes="form-label")
+                            time_value = self.order_payload.get("time") or ""
+                            time_select = Select(
+                                TIME_OPTIONS,
+                                allow_blank=True,
+                                prompt="—",
+                                id="order-input-time",
+                            )
+                            if time_value in {t[0] for t in TIME_OPTIONS}:
+                                time_select.value = time_value
+                            yield time_select
                         yield from self._compose_field("price")
+                        yield from self._compose_field("limit")
                         yield from self._compose_field("quantity")
                         yield from self._compose_field("base_quantity")
+                        with Horizontal(classes="form-row"):
+                            yield Label("Est. (×1.1)", classes="form-label")
+                            yield Static("—", id="order-cost-estimate", classes="form-calc")
 
             with TabPane("Buy", id="tab-buy"):
                 with VerticalScroll(id="order-buy-scroll"):
                     with Vertical(id="order-buy-pane"):
-                        yield Static("── BUY FLAGS ──", classes="form-section")
+                        yield Static(" BUY FLAGS", classes="form-section")
                         yield from self._compose_flag_row(
                             (
                                 ("skip_first", "Skip First"),
@@ -198,10 +262,17 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
                                 ("multi_queue", "Multi Queue"),
                             )
                         )
-                        yield Static("── BUY LOGIC ──", classes="form-section")
-                        yield from self._compose_field("limit")
+                        yield Static(" BUY LOGIC", classes="form-section")
                         yield from self._compose_field("double_buy_quantity")
-                        yield Static("── JUST BUY SETTINGS ──", classes="form-section")
+                        yield Static(" JUST BUY SETTINGS", classes="form-section")
+                        with Horizontal(classes="form-row"):
+                            yield Label("Preset", classes="form-label")
+                            yield Select(
+                                JUST_BUY_PRESET_OPTIONS,
+                                allow_blank=True,
+                                prompt="— choose —",
+                                id="order-just_buy-preset",
+                            )
                         yield from self._compose_field("just_buy_interval_ms")
                         yield from self._compose_field("just_buy_timeout")
                         yield from self._compose_field("just_buy_pre_wait_ms")
@@ -212,34 +283,35 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
             with TabPane("Sell", id="tab-sell"):
                 with VerticalScroll(id="order-sell-scroll"):
                     with Vertical(id="order-sell-pane"):
-                        yield Static("── SELL FLAGS ──", classes="form-section")
+                        yield Static(" SELL FLAGS", classes="form-section")
                         yield from self._compose_flag_row((("sell", "Sell"),))
-                        yield Static("── SELL / BUY TRIGGER ──", classes="form-section")
-                        with Horizontal(classes="form-row"):
-                            yield Label("Seller Config", classes="form-label")
-                            yield Input(
-                                str(self.order_payload.get("seller_config", TEXT_FIELD_DEFAULTS["seller_config"])),
-                                id="order-seller_config",
-                                classes="form-input",
-                            )
-                        with Horizontal(classes="form-row"):
-                            yield Label("Buyer Config", classes="form-label")
-                            yield Input(
-                                str(self.order_payload.get("buyer_config", TEXT_FIELD_DEFAULTS["buyer_config"])),
-                                id="order-buyer_config",
-                                classes="form-input",
-                            )
+                        yield Static(" SELL / BUY TRIGGER", classes="form-section")
+                        yield from self._compose_input_row(
+                            "Seller Config",
+                            "order-seller_config",
+                            str(self.order_payload.get("seller_config", TEXT_FIELD_DEFAULTS["seller_config"])),
+                        )
+                        yield from self._compose_input_row(
+                            "Buyer Config",
+                            "order-buyer_config",
+                            str(self.order_payload.get("buyer_config", TEXT_FIELD_DEFAULTS["buyer_config"])),
+                        )
                         yield from self._compose_field("sell_quantity")
                         yield from self._compose_field("sell_pre_wait_ms")
 
+        yield Static("", id="order-editor-status")
         with Horizontal(id="order-editor-actions"):
             yield Button("[Ctrl+S] Save", id="save", classes="action-button")
             yield Button("[Ctrl+1] Main", id="goto-main", classes="action-button")
             yield Button("[Ctrl+2] Buy", id="goto-buy", classes="action-button")
             yield Button("[Ctrl+3] Sell", id="goto-sell", classes="action-button")
             yield Button("[Esc] Cancel", id="cancel", classes="action-button")
-        yield Static("", id="order-editor-status")
         yield Footer()
+
+    def _compose_input_row(self, label: str, input_id: str, value: str):
+        with Horizontal(classes="form-row"):
+            yield Label(label, classes="form-label")
+            yield Input(value, id=input_id, classes="form-input")
 
     def _compose_field(self, field_name: str):
         spec = QUICK_FIELD_SPECS[field_name]
@@ -267,6 +339,9 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
 
     def on_mount(self) -> None:
         self._apply_dependency_state()
+        for checkbox in self.query(Checkbox):
+            checkbox.set_class(bool(checkbox.value), "-on")
+        self._update_cost_estimate()
         self.query_one("#order-id", Input).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -287,9 +362,68 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "order-mode":
             self._apply_dependency_state()
+        elif event.select.id == "order-just_buy-preset":
+            self._apply_just_buy_preset(event.value)
 
-    def on_checkbox_changed(self, _event: Checkbox.Changed) -> None:
+    def _apply_just_buy_preset(self, preset_key) -> None:
+        if not isinstance(preset_key, str) or preset_key not in JUST_BUY_PRESETS:
+            return
+        preset = JUST_BUY_PRESETS[preset_key]
+        for field in (
+            "just_buy_pre_wait_ms",
+            "just_buy_interval_ms",
+            "just_buy_max_requests",
+            "just_buy_fade_interval_ms",
+            "just_buy_fade_timeout",
+        ):
+            widget = self.query_one(f"#order-input-{field}", Input)
+            if widget.disabled:
+                continue
+            raw = preset[field]
+            widget.value = "" if raw is None else str(raw)
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        event.checkbox.set_class(bool(event.checkbox.value), "-on")
         self._apply_dependency_state()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id in {"order-input-price", "order-input-limit", "order-input-quantity"}:
+            self._update_cost_estimate()
+
+    def on_input_submitted(self, _event: Input.Submitted) -> None:
+        self.focus_next("Button, Input, Select, Checkbox")
+
+    def _update_cost_estimate(self) -> None:
+        try:
+            estimate = self.query_one("#order-cost-estimate", Static)
+        except Exception:
+            return
+
+        def _num(input_id: str) -> float | None:
+            try:
+                widget = self.query_one(f"#{input_id}", Input)
+            except Exception:
+                return None
+            if widget.disabled:
+                return None
+            raw = widget.value.strip()
+            if not raw:
+                return None
+            try:
+                return float(raw)
+            except ValueError:
+                return None
+
+        qty = _num("order-input-quantity")
+        limit = _num("order-input-limit")
+        price = _num("order-input-price")
+        base = limit if limit is not None else price
+        if qty is None or base is None:
+            estimate.update("[#6b6b6b]—[/]")
+            return
+        total = qty * base * 1.1
+        source = "limit" if limit is not None else "price"
+        estimate.update(f"[bold #3ddc84]{total:,.2f}[/] [#6b6b6b]({source})[/]")
 
     def _set_checkbox_state(self, field_name: str, *, disabled: bool, value: bool | None = None) -> None:
         checkbox = self.query_one(f"#order-{field_name}", Checkbox)
@@ -353,6 +487,12 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
         return value or None
 
     def _read_quick_value(self, field_name: str):
+        if field_name == "time":
+            select = self.query_one("#order-input-time", Select)
+            value = select.value
+            if isinstance(value, str) and value:
+                return value
+            return None
         input_widget = self.query_one(f"#order-input-{field_name}", Input)
         if input_widget.disabled:
             return None
@@ -459,39 +599,37 @@ class OrdersScreen(Screen[None]):
         yield Static(" CONFIG ▸ ORDERS ▸ STORE EDITOR ", classes="screen-title")
         table = DataTable(
             id="orders-table",
+            zebra_stripes=True,
             cursor_foreground_priority="renderable",
             cursor_background_priority="css",
         )
         table.cursor_type = "row"
         yield table
-        with Horizontal():
+        yield Static("", id="orders-status")
+        with Horizontal(id="orders-actions"):
             yield Button("[A] Add", id="add", classes="action-button")
             yield Button("[E] Edit", id="edit", classes="action-button")
             yield Button("[D] Remove", id="remove", classes="action-button")
             yield Button("[T] Toggle Execute", id="toggle-execute", classes="action-button")
             yield Button("[R] Refresh Prices", id="refresh-prices", classes="action-button")
-            yield Button("[Esc] Back", id="back", classes="action-button")
-        yield Static("", id="orders-status")
         yield Footer()
 
     def on_mount(self) -> None:
         table = self.query_one("#orders-table", DataTable)
         table.add_columns(
-            "id",
-            "ticker",
-            "mode",
-            "queue",
-            "execute",
-            "success",
-            "time",
-            "multi_queue",
-            "price",
-            "limit",
-            "quantity",
-            "total_cost",
-            "cumulative_cost",
-            "x2",
-            "x3",
+            " TICKER",
+            "  MODE",
+            " Q",
+            " EXEC",
+            " MQ",
+            " NL",
+            " JB",
+            "   TIME",
+            "    PRICE",
+            "    LIMIT",
+            "     QTY",
+            "       COST",
+            "     CUM",
         )
         self.reload_table()
         table.focus()
@@ -500,30 +638,46 @@ class OrdersScreen(Screen[None]):
         table = self.query_one("#orders-table", DataTable)
         table.clear()
         for row in self.service.list_rows():
-            row_color = "#00d26a" if row.execute else "#ff4757"
-            table.add_row(
-                self._styled_cell(row.id, row_color),
-                self._styled_cell(row.ticker, row_color),
-                self._styled_cell(row.mode, row_color),
-                self._styled_cell(str(row.queue_id), row_color),
-                self._styled_cell("yes" if row.execute else "no", row_color),
-                self._styled_cell("yes" if row.success else "no", row_color),
-                self._styled_cell(row.time, row_color),
-                self._styled_cell("yes" if row.multi_queue else "no", row_color),
-                self._styled_cell(str(row.price), row_color),
-                self._styled_cell(str(row.limit) if row.limit is not None else "", row_color),
-                self._styled_cell(str(row.quantity), row_color),
-                self._styled_cell(f"{int(row.total_cost):,}", row_color),
-                self._styled_cell(f"{int(row.cumulative_cost):,}", row_color),
-                self._styled_cell(f"{int(row.total_cost*2):,}", row_color),
-                self._styled_cell(f"{int(row.total_cost*3):,}", row_color),
+            armed = bool(row.execute)
+            mq = bool(row.multi_queue)
+            jb = bool(row.just_buy)
+            nl = bool(row.no_ladder)
 
+            ticker_cell = f"[bold #e8e8e8]{row.ticker}[/]"
+            mode_cell = f"[#ffd166]{row.mode}[/]"
+            queue_cell = f"[#e8e8e8]{str(row.queue_id):>2}[/]"
+
+            exec_cell = f"[bold #3ddc84]  ●[/]" if armed else f"[#6b6b6b]  ○[/]"
+            mq_cell = f"[#ffd166] ●[/]" if mq else f"[#6b6b6b] ○[/]"
+            jb_cell = f"[#ffd166] ●[/]" if jb else f"[#6b6b6b] ○[/]"
+            nl_cell = f"[#ffd166] ●[/]" if nl else f"[#6b6b6b] ○[/]"
+            time_cell = f"[#6b6b6b]{row.time or '-':<8}[/]"
+            price_cell = f"[bold #e8e8e8]{row.price:>10,.2f}[/]"
+            limit_text = f"{row.limit:>10,.2f}" if row.limit is not None else "-".rjust(10)
+            limit_cell = f"[#ffd166]{limit_text}[/]" if row.limit is not None else f"[#6b6b6b]{limit_text}[/]"
+            qty_cell = f"[#e8e8e8]{row.quantity:>8,}[/]"
+
+            cost = int(row.total_cost)
+            cum = int(row.cumulative_cost)
+            cost_cell = f"[#e8e8e8]{cost:>12,}[/]"
+            cum_cell = f"[#6b6b6b]{cum:>12,}[/]"
+
+            table.add_row(
+                ticker_cell,
+                mode_cell,
+                queue_cell,
+                exec_cell,
+                mq_cell,
+                nl_cell,
+                jb_cell,
+                time_cell,
+                price_cell,
+                limit_cell,
+                qty_cell,
+                cost_cell,
+                cum_cell,
                 key=row.id,
             )
-
-    @staticmethod
-    def _styled_cell(value: str, color: str) -> str:
-        return f"[{color}]{value or '-'}[/]"
 
     def _selected_order_id(self) -> str | None:
         table = self.query_one("#orders-table", DataTable)
@@ -599,8 +753,6 @@ class OrdersScreen(Screen[None]):
             self.action_toggle_execute()
         elif event.button.id == "refresh-prices":
             self.action_refresh_prices()
-        elif event.button.id == "back":
-            self.app.pop_screen()
 
     @work(thread=True)
     def action_refresh_prices(self) -> None:
@@ -613,6 +765,7 @@ class OrdersScreen(Screen[None]):
         self.app.call_from_thread(self._handle_refresh_prices_result, result)
 
     def _handle_refresh_prices_result(self, result) -> None:
+        self.service.refresh_store()
         self.reload_table()
         self._set_status(
             "Prices refreshed"

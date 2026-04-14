@@ -20,6 +20,8 @@ class OrderRow:
     total_cost: float
     cumulative_cost: float
     multi_queue: bool = False
+    no_ladder: bool = False
+    just_buy: bool = False
 
 
 @dataclass(frozen=True)

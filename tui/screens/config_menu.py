@@ -5,7 +5,7 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, Input, Label, Static
+from textual.widgets import Button, Footer, Header, Input, Label, Select, Static
 
 from tui.services.config import ConfigActionsService
 
@@ -27,6 +27,29 @@ DEFAULT_PRESETS = {
     "trigger_mode_slow_poll_interval_ms": ["150", "250", "500"],
     "trigger_mode_requests_per_fetch_user": ["1", "2", "5", "10"],
 }
+
+TRIGGER_PRESETS: dict[str, dict] = {
+    "fast-poll": {
+        "label": "Fast Poll",
+        "trigger_mode_poll_interval_ms": 10,
+        "multi_fetch_poll_interval_ms": 150,
+        "trigger_mode_refresh_interval_seconds": 60,
+        "trigger_sell_poll_interval_ms": 250,
+        "trigger_mode_slow_poll_interval_ms": 250,
+        "trigger_mode_requests_per_fetch_user": 2,
+    },
+    "slow-poll": {
+        "label": "Slow Poll",
+        "trigger_mode_poll_interval_ms": 20,
+        "multi_fetch_poll_interval_ms": 250,
+        "trigger_mode_refresh_interval_seconds": 60,
+        "trigger_sell_poll_interval_ms": 500,
+        "trigger_mode_slow_poll_interval_ms": 500,
+        "trigger_mode_requests_per_fetch_user": 2,
+    },
+}
+
+TRIGGER_PRESET_OPTIONS = [(spec["label"], key) for key, spec in TRIGGER_PRESETS.items()]
 
 
 class FocusableScreen(Screen[None]):
@@ -100,11 +123,17 @@ class UserConfigScreen(FocusableScreen):
         yield Header()
         yield Static(" CONFIG ▸ USER DEFAULTS ▸ TRIGGER SETTINGS ", classes="screen-title")
         with Vertical(id="user-config-layout"):
-            with Horizontal(id="user-config-actions"):
-                yield Button("[R] Reset JSESSIONID", id="reset", classes="action-button")
-                yield Button("[Ctrl+S] Save", id="save", classes="action-button")
-                yield Button("[Esc] Back", id="back", classes="action-button")
             with Vertical(id="defaults-form"):
+                yield Static(" PRESET", classes="form-section")
+                with Horizontal(classes="form-row"):
+                    yield Label("Preset", classes="form-label")
+                    yield Select(
+                        TRIGGER_PRESET_OPTIONS,
+                        allow_blank=True,
+                        prompt="— choose —",
+                        id="defaults-preset",
+                    )
+                yield Static(" TRIGGER TIMING", classes="form-section")
                 for field_name, label in DEFAULT_FIELDS:
                     with Horizontal(classes="form-row"):
                         yield Label(label, classes="form-label")
@@ -115,6 +144,9 @@ class UserConfigScreen(FocusableScreen):
                             classes="form-input",
                         )
         yield Static("", id="config-status")
+        with Horizontal(id="user-config-actions"):
+            yield Button("[R] Reset JSESSIONID", id="reset", classes="action-button")
+            yield Button("[Ctrl+S] Save", id="save", classes="action-button")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -126,14 +158,22 @@ class UserConfigScreen(FocusableScreen):
         self.query_one(f"#default-input-{DEFAULT_FIELDS[0][0]}", Input).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "back":
-            self.app.pop_screen()
-            return
         if event.button.id == "reset":
             self.action_reset_jsession()
             return
         if event.button.id == "save":
             self.action_save_defaults()
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "defaults-preset":
+            self._apply_trigger_preset(event.value)
+
+    def _apply_trigger_preset(self, preset_key) -> None:
+        if not isinstance(preset_key, str) or preset_key not in TRIGGER_PRESETS:
+            return
+        preset = TRIGGER_PRESETS[preset_key]
+        for field_name, _label in DEFAULT_FIELDS:
+            self.query_one(f"#default-input-{field_name}", Input).value = str(preset[field_name])
 
     def _set_status(self, message: str) -> None:
         self.query_one("#config-status", Static).update(message)

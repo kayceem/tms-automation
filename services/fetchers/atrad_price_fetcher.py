@@ -1,5 +1,6 @@
 """Price fetcher service for monitoring LTP in trigger mode."""
 
+import json
 import time
 import threading
 from typing import Optional, List
@@ -167,15 +168,13 @@ class ATRADPriceFetcher:
                 # Fetch market details from client
                 bid = self.fetch_client.get_market_details(self.symbol, timeout=timeout)
 
-                if bid:
-                    # Log bid data (splits and quantity)
-                    logger.info(
-                        f"[{self.fetch_client.user_id}] Market Details for {self.symbol}:"
-                    )
+                if not bid:
+                    logger.warning(f"[{self.fetch_client.user_id}] Market Details for {self.symbol}: No data available")
+                else:
                     splits = bid.get('splits', 'N/A')
                     qty = bid.get('qty', 'N/A')
                     price = bid.get('price', 'N/A')
-                    logger.info(f"[{self.fetch_client.user_id}] Price={price}, Qty={qty}, Splits={splits}")
+                    logger.debug(f"[{self.fetch_client.user_id}] Price={price}, Qty={qty}, Splits={splits}")
 
             except KeyboardInterrupt:
                 logger.info(f"[{self.fetch_client.user_id}] Market details loop interrupted by user")
@@ -215,13 +214,12 @@ class ATRADPriceFetcher:
                     ltp = self.fetch_client.get_ltp(self.symbol, timeout=timeout)
 
                     # Update latest value
-                    if ltp is not None:
+                    if not ltp:
+                        logger.warning(f"[{self.fetch_client.user_id}] LTP fetch returned None")
+                    else:
                         with self._lock:
                             self._latest_ltp = ltp
-                    else:
-                        logger.debug(
-                            f"[{self.fetch_client.user_id}] LTP fetch returned None"
-                        )
+                        logger.debug(f"[{self.fetch_client.user_id}] LTP={ltp})")
 
             except KeyboardInterrupt:
                 logger.info(f"[{self.fetch_client.user_id}] Fetch loop interrupted by user")
@@ -285,6 +283,7 @@ class ATRADMultiUserPriceFetcher:
         # Market details monitoring
         self._market_details_running = False
         self._market_details_thread: Optional[threading.Thread] = None
+        self._market_details: Optional[List[dict]] = []
 
         user_info = ', '.join(f"{u.name}(sid={u.symbol})" for u in self.fetch_users)
         logger.info(
@@ -420,6 +419,10 @@ class ATRADMultiUserPriceFetcher:
         if self._market_details_thread:
             self._market_details_thread.join(timeout=2.0)
 
+        if len(self._market_details) > 0:
+            logger.info(f"Market Details:: {json.dumps(self._market_details, indent=2)}")
+            self._market_details = []
+
         # Resume LTP fetching
         self.resume()
         logger.info("ATRADMultiUserPriceFetcher market details monitoring stopped")
@@ -432,7 +435,7 @@ class ATRADMultiUserPriceFetcher:
         )
 
         timeout = calculate_request_timeout(self.poll_interval_seconds)
-        sleep_duration = min((self.poll_interval_seconds * 2), 0.005)
+        sleep_duration = self.poll_interval_seconds
 
         while self._market_details_running:
             try:
@@ -441,19 +444,27 @@ class ATRADMultiUserPriceFetcher:
 
                 # Fetch market details from client
                 bid = current_user.client.get_market_details(current_user.symbol, timeout=timeout)
+
                 if not bid:
-                    logger.info(f"[{current_user.name}] Market Details for {current_user.symbol}: No data available")
+                    logger.warning(f"[{current_user.name}] Market Details for {current_user.symbol}: No data available")
+                    time.sleep(self.delay)
+                    continue
                 else:    
+                    bid['fetched_time_ms'] = int(time.time() * 1000)
+                    bid['symbol'] = current_user.symbol
+                    self._market_details.append(bid)
                     splits = bid.get('splits', 'N/A')
                     qty = bid.get('qty', 'N/A')
                     price = bid.get('price', 'N/A')
-                    logger.info(f"[{current_user.name}] Price={price}, Qty={qty}, Splits={splits}")
+                    logger.debug(f"[{current_user.name}] Price={price}, Qty={qty}, Splits={splits}")
 
             except KeyboardInterrupt:
                 logger.info("Multi-user market details loop interrupted by user")
                 break
             except Exception as e:
                 logger.error(f"Error in multi-user market details loop: {str(e)}")
+                time.sleep(self.delay)
+                continue
 
             # Sleep for the configured interval
             try:
@@ -491,15 +502,14 @@ class ATRADMultiUserPriceFetcher:
                     ltp = current_user.client.get_ltp(current_user.symbol, timeout=timeout)
 
                     # Update latest value
-                    if ltp is not None:
-                        with self._lock:
-                            self._latest_ltp = ltp
-                    else:
-                        logger.debug(
-                            f"[{current_user.name}] Fetch #{fetch_count}: LTP returned None (sid={current_user.symbol})"
-                        )
+                    if not ltp:
+                        logger.warning(f"[{current_user.name}] Fetch #{fetch_count}: LTP returned None (sid={current_user.symbol})")
                         time.sleep(self.delay)
                         continue
+                    else:
+                        with self._lock:
+                            self._latest_ltp = ltp
+                        logger.debug(f"[{current_user.name}] LTP={ltp})")
 
             except KeyboardInterrupt:
                 logger.info("Multi-user fetch loop interrupted by user")

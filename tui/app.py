@@ -278,25 +278,22 @@ Checkbox:focus {
     height: auto;
 }
 
-/* Dense horizontal form rows: [ label ][ input ] on one line.
- * Row height is auto so focused inputs can expand without shifting labels
- * off the visible line. */
 .form-row {
     width: 100%;
-    height: auto;
+    height: 1;
     margin: 0;
     align: left middle;
 }
 
 .form-label {
-    width: 22;
+    width: 18;
     height: 1;
-    padding: 0 1 0 0;
+    padding: 0 1 0 1;
     margin: 0;
-    color: #5fd7ff;
+    color: #8a8a8a;
     background: #000000;
     content-align: right middle;
-    text-style: bold;
+    text-style: none;
 }
 
 .form-input {
@@ -309,23 +306,54 @@ Checkbox:focus {
     color: #e8e8e8;
 }
 
-/* On focus, input grows to 3 rows with a solid amber frame so typed text
- * is clearly visible. The parent .form-row grows to match. */
 .form-input:focus {
-    height: 3;
-    border: solid #ff9e1b;
+    border: none;
     background: #1a1000;
     color: #ffffff;
+    text-style: bold;
 }
 
 .form-input:disabled {
     background: #050505;
-    color: #4a4a4a;
+    color: #3a3a3a;
+}
+
+.form-calc {
+    width: 1fr;
+    height: 1;
+    padding: 0 1;
+    background: #0a0a0a;
+    color: #e8e8e8;
 }
 
 .form-row Select {
     width: 1fr;
     margin: 0;
+    height: 1;
+    border: none;
+    background: #0a0a0a;
+    color: #e8e8e8;
+}
+
+.form-row Select:focus {
+    background: #1a1000;
+    color: #ffffff;
+    border: none;
+}
+
+.form-row Select SelectCurrent {
+    width: 1fr;
+    height: 1;
+    border: none;
+    background: #0a0a0a;
+    color: #e8e8e8;
+    padding: 0 1;
+}
+
+.form-row Select SelectCurrent:focus {
+    background: #1a1000;
+    color: #ffffff;
+    border: none;
 }
 
 .form-col {
@@ -346,15 +374,16 @@ Checkbox:focus {
     margin: 1 0 0 0;
     padding: 0 1;
     color: #ff9e1b;
-    background: #000000;
+    background: #0a0a0a;
     text-style: bold;
 }
 
 .flags-row {
     width: 100%;
     height: 1;
-    margin: 0;
+    margin: 0 0 0 0;
     align: left middle;
+    background: #000000;
 }
 
 .flag-cell {
@@ -364,7 +393,12 @@ Checkbox:focus {
     padding: 0 1;
     border: none;
     background: #000000;
-    color: #5fd7ff;
+    color: #6b6b6b;
+}
+
+.flag-cell.-on {
+    color: #3ddc84;
+    text-style: bold;
 }
 
 .flag-cell:focus {
@@ -374,7 +408,7 @@ Checkbox:focus {
 }
 
 .flag-cell:disabled {
-    color: #3a3a3a;
+    color: #2a2a2a;
 }
 
 .action-button {
@@ -436,20 +470,23 @@ Checkbox:focus {
 
 #watchlist-table,
 #order-book-table,
-#completed-order-book-table {
+#completed-order-book-table,
+#orders-table {
     border: round #7a4a00;
     padding: 0;
 }
 
 #watchlist-table:focus,
 #order-book-table:focus,
-#completed-order-book-table:focus {
+#completed-order-book-table:focus,
+#orders-table:focus {
     border: round #ff9e1b;
 }
 
 #watchlist-table > .datatable--header,
 #order-book-table > .datatable--header,
-#completed-order-book-table > .datatable--header {
+#completed-order-book-table > .datatable--header,
+#orders-table > .datatable--header {
     background: #0a0a0a;
     color: #ff9e1b;
     text-style: bold;
@@ -457,13 +494,15 @@ Checkbox:focus {
 
 #watchlist-table > .datatable--odd-row,
 #order-book-table > .datatable--odd-row,
-#completed-order-book-table > .datatable--odd-row {
+#completed-order-book-table > .datatable--odd-row,
+#orders-table > .datatable--odd-row {
     background: #050505;
 }
 
 #watchlist-table > .datatable--even-row,
 #order-book-table > .datatable--even-row,
-#completed-order-book-table > .datatable--even-row {
+#completed-order-book-table > .datatable--even-row,
+#orders-table > .datatable--even-row {
     background: #000000;
 }
 
@@ -546,6 +585,7 @@ Label {
 
 #order-editor-actions,
 #user-config-actions,
+#orders-actions,
 #portfolio-actions {
     width: 100%;
     height: auto;
