@@ -41,6 +41,10 @@ class ATRADUserConfig:
     trigger_sell_poll_interval_ms: int = 500
     trigger_mode_slow_poll_interval_ms: int = 500
     trigger_mode_requests_per_fetch_user: int = 5
+    trigger_mode_parallel_fetch_enabled: bool = False
+    trigger_mode_parallel_spawn_interval_ms: int = 10
+    trigger_mode_parallel_cycle_timeout_ms: int = 20
+    trigger_mode_parallel_wait: bool = False
 
     # ATRAD API endpoints
     atrad_login_endpoint: str = '/atsweb/login'
@@ -102,7 +106,11 @@ class ATRADUserConfig:
             'trigger_mode_refresh_interval_seconds': self.trigger_mode_refresh_interval_seconds,
             'trigger_sell_poll_interval_ms': self.trigger_sell_poll_interval_ms,
             'trigger_mode_slow_poll_interval_ms': self.trigger_mode_slow_poll_interval_ms,
-            'trigger_mode_requests_per_fetch_user': self.trigger_mode_requests_per_fetch_user
+            'trigger_mode_requests_per_fetch_user': self.trigger_mode_requests_per_fetch_user,
+            'trigger_mode_parallel_fetch_enabled': self.trigger_mode_parallel_fetch_enabled,
+            'trigger_mode_parallel_spawn_interval_ms': self.trigger_mode_parallel_spawn_interval_ms,
+            'trigger_mode_parallel_cycle_timeout_ms': self.trigger_mode_parallel_cycle_timeout_ms,
+            'trigger_mode_parallel_wait': self.trigger_mode_parallel_wait,
         }
         for key in self._inherited_default_keys:
             data.pop(key, None)

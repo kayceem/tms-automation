@@ -43,6 +43,10 @@ class UserConfig:
     trigger_sell_poll_interval_ms: int = 500  # Polling interval in milliseconds for sell trigger (less aggressive)
     trigger_mode_slow_poll_interval_ms: int = 500  # Slower polling when LTP is far from trigger (no_ladder mode only)
     trigger_mode_requests_per_fetch_user : int = 5  # Number of requests to fetch LTP for multiple users in trigger mode
+    trigger_mode_parallel_fetch_enabled: bool = False
+    trigger_mode_parallel_spawn_interval_ms: int = 10
+    trigger_mode_parallel_cycle_timeout_ms: int = 20
+    trigger_mode_parallel_wait: bool = False
     # API endpoints
     tms_order_endpoint: str = '/tmsapi/orderApi/order/'
     tms_refresh_endpoint: str = '/tmsapi/security/'
@@ -89,7 +93,11 @@ class UserConfig:
             'trigger_mode_refresh_interval_seconds': self.trigger_mode_refresh_interval_seconds,
             'trigger_sell_poll_interval_ms': self.trigger_sell_poll_interval_ms,
             'trigger_mode_slow_poll_interval_ms': self.trigger_mode_slow_poll_interval_ms,
-            'trigger_mode_requests_per_fetch_user': self.trigger_mode_requests_per_fetch_user
+            'trigger_mode_requests_per_fetch_user': self.trigger_mode_requests_per_fetch_user,
+            'trigger_mode_parallel_fetch_enabled': self.trigger_mode_parallel_fetch_enabled,
+            'trigger_mode_parallel_spawn_interval_ms': self.trigger_mode_parallel_spawn_interval_ms,
+            'trigger_mode_parallel_cycle_timeout_ms': self.trigger_mode_parallel_cycle_timeout_ms,
+            'trigger_mode_parallel_wait': self.trigger_mode_parallel_wait,
         }
         for key in self._inherited_default_keys:
             data.pop(key, None)

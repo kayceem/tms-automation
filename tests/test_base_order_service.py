@@ -17,6 +17,10 @@ class DummyClient:
                 "trigger_sell_poll_interval_ms": 500,
                 "trigger_mode_refresh_interval_seconds": 60,
                 "trigger_mode_requests_per_fetch_user": 5,
+                "trigger_mode_parallel_fetch_enabled": False,
+                "trigger_mode_parallel_spawn_interval_ms": 10,
+                "trigger_mode_parallel_cycle_timeout_ms": 20,
+                "trigger_mode_parallel_wait": False,
             },
         )()
 
@@ -55,6 +59,7 @@ class FakePriceFetcher:
         self.stopped = 0
         self.paused = 0
         self.resumed = 0
+        self.scheduler_modes = []
 
     def get_latest_ltp(self):
         if not self.ltps:
@@ -85,6 +90,9 @@ class FakePriceFetcher:
 
     def update_poll_settings(self, poll_interval_ms, enable_cooldown=False):
         self.settings.append((poll_interval_ms, enable_cooldown))
+
+    def update_scheduler_mode(self, scheduler_mode):
+        self.scheduler_modes.append(scheduler_mode)
 
 
 def test_calculate_price_levels_without_limit():
@@ -291,6 +299,7 @@ def test_wait_for_no_ladder_trigger_uses_just_buy_for_already_triggered_order():
 
 def test_wait_for_no_ladder_trigger_switches_to_slow_then_fast_polling(monkeypatch):
     service = DummyService()
+    service.client.user_config.trigger_mode_parallel_fetch_enabled = True
     price_fetcher = FakePriceFetcher([100.0, 115.0, 120.0])
     sleep_calls = []
     monkeypatch.setattr("services.orders.base_order_service.time.sleep", lambda seconds: sleep_calls.append(seconds))
@@ -319,7 +328,131 @@ def test_wait_for_no_ladder_trigger_switches_to_slow_then_fast_polling(monkeypat
     assert triggered is True
     assert response is None
     assert price_fetcher.settings == [(500, False), (100, True)]
+    assert price_fetcher.scheduler_modes == ["sequential", "parallel"]
     assert sleep_calls[:2] == [0.1, 0.02]
+
+
+def test_wait_for_no_ladder_trigger_starts_in_parallel_when_already_above_switch_threshold(monkeypatch):
+    service = DummyService()
+    service.client.user_config.trigger_mode_parallel_fetch_enabled = True
+    price_fetcher = FakePriceFetcher([115.0, 120.0])
+    sleep_calls = []
+    monkeypatch.setattr("services.orders.base_order_service.time.sleep", lambda seconds: sleep_calls.append(seconds))
+
+    triggered, response = service._wait_for_no_ladder_trigger(
+        price_fetcher=price_fetcher,
+        trigger_price=120.0,
+        final_price=130.0,
+        switch_threshold=110.0,
+        fast_poll_ms=100,
+        slow_poll_ms=500,
+        just_buy=False,
+        just_buy_params={
+            "order_quantity": 10,
+            "interval_ms": 100,
+            "timeout": 5,
+            "pre_wait_ms": 0,
+            "max_requests": None,
+            "fade_interval_ms": None,
+            "fade_timeout": None,
+        },
+        platform_params={"security_id": 101},
+    )
+
+    assert triggered is True
+    assert response is None
+    assert price_fetcher.scheduler_modes == ["parallel"]
+    assert price_fetcher.settings == []
+    assert sleep_calls == [0.02]
+
+
+def test_setup_tms_price_fetcher_passes_parallel_scheduler_settings(monkeypatch):
+    service = DummyService()
+    service.client.user_config.trigger_mode_parallel_fetch_enabled = True
+    service.client.user_config.trigger_mode_parallel_spawn_interval_ms = 12
+    service.client.user_config.trigger_mode_parallel_cycle_timeout_ms = 34
+    service.client.user_config.trigger_mode_parallel_wait = True
+
+    captured = {}
+
+    class FakeFetcher:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("services.orders.base_order_service.MultiUserPriceFetcher", FakeFetcher)
+    monkeypatch.setattr(
+        "services.orders.base_order_service.FetchUser",
+        lambda name, client, fetch_security_id: SimpleNamespace(
+            name=name,
+            client=client,
+            fetch_security_id=fetch_security_id,
+        ),
+    )
+
+    fetch_client = type(
+        "FetchClient",
+        (),
+        {"user_id": "fetch-1", "user_config": type("Cfg", (), {"tms_host": "host-1"})()},
+    )()
+
+    service._setup_tms_price_fetcher([fetch_client, fetch_client], 123, None, 100)
+
+    assert captured["poll_interval_ms"] == 100
+    assert captured["requests_per_user"] == 5
+    assert captured["scheduler_mode"] == "sequential"
+    assert captured["parallel_fetch_enabled"] is True
+    assert captured["parallel_spawn_interval_ms"] == 12
+    assert captured["parallel_cycle_timeout_ms"] == 34
+    assert captured["parallel_wait"] is True
+
+
+def test_setup_atrad_price_fetcher_passes_parallel_scheduler_settings(monkeypatch):
+    service = DummyService()
+    service.client = type(
+        "ATRADLikeClient",
+        (),
+        {
+            "user_id": "dummy-user",
+            "user_config": type(
+                "Cfg",
+                (),
+                {
+                    "trigger_mode_requests_per_fetch_user": 5,
+                    "trigger_mode_parallel_fetch_enabled": True,
+                    "trigger_mode_parallel_spawn_interval_ms": 11,
+                    "trigger_mode_parallel_cycle_timeout_ms": 21,
+                    "trigger_mode_parallel_wait": False,
+                },
+            )(),
+        },
+    )()
+    captured = {}
+
+    class FakeFetcher:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("services.orders.base_order_service.ATRADMultiUserPriceFetcher", FakeFetcher)
+    monkeypatch.setattr(
+        "services.orders.base_order_service.ATRADFetchUser",
+        lambda name, client, symbol: SimpleNamespace(
+            name=name,
+            client=client,
+            symbol=symbol,
+        ),
+    )
+
+    fetch_client = type("FetchClient", (), {"user_id": "fetch-1"})()
+
+    service._setup_atrad_price_fetcher([fetch_client, fetch_client], "NABIL", 90)
+
+    assert captured["poll_interval_ms"] == 90
+    assert captured["requests_per_user"] == 5
+    assert captured["scheduler_mode"] == "sequential"
+    assert captured["parallel_fetch_enabled"] is True
+    assert captured["parallel_spawn_interval_ms"] == 11
+    assert captured["parallel_cycle_timeout_ms"] == 21
+    assert captured["parallel_wait"] is False
 
 
 def test_execute_just_buy_uses_fade_phase_after_main_phase_failure(monkeypatch):
@@ -447,6 +580,42 @@ def test_execute_just_buy_stops_with_success_even_if_multiple_threads_were_spawn
     assert result["value"][0] is True
     assert attempts["count"] >= 1
     assert len(service.placed_orders) >= 1
+
+
+def test_execute_just_buy_aborts_threads_waiting_behind_client_lock():
+    service = DummyService()
+    attempts = {"count": 0}
+
+    def queued_place(price: float, quantity: int, **params):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            time.sleep(0.03)
+            payload = {"status": "ok", "price": price, "quantity": quantity, "params": params}
+            service.placed_orders.append(payload)
+            return payload
+
+        payload = {"status": "extra", "price": price, "quantity": quantity, "params": params}
+        service.placed_orders.append(payload)
+        return payload
+
+    service._place_single_order = queued_place
+
+    success, response = service._execute_just_buy(
+        final_price=120.0,
+        trigger_price=110.0,
+        order_quantity=10,
+        just_buy_interval_ms=1,
+        just_buy_timeout=1,
+        just_buy_pre_wait_ms=0,
+        price_fetcher=FakePriceFetcher([]),
+        platform_params={"security_id": 101},
+        just_buy_max_requests=5,
+    )
+
+    assert success is True
+    assert response["status"] == "ok"
+    assert attempts["count"] == 1
+    assert len(service.placed_orders) == 1
 
 
 def test_execute_ipo_trigger_uses_no_ladder_path_and_cleans_up():

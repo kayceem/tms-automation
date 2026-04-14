@@ -1,8 +1,9 @@
 """Price fetcher service for monitoring LTP in trigger mode."""
 
+from collections import deque
 import time
 import threading
-from typing import Optional, List
+from typing import Literal, Optional, List
 from dataclasses import dataclass
 from api import TMSClient
 from services.fetchers.fetcher_timing import calculate_request_timeout, calculate_rotation_delay
@@ -261,7 +262,12 @@ class MultiUserPriceFetcher:
 
     def __init__(self, fetch_users: List[FetchUser],
                  poll_interval_ms: int = 100, requests_per_user: int = 10,
-                 enable_cooldown: bool = True):
+                 enable_cooldown: bool = True,
+                 scheduler_mode: Literal["sequential", "parallel"] = "sequential",
+                 parallel_fetch_enabled: bool = False,
+                 parallel_spawn_interval_ms: int = 10,
+                 parallel_cycle_timeout_ms: int = 20,
+                 parallel_wait: bool = False):
         """
         Initialize multi-user price fetcher.
 
@@ -281,12 +287,24 @@ class MultiUserPriceFetcher:
         self.delay = calculate_rotation_delay(self.poll_interval_seconds, 0.01)
         self.requests_per_user = requests_per_user
         self.enable_cooldown = enable_cooldown
+        self.scheduler_mode: Literal["sequential", "parallel"] = scheduler_mode
+        self.parallel_fetch_enabled = parallel_fetch_enabled
+        self.parallel_spawn_interval_ms = parallel_spawn_interval_ms
+        self.parallel_cycle_timeout_ms = parallel_cycle_timeout_ms
+        self.parallel_wait = parallel_wait
 
         self._latest_ltp: Optional[float] = None
         self._running = False
         self._paused = False
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._fetch_thread: Optional[threading.Thread] = None
+        self._parallel_completion_queue: deque[str] = deque()
+        self._parallel_pending_users: deque[str] = deque()
+        self._parallel_dispatch_threads: list[threading.Thread] = []
+        self._parallel_last_dispatch_ms = {user.name: 0.0 for user in self.fetch_users}
+        self._parallel_last_dispatch_any_ms = 0.0
+        self._parallel_seeded = False
+        self._parallel_fetch_count = 0
 
         # User rotation state
         self._current_user_index = 0
@@ -296,7 +314,8 @@ class MultiUserPriceFetcher:
         user_info = ', '.join(f"{u.name}(sid={u.fetch_security_id})" for u in self.fetch_users)
         logger.info(
             f"MultiUserPriceFetcher initialized with {len(self.fetch_users)} users: {user_info}, "
-            f"poll_interval={poll_interval_ms}ms, rotation={requests_per_user} requests/user"
+            f"poll_interval={poll_interval_ms}ms, rotation={requests_per_user} requests/user, "
+            f"scheduler_mode={scheduler_mode}, parallel_enabled={parallel_fetch_enabled}"
         )
 
     def _get_next_user(self) -> FetchUser:
@@ -345,6 +364,8 @@ class MultiUserPriceFetcher:
         self._running = False
         if self._fetch_thread:
             self._fetch_thread.join(timeout=5.0)
+        for thread in list(self._parallel_dispatch_threads):
+            thread.join(timeout=0.1)
         logger.info("MultiUserPriceFetcher stopped")
 
     def get_latest_ltp(self) -> Optional[float]:
@@ -371,6 +392,181 @@ class MultiUserPriceFetcher:
             self.poll_interval_seconds = poll_interval_ms / 1000.0
             self.delay = calculate_rotation_delay(self.poll_interval_seconds, 0.01)
             self.enable_cooldown = enable_cooldown
+
+    def update_scheduler_settings(
+        self,
+        scheduler_mode: Optional[Literal["sequential", "parallel"]] = None,
+        parallel_fetch_enabled: Optional[bool] = None,
+        parallel_spawn_interval_ms: Optional[int] = None,
+        parallel_cycle_timeout_ms: Optional[int] = None,
+        parallel_wait: Optional[bool] = None,
+    ):
+        """Update scheduler behavior without recreating the fetcher."""
+        with self._lock:
+            if scheduler_mode is not None:
+                self.scheduler_mode = scheduler_mode
+            if parallel_fetch_enabled is not None:
+                self.parallel_fetch_enabled = parallel_fetch_enabled
+            if parallel_spawn_interval_ms is not None:
+                self.parallel_spawn_interval_ms = parallel_spawn_interval_ms
+            if parallel_cycle_timeout_ms is not None:
+                self.parallel_cycle_timeout_ms = parallel_cycle_timeout_ms
+            if parallel_wait is not None:
+                self.parallel_wait = parallel_wait
+
+    def update_scheduler_mode(self, scheduler_mode: Literal["sequential", "parallel"]):
+        """Convenience wrapper for switching scheduler modes at runtime."""
+        self.update_scheduler_settings(scheduler_mode=scheduler_mode)
+
+    def _current_scheduler_mode(self) -> Literal["sequential", "parallel"]:
+        """Return the effective scheduler mode for the current settings."""
+        with self._lock:
+            if self.parallel_fetch_enabled and self.scheduler_mode == "parallel":
+                return "parallel"
+            return "sequential"
+
+    def _reset_parallel_state(self):
+        """Reset transient scheduler state when entering or leaving parallel mode."""
+        with self._lock:
+            self._parallel_completion_queue.clear()
+            self._parallel_pending_users.clear()
+            self._parallel_last_dispatch_ms = {user.name: 0.0 for user in self.fetch_users}
+            self._parallel_last_dispatch_any_ms = 0.0
+            self._parallel_seeded = False
+
+    def _get_fetch_user_by_name(self, user_name: str) -> Optional[FetchUser]:
+        """Look up a configured fetch user by its scheduler name."""
+        for user in self.fetch_users:
+            if user.name == user_name:
+                return user
+        return None
+
+    def _prune_parallel_threads(self):
+        """Drop completed worker threads from the tracked thread list."""
+        with self._lock:
+            self._parallel_dispatch_threads = [
+                thread for thread in self._parallel_dispatch_threads if thread.is_alive()
+            ]
+
+    def _can_dispatch_parallel(self, now_ms: float) -> bool:
+        """Check whether the next dispatch is allowed under strict-wait rules."""
+        with self._lock:
+            if not self.parallel_wait:
+                return True
+            if not self._parallel_last_dispatch_any_ms:
+                return True
+            return (now_ms - self._parallel_last_dispatch_any_ms) >= self.parallel_spawn_interval_ms
+
+    def _spawn_parallel_fetch(self, current_user: FetchUser, timeout: float) -> bool:
+        """Spawn a single parallel LTP fetch for the given user."""
+        now_ms = time.perf_counter() * 1000
+        if not self._can_dispatch_parallel(now_ms):
+            return False
+
+        with self._lock:
+            if not self._running or self._paused or self._current_scheduler_mode() != "parallel":
+                return False
+            self._parallel_fetch_count += 1
+            fetch_index = self._parallel_fetch_count
+            self._parallel_last_dispatch_ms[current_user.name] = now_ms
+            self._parallel_last_dispatch_any_ms = now_ms
+
+        def run_fetch() -> None:
+            try:
+                ltp = current_user.client.get_ltp(current_user.fetch_security_id, timeout=timeout)
+                with self._lock:
+                    can_publish = (
+                        self._running
+                        and not self._paused
+                        and self._current_scheduler_mode() == "parallel"
+                    )
+                    if ltp is not None and can_publish:
+                        self._latest_ltp = ltp
+                        logger.debug(
+                            f"[{current_user.name}] Parallel fetch #{fetch_index}: "
+                            f"LTP={ltp} (sid={current_user.fetch_security_id})"
+                        )
+                    elif ltp is None:
+                        logger.debug(
+                            f"[{current_user.name}] Parallel fetch #{fetch_index}: "
+                            f"LTP returned None (sid={current_user.fetch_security_id})"
+                        )
+                    self._parallel_completion_queue.append(current_user.name)
+            except Exception as e:
+                logger.error(
+                    f"[{current_user.name}] Error in parallel fetch loop (fetch #{fetch_index}): {str(e)}"
+                )
+                with self._lock:
+                    self._parallel_completion_queue.append(current_user.name)
+
+        thread = threading.Thread(
+            target=run_fetch,
+            name=f"MuPf-{current_user.name}-{fetch_index}",
+            daemon=True,
+        )
+        with self._lock:
+            self._parallel_dispatch_threads.append(thread)
+        thread.start()
+        return True
+
+    def _seed_parallel_fetches(self) -> bool:
+        """Seed one request per user when parallel mode begins."""
+        timeout = calculate_request_timeout(self.poll_interval_seconds)
+        for index, current_user in enumerate(self.fetch_users):
+            if not self._running or self._current_scheduler_mode() != "parallel":
+                return False
+            while self._running and self._current_scheduler_mode() == "parallel":
+                if self._spawn_parallel_fetch(current_user, timeout):
+                    break
+                time.sleep(0.001)
+            if index < (len(self.fetch_users) - 1) and self.parallel_spawn_interval_ms > 0:
+                time.sleep(self.parallel_spawn_interval_ms / 1000.0)
+
+        with self._lock:
+            self._parallel_seeded = True
+        return True
+
+    def _dispatch_next_parallel_fetch(self) -> bool:
+        """Dispatch the next parallel fetch based on completions or oldest-user fallback."""
+        timeout = calculate_request_timeout(self.poll_interval_seconds)
+
+        completed_user_name: Optional[str] = None
+        with self._lock:
+            if self._parallel_completion_queue:
+                completed_user_name = self._parallel_completion_queue.popleft()
+                self._parallel_pending_users.append(completed_user_name)
+
+        with self._lock:
+            pending_user_name = self._parallel_pending_users[0] if self._parallel_pending_users else None
+        if pending_user_name:
+            current_user = self._get_fetch_user_by_name(pending_user_name)
+            if current_user and self._spawn_parallel_fetch(current_user, timeout):
+                with self._lock:
+                    if self._parallel_pending_users and self._parallel_pending_users[0] == pending_user_name:
+                        self._parallel_pending_users.popleft()
+                return True
+
+        now_ms = time.perf_counter() * 1000
+        with self._lock:
+            if self._parallel_last_dispatch_any_ms:
+                ready_for_fallback = (
+                    now_ms - self._parallel_last_dispatch_any_ms
+                ) >= self.parallel_cycle_timeout_ms
+            else:
+                ready_for_fallback = True
+            oldest_user_name = None
+            if ready_for_fallback and self.fetch_users:
+                oldest_user_name = min(
+                    self.fetch_users,
+                    key=lambda user: self._parallel_last_dispatch_ms.get(user.name, 0.0),
+                ).name
+
+        if oldest_user_name:
+            current_user = self._get_fetch_user_by_name(oldest_user_name)
+            if current_user and self._spawn_parallel_fetch(current_user, timeout):
+                return True
+
+        return False
 
     def pause(self):
         """
@@ -399,60 +595,81 @@ class MultiUserPriceFetcher:
             f"rotation={self.requests_per_user} requests/user)"
         )
 
-        # Set timeout to 4x poll interval to prevent blocking
-        timeout = calculate_request_timeout(self.poll_interval_seconds)
-
+        active_mode: Optional[Literal["sequential", "parallel"]] = None
         fetch_count = 0
         while self._running:
+            current_user_name = "unknown"
             try:
-                # Check if paused
                 with self._lock:
                     is_paused = self._paused
+                    timeout = calculate_request_timeout(self.poll_interval_seconds)
+                    poll_interval_seconds = self.poll_interval_seconds
+                    enable_cooldown = self.enable_cooldown
+                    delay = self.delay
+                current_mode = self._current_scheduler_mode()
+
+                if current_mode != active_mode:
+                    self._reset_parallel_state()
+                    active_mode = current_mode
+                    logger.info(f"MultiUserPriceFetcher scheduler mode switched to {current_mode}")
 
                 if not is_paused:
-                    fetch_count += 1
-
-                    # Get the user for this request
-                    current_user = self._get_next_user()
-
-                    # Fetch LTP using the user's specific fetch_security_id with timeout
-                    ltp = current_user.client.get_ltp(current_user.fetch_security_id, timeout=timeout)
-
-                    # Update latest value
-                    if ltp is not None:
+                    if current_mode == "parallel":
                         with self._lock:
-                            self._latest_ltp = ltp
-                        logger.debug(
-                            f"[{current_user.name}] Fetch #{fetch_count}: LTP={ltp} (sid={current_user.fetch_security_id})"
-                        )
-                    else:
-                        logger.debug(
-                            f"[{current_user.name}] Fetch #{fetch_count}: LTP returned None (sid={current_user.fetch_security_id})"
-                        )
-                        time.sleep(self.delay)
+                            seeded = self._parallel_seeded
+                        if not seeded:
+                            if not self._seed_parallel_fetches():
+                                continue
+                        else:
+                            self._dispatch_next_parallel_fetch()
+                        self._prune_parallel_threads()
+                        time.sleep(0.001)
                         continue
+                    else:
+                        fetch_count += 1
+                        current_user = self._get_next_user()
+                        current_user_name = current_user.name
+                        ltp = current_user.client.get_ltp(
+                            current_user.fetch_security_id,
+                            timeout=timeout,
+                        )
+                        if ltp is not None:
+                            with self._lock:
+                                self._latest_ltp = ltp
+                            logger.debug(
+                                f"[{current_user.name}] Fetch #{fetch_count}: "
+                                f"LTP={ltp} (sid={current_user.fetch_security_id})"
+                            )
+                        else:
+                            logger.debug(
+                                f"[{current_user.name}] Fetch #{fetch_count}: "
+                                f"LTP returned None (sid={current_user.fetch_security_id})"
+                            )
+                            time.sleep(delay)
+                            continue
+                else:
+                    time.sleep(0.001)
+                    continue
 
             except KeyboardInterrupt:
                 logger.info("Multi-user fetch loop interrupted by user")
                 break
             except Exception as e:
                 logger.error(
-                    f"[{current_user.name}] Error in fetch loop (fetch #{fetch_count}): {str(e)}"
+                    f"[{current_user_name}] Error in fetch loop (fetch #{fetch_count}): {str(e)}"
                 )
-                time.sleep(self.delay)
+                time.sleep(delay)
                 continue
 
-            # Sleep for the configured interval
             try:
-                time.sleep(self.poll_interval_seconds)
+                time.sleep(poll_interval_seconds)
 
-                # Add cooldown delay every 5 rotation cycles
-                if self.enable_cooldown and self._should_add_cooldown_delay():
+                if enable_cooldown and self._should_add_cooldown_delay():
                     logger.debug(
                         f"Cooldown delay after {self._rotation_cycles_completed} rotation cycles"
                     )
-                    time.sleep(self.poll_interval_seconds + self.delay)
-                    if self._rotation_cycles_completed > (self._len_fetch_users * 2) :
+                    time.sleep(poll_interval_seconds + delay)
+                    if self._rotation_cycles_completed > (self._len_fetch_users * 2):
                         self._rotation_cycles_completed = 0
             except KeyboardInterrupt:
                 logger.info("Multi-user fetch loop interrupted by user")

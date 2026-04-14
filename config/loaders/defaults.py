@@ -14,6 +14,10 @@ INHERITED_TRIGGER_SETTING_KEYS = (
     "trigger_sell_poll_interval_ms",
     "trigger_mode_slow_poll_interval_ms",
     "trigger_mode_requests_per_fetch_user",
+    "trigger_mode_parallel_fetch_enabled",
+    "trigger_mode_parallel_spawn_interval_ms",
+    "trigger_mode_parallel_cycle_timeout_ms",
+    "trigger_mode_parallel_wait",
 )
 
 

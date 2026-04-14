@@ -434,7 +434,12 @@ class BaseOrderService(ABC):
             return ATRADMultiUserPriceFetcher(
                 fetch_users=fetch_users,
                 poll_interval_ms=poll_interval_ms,
-                requests_per_user=requests_per_user
+                requests_per_user=requests_per_user,
+                scheduler_mode="sequential",
+                parallel_fetch_enabled=self.client.user_config.trigger_mode_parallel_fetch_enabled,
+                parallel_spawn_interval_ms=self.client.user_config.trigger_mode_parallel_spawn_interval_ms,
+                parallel_cycle_timeout_ms=self.client.user_config.trigger_mode_parallel_cycle_timeout_ms,
+                parallel_wait=self.client.user_config.trigger_mode_parallel_wait,
             )
         else:
             # Single ATRAD user
@@ -480,7 +485,12 @@ class BaseOrderService(ABC):
             return MultiUserPriceFetcher(
                 fetch_users=fetch_users,
                 poll_interval_ms=poll_interval_ms,
-                requests_per_user=requests_per_user
+                requests_per_user=requests_per_user,
+                scheduler_mode="sequential",
+                parallel_fetch_enabled=self.client.user_config.trigger_mode_parallel_fetch_enabled,
+                parallel_spawn_interval_ms=self.client.user_config.trigger_mode_parallel_spawn_interval_ms,
+                parallel_cycle_timeout_ms=self.client.user_config.trigger_mode_parallel_cycle_timeout_ms,
+                parallel_wait=self.client.user_config.trigger_mode_parallel_wait,
             )
         else:
             # Single TMS user
@@ -620,6 +630,7 @@ class BaseOrderService(ABC):
             success_flag = threading.Event()
             success_response = {'response': None}
             threads_lock = threading.Lock()
+            submit_lock = threading.Lock()
             active_threads = []
 
             def place_just_buy_order(thread_id: int):
@@ -632,12 +643,20 @@ class BaseOrderService(ABC):
                         f"[{self.user_id}] Just Buy Thread #{thread_id}: Placing order at Rs. {final_price}"
                     )
 
-                    order_params = {**platform_params, 'market_price': trigger_price}
-                    response = self._place_single_order(
-                        price=final_price,
-                        quantity=order_quantity,
-                        **order_params
-                    )
+                    with submit_lock:
+                        if success_flag.is_set():
+                            self.logger.debug(
+                                f"[{self.user_id}] Just Buy Thread #{thread_id}: "
+                                "Success already recorded, skipping queued submit"
+                            )
+                            return
+
+                        order_params = {**platform_params, 'market_price': trigger_price}
+                        response = self._place_single_order(
+                            price=final_price,
+                            quantity=order_quantity,
+                            **order_params
+                        )
 
                     if response and not success_flag.is_set():
                         success_flag.set()

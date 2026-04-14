@@ -76,9 +76,9 @@ def execute_no_ladder_mode(
     ltp = price_fetcher.get_latest_ltp()
     order_params = {**platform_params, "market_price": ltp}
 
-    if hasattr(price_fetcher, "start_market_details"):
-        service.logger.info(f"[{service.user_id}] Starting market details monitoring for order placement")
-        price_fetcher.start_market_details()
+    # if hasattr(price_fetcher, "start_market_details"):
+    #     service.logger.info(f"[{service.user_id}] Starting market details monitoring for order placement")
+    #     price_fetcher.start_market_details()
 
     return service._place_order_with_retries(
         price_fetcher=price_fetcher,

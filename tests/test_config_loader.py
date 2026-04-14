@@ -21,6 +21,10 @@ def test_load_user_config_detects_tms_and_sets_file_path(tmp_path):
             "trigger_sell_poll_interval_ms": 250,
             "trigger_mode_slow_poll_interval_ms": 250,
             "trigger_mode_requests_per_fetch_user": 2,
+            "trigger_mode_parallel_fetch_enabled": True,
+            "trigger_mode_parallel_spawn_interval_ms": 12,
+            "trigger_mode_parallel_cycle_timeout_ms": 24,
+            "trigger_mode_parallel_wait": True,
         },
     )
     config_path = tmp_path / "user.json"
@@ -49,6 +53,10 @@ def test_load_user_config_detects_tms_and_sets_file_path(tmp_path):
     assert config.trigger_sell_poll_interval_ms == 250
     assert config.trigger_mode_slow_poll_interval_ms == 250
     assert config.trigger_mode_requests_per_fetch_user == 2
+    assert config.trigger_mode_parallel_fetch_enabled is True
+    assert config.trigger_mode_parallel_spawn_interval_ms == 12
+    assert config.trigger_mode_parallel_cycle_timeout_ms == 24
+    assert config.trigger_mode_parallel_wait is True
 
 
 def test_load_trader_config_detects_atrad(tmp_path):
@@ -60,6 +68,10 @@ def test_load_trader_config_detects_atrad(tmp_path):
             "trigger_sell_poll_interval_ms": 250,
             "trigger_mode_slow_poll_interval_ms": 250,
             "trigger_mode_requests_per_fetch_user": 2,
+            "trigger_mode_parallel_fetch_enabled": True,
+            "trigger_mode_parallel_spawn_interval_ms": 12,
+            "trigger_mode_parallel_cycle_timeout_ms": 24,
+            "trigger_mode_parallel_wait": True,
         },
     )
     config_path = tmp_path / "seller.json"
@@ -86,6 +98,10 @@ def test_load_trader_config_detects_atrad(tmp_path):
     assert config.trigger_sell_poll_interval_ms == 250
     assert config.trigger_mode_slow_poll_interval_ms == 250
     assert config.trigger_mode_requests_per_fetch_user == 2
+    assert config.trigger_mode_parallel_fetch_enabled is True
+    assert config.trigger_mode_parallel_spawn_interval_ms == 12
+    assert config.trigger_mode_parallel_cycle_timeout_ms == 24
+    assert config.trigger_mode_parallel_wait is True
 
 
 def test_load_fetch_user_configs_skips_invalid_entries_but_keeps_valid_ones(tmp_path):
@@ -136,6 +152,10 @@ def test_user_config_inherits_trigger_defaults_from_sibling_default_json(tmp_pat
             "trigger_sell_poll_interval_ms": 250,
             "trigger_mode_slow_poll_interval_ms": 250,
             "trigger_mode_requests_per_fetch_user": 2,
+            "trigger_mode_parallel_fetch_enabled": True,
+            "trigger_mode_parallel_spawn_interval_ms": 12,
+            "trigger_mode_parallel_cycle_timeout_ms": 24,
+            "trigger_mode_parallel_wait": True,
         },
     )
     write_config(
@@ -161,6 +181,10 @@ def test_user_config_inherits_trigger_defaults_from_sibling_default_json(tmp_pat
     assert config.trigger_sell_poll_interval_ms == 300
     assert config.trigger_mode_slow_poll_interval_ms == 250
     assert config.trigger_mode_requests_per_fetch_user == 2
+    assert config.trigger_mode_parallel_fetch_enabled is True
+    assert config.trigger_mode_parallel_spawn_interval_ms == 12
+    assert config.trigger_mode_parallel_cycle_timeout_ms == 24
+    assert config.trigger_mode_parallel_wait is True
 
 
 def test_atrad_config_inherits_trigger_defaults_from_sibling_default_json(tmp_path):
@@ -175,6 +199,10 @@ def test_atrad_config_inherits_trigger_defaults_from_sibling_default_json(tmp_pa
             "trigger_sell_poll_interval_ms": 250,
             "trigger_mode_slow_poll_interval_ms": 250,
             "trigger_mode_requests_per_fetch_user": 2,
+            "trigger_mode_parallel_fetch_enabled": True,
+            "trigger_mode_parallel_spawn_interval_ms": 12,
+            "trigger_mode_parallel_cycle_timeout_ms": 24,
+            "trigger_mode_parallel_wait": True,
         },
     )
     write_config(
@@ -197,6 +225,10 @@ def test_atrad_config_inherits_trigger_defaults_from_sibling_default_json(tmp_pa
     assert config.trigger_sell_poll_interval_ms == 250
     assert config.trigger_mode_slow_poll_interval_ms == 250
     assert config.trigger_mode_requests_per_fetch_user == 2
+    assert config.trigger_mode_parallel_fetch_enabled is True
+    assert config.trigger_mode_parallel_spawn_interval_ms == 12
+    assert config.trigger_mode_parallel_cycle_timeout_ms == 24
+    assert config.trigger_mode_parallel_wait is True
 
 
 def test_user_config_manager_skips_default_json_when_loading_directory(tmp_path):
@@ -208,6 +240,10 @@ def test_user_config_manager_skips_default_json_when_loading_directory(tmp_path)
             "trigger_sell_poll_interval_ms": 250,
             "trigger_mode_slow_poll_interval_ms": 250,
             "trigger_mode_requests_per_fetch_user": 2,
+            "trigger_mode_parallel_fetch_enabled": True,
+            "trigger_mode_parallel_spawn_interval_ms": 12,
+            "trigger_mode_parallel_cycle_timeout_ms": 24,
+            "trigger_mode_parallel_wait": True,
         },
     )
     write_config(
@@ -244,6 +280,10 @@ def test_user_config_save_does_not_persist_inherited_default_keys(tmp_path):
             "trigger_sell_poll_interval_ms": 250,
             "trigger_mode_slow_poll_interval_ms": 250,
             "trigger_mode_requests_per_fetch_user": 2,
+            "trigger_mode_parallel_fetch_enabled": True,
+            "trigger_mode_parallel_spawn_interval_ms": 12,
+            "trigger_mode_parallel_cycle_timeout_ms": 24,
+            "trigger_mode_parallel_wait": True,
         },
     )
     write_config(
@@ -271,6 +311,10 @@ def test_user_config_save_does_not_persist_inherited_default_keys(tmp_path):
     assert "trigger_sell_poll_interval_ms" not in persisted
     assert "trigger_mode_slow_poll_interval_ms" not in persisted
     assert "trigger_mode_requests_per_fetch_user" not in persisted
+    assert "trigger_mode_parallel_fetch_enabled" not in persisted
+    assert "trigger_mode_parallel_spawn_interval_ms" not in persisted
+    assert "trigger_mode_parallel_cycle_timeout_ms" not in persisted
+    assert "trigger_mode_parallel_wait" not in persisted
 
 
 def test_atrad_config_save_does_not_persist_inherited_default_keys(tmp_path):
@@ -285,6 +329,10 @@ def test_atrad_config_save_does_not_persist_inherited_default_keys(tmp_path):
             "trigger_sell_poll_interval_ms": 250,
             "trigger_mode_slow_poll_interval_ms": 250,
             "trigger_mode_requests_per_fetch_user": 2,
+            "trigger_mode_parallel_fetch_enabled": True,
+            "trigger_mode_parallel_spawn_interval_ms": 12,
+            "trigger_mode_parallel_cycle_timeout_ms": 24,
+            "trigger_mode_parallel_wait": True,
         },
     )
     write_config(
@@ -311,3 +359,7 @@ def test_atrad_config_save_does_not_persist_inherited_default_keys(tmp_path):
     assert "trigger_sell_poll_interval_ms" not in persisted
     assert "trigger_mode_slow_poll_interval_ms" not in persisted
     assert "trigger_mode_requests_per_fetch_user" not in persisted
+    assert "trigger_mode_parallel_fetch_enabled" not in persisted
+    assert "trigger_mode_parallel_spawn_interval_ms" not in persisted
+    assert "trigger_mode_parallel_cycle_timeout_ms" not in persisted
+    assert "trigger_mode_parallel_wait" not in persisted

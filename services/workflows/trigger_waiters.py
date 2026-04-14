@@ -57,18 +57,33 @@ def wait_for_no_ladder_trigger(
 
     using_fast_poll = True
     permanently_fast = False
+    switched_to_parallel = False
     slow_sleep = slow_poll_ms / 5000.0
-    fast_sleep = fast_poll_ms / 5000.0
+    fast_sleep = min((fast_poll_ms / 5000.0), 0.001)
+    should_use_parallel = getattr(service.client.user_config, "trigger_mode_parallel_fetch_enabled", False)
 
     while True:
         ltp = price_fetcher.get_latest_ltp()
 
         if ltp is not None:
-            if ltp >= trigger_price:
+            if (
+                not switched_to_parallel
+                and should_use_parallel
+                and ltp >= switch_threshold
+                and not permanently_fast
+                and using_fast_poll
+            ):
                 service.logger.info(
-                    f"[{service.user_id}] TRIGGERED! LTP={ltp} >= Rs. {trigger_price}. "
-                    f"Placing final order at Rs. {final_price}"
+                    f"[{service.user_id}] LTP Rs. {ltp} >= Rs. {switch_threshold} - "
+                    f"starting in FAST parallel mode"
                 )
+                if hasattr(price_fetcher, "update_scheduler_mode"):
+                    price_fetcher.update_scheduler_mode("parallel")
+                switched_to_parallel = True
+
+            if ltp >= trigger_price:
+                service.logger.info(f"[{service.user_id}] TRIGGERED! LTP={ltp} >= Rs. {trigger_price}. ")
+                price_fetcher.pause()
                 return True, None
 
             if not permanently_fast:
@@ -78,8 +93,11 @@ def wait_for_no_ladder_trigger(
                         f"[{service.user_id}] LTP Rs. {ltp} < Rs. {switch_threshold} - "
                         f"switching to SLOW polling ({slow_poll_ms}ms, cooldown OFF)"
                     )
+                    if hasattr(price_fetcher, "update_scheduler_mode"):
+                        price_fetcher.update_scheduler_mode("sequential")
                     if hasattr(price_fetcher, "update_poll_settings"):
                         price_fetcher.update_poll_settings(slow_poll_ms, enable_cooldown=False)
+                    switched_to_parallel = False
 
                 elif not using_fast_poll and ltp >= switch_threshold:
                     using_fast_poll = True
@@ -109,6 +127,10 @@ def wait_for_no_ladder_trigger(
                     service.logger.info(
                         f"[{service.user_id}] Switching to FAST polling ({fast_poll_ms}ms, cooldown ON) PERMANENTLY"
                     )
+                    if getattr(service.client.user_config, "trigger_mode_parallel_fetch_enabled", False):
+                        if hasattr(price_fetcher, "update_scheduler_mode"):
+                            price_fetcher.update_scheduler_mode("parallel")
+                        switched_to_parallel = True
                     if hasattr(price_fetcher, "update_poll_settings"):
                         price_fetcher.update_poll_settings(fast_poll_ms, enable_cooldown=True)
 

@@ -62,7 +62,7 @@
       "id": "rlel_ipo",
       "execute": true,
       "success": false,
-      "queue_id": 1,
+      "queue_id": 2,
       "multi_queue": true,
       "ticker": "RLEL",
       "mode": "ipo-trigger",
