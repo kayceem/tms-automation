@@ -64,7 +64,7 @@ def wait_for_no_ladder_trigger(
 
     while True:
         ltp = price_fetcher.get_latest_ltp()
-
+        
         if ltp is not None:
             if (
                 not switched_to_parallel

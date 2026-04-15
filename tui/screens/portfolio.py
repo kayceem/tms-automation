@@ -575,6 +575,8 @@ class OrderBookScreen(Screen[None]):
 
     def _handle_auto_refresh_tick(self) -> None:
         if self._auto_refresh_enabled:
+            if time.localtime().tm_hour < 11 or time.localtime().tm_hour >= 15:
+                self.action_toggle_auto_refresh()
             self._trigger_refresh(source="auto")
 
     @staticmethod

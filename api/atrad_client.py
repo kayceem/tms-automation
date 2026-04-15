@@ -358,16 +358,13 @@ class ATRADClient:
             "spnPrice": f"{price:.1f}",
         }
 
-        # Encode dynamic fields
         dynamic_parts = []
         for key, value in dynamic_fields.items():
             encoded_value = quote(str(value), safe='')
             dynamic_parts.append(f"{key}={encoded_value}")
 
-        # Combine pre-encoded static body with dynamic parts
         body = self._static_body + "&" + "&".join(dynamic_parts)
 
-        # Make thread-safe API request
         with self._request_lock:
             start_time = int(time.time() * 1000)
             response = self._request_with_reauth("POST", self.order_endpoint, data=body)
@@ -381,7 +378,6 @@ class ATRADClient:
                 raise RuntimeError("Order placement failed: no response from ATRAD server")
 
             logger.debug(f"[{self.user_id}] Response status: {response.status_code}")
-
             response.raise_for_status()
 
             try:
@@ -391,7 +387,7 @@ class ATRADClient:
             except ValueError:
                 logger.error(f"[{self.user_id}] Invalid JSON response: {response.text}")
                 raise RuntimeError(f"Invalid response from ATRAD server: {response.text}")
-                
+
             if str(result.get("code")) == "0":
                 logger.info(f"[{self.user_id}] ATRAD order placed successfully")
                 order = {"symbol": symbol, "price": price, "quantity": quantity, "start_time_ms": start_time, "end_time_ms": end_time}

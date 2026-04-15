@@ -260,6 +260,47 @@ def test_execute_no_ladder_mode_places_immediately_when_only_one_level():
     assert response["quantity"] == 25
 
 
+def test_execute_no_ladder_mode_starts_market_details_after_order_dispatch(monkeypatch):
+    service = DummyService()
+    price_fetcher = FakePriceFetcher([110.0, 110.0])
+    place_started = threading.Event()
+    finish_place = threading.Event()
+    call_order = []
+
+    service._wait_for_no_ladder_trigger = lambda **kwargs: (True, None)
+
+    def fake_place_order_with_retries(**kwargs):
+        call_order.append("place")
+        place_started.set()
+        assert finish_place.wait(1.0)
+        return {"status": "ok", "kwargs": kwargs}
+
+    def fake_start_market_details():
+        assert place_started.wait(1.0)
+        call_order.append("market")
+        finish_place.set()
+
+    service._place_order_with_retries = fake_place_order_with_retries
+    price_fetcher.start_market_details = fake_start_market_details
+
+    response = service._execute_no_ladder_mode(
+        price_fetcher=price_fetcher,
+        price_levels=[100.0, 110.0, 120.0],
+        order_quantity=25,
+        just_buy=False,
+        just_buy_interval_ms=100,
+        just_buy_timeout=5,
+        just_buy_pre_wait_ms=0,
+        just_buy_max_requests=None,
+        just_buy_fade_interval_ms=None,
+        just_buy_fade_timeout=None,
+        platform_params={"security_id": 101},
+    )
+
+    assert response["status"] == "ok"
+    assert call_order == ["place", "market"]
+
+
 def test_wait_for_no_ladder_trigger_uses_just_buy_for_already_triggered_order():
     service = DummyService()
     calls = {}

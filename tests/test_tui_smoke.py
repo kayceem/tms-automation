@@ -85,7 +85,7 @@ def test_order_book_auto_refresh_only_targets_active_panel():
     screen._trigger_refresh = lambda *, source: refresh_requests.append(f"{source}:{screen._active_panel()}")  # type: ignore[method-assign]
 
     assert screen._auto_refresh_enabled is False
-    assert any(binding[0] == "shift+r" for binding in screen.BINDINGS)
+    assert any(binding[0] == "l" for binding in screen.BINDINGS)
 
     screen._handle_auto_refresh_tick()
     assert refresh_requests == []

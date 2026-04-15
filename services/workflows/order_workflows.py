@@ -1,6 +1,64 @@
 """Workflow helpers for IPO trigger execution paths."""
-
+import threading
 from typing import Any, Dict, List, Optional, Tuple
+
+
+class _PrestartedOrderPlacementWorker:
+    """Run the blocking order-placement path on a prestarted worker thread."""
+
+    def __init__(self, target: Any) -> None:
+        self._target = target
+        self._dispatch_event = threading.Event()
+        self._started_event = threading.Event()
+        self._done_event = threading.Event()
+        self._shutdown = False
+        self._lock = threading.Lock()
+        self._kwargs: dict[str, Any] | None = None
+        self._response: Optional[Dict[str, Any]] = None
+        self._error: BaseException | None = None
+        self._thread = threading.Thread(target=self._run, name="OrderPlacementWorker", daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while True:
+            self._dispatch_event.wait()
+            self._dispatch_event.clear()
+            if self._shutdown:
+                return
+            with self._lock:
+                kwargs = dict(self._kwargs or {})
+            self._started_event.set()
+            try:
+                response = self._target(**kwargs)
+            except BaseException as exc:  # pragma: no cover - re-raised on caller thread
+                self._error = exc
+                self._response = None
+            else:
+                self._response = response
+                self._error = None
+            finally:
+                self._done_event.set()
+
+    def dispatch(self, **kwargs: Any) -> None:
+        with self._lock:
+            self._kwargs = kwargs
+            self._response = None
+            self._error = None
+        self._started_event.clear()
+        self._done_event.clear()
+        self._dispatch_event.set()
+        self._started_event.wait()
+
+    def result(self) -> Optional[Dict[str, Any]]:
+        self._done_event.wait()
+        if self._error is not None:
+            raise self._error
+        return self._response
+
+    def close(self) -> None:
+        self._shutdown = True
+        self._dispatch_event.set()
+        self._thread.join(timeout=1.0)
 
 
 def execute_no_ladder_mode(
@@ -51,43 +109,49 @@ def execute_no_ladder_mode(
         "fade_interval_ms": just_buy_fade_interval_ms,
         "fade_timeout": just_buy_fade_timeout,
     }
+    order_worker = _PrestartedOrderPlacementWorker(service._place_order_with_retries)
 
-    triggered, just_buy_response = service._wait_for_no_ladder_trigger(
-        price_fetcher=price_fetcher,
-        trigger_price=trigger_price,
-        final_price=final_price,
-        switch_threshold=switch_threshold,
-        fast_poll_ms=fast_poll_ms,
-        slow_poll_ms=slow_poll_ms,
-        just_buy=just_buy,
-        just_buy_params=just_buy_params,
-        platform_params=platform_params,
-        already_triggered=already_triggered,
-    )
+    try:
+        triggered, just_buy_response = service._wait_for_no_ladder_trigger(
+            price_fetcher=price_fetcher,
+            trigger_price=trigger_price,
+            final_price=final_price,
+            switch_threshold=switch_threshold,
+            fast_poll_ms=fast_poll_ms,
+            slow_poll_ms=slow_poll_ms,
+            just_buy=just_buy,
+            just_buy_params=just_buy_params,
+            platform_params=platform_params,
+            already_triggered=already_triggered,
+        )
 
-    if just_buy_response:
-        service.logger.info(f"[{service.user_id}] Just buy succeeded, skipping normal ladder placement")
-        return just_buy_response
+        if just_buy_response:
+            service.logger.info(f"[{service.user_id}] Just buy succeeded, skipping normal ladder placement")
+            return just_buy_response
 
-    if not triggered:
-        service.logger.warning(f"[{service.user_id}] Skipping for already triggered order in multi-queue priority")
-        return None
+        if not triggered:
+            service.logger.warning(f"[{service.user_id}] Skipping for already triggered order in multi-queue priority")
+            return None
 
-    ltp = price_fetcher.get_latest_ltp()
-    order_params = {**platform_params, "market_price": ltp}
+        ltp = price_fetcher.get_latest_ltp()
+        order_params = {**platform_params, "market_price": ltp}
 
-    if hasattr(price_fetcher, "start_market_details"):
-        price_fetcher.start_market_details()
+        order_worker.dispatch(
+            price_fetcher=price_fetcher,
+            target_price=final_price,
+            quantity=order_quantity,
+            level_display=len(price_levels),
+            total_levels=len(price_levels),
+            ltp=ltp,
+            platform_params=order_params,
+        )
 
-    return service._place_order_with_retries(
-        price_fetcher=price_fetcher,
-        target_price=final_price,
-        quantity=order_quantity,
-        level_display=len(price_levels),
-        total_levels=len(price_levels),
-        ltp=ltp,
-        platform_params=order_params,
-    )
+        if hasattr(price_fetcher, "start_market_details"):
+            price_fetcher.start_market_details()
+
+        return order_worker.result()
+    finally:
+        order_worker.close()
 
 
 def execute_ladder_mode(

@@ -34,19 +34,24 @@ class MetricStats:
 class TriggerPriceFetcher:
     """Synthetic fetcher that triggers immediately and timestamps LTP reads."""
 
-    def __init__(self, ltp: float, trigger_times: list[float]) -> None:
+    def __init__(self, ltp: float, trigger_times: list[float], polls_before_trigger: int = 3) -> None:
         self.ltp = ltp
         self.trigger_times = trigger_times
+        self.polls_before_trigger = polls_before_trigger
+        self._counter = 0
 
     def get_latest_ltp(self) -> float:
-        self.trigger_times.append(time.perf_counter())
-        return self.ltp
+        if self._counter >= self.polls_before_trigger:
+            self.trigger_times.append(time.perf_counter())
+            return self.ltp
+        self._counter += 1
+        return self.ltp - 10.0
 
     def pause(self) -> None:
         return None
 
     def start_market_details(self) -> None:
-        # time.sleep(0.001)
+        time.sleep(0.01)  # Simulate some delay in starting market details
         return None
 
     def stop_market_details(self) -> None:

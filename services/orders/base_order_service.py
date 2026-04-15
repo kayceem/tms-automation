@@ -126,7 +126,6 @@ class BaseOrderService(ABC):
         """
         pass
 
-
     def _calculate_price_levels(
         self,
         base_price: float,

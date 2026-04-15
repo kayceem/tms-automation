@@ -67,7 +67,6 @@ def test_place_order_logs_in_and_posts_form_body(atrad_user_config, http_interce
     assert "duplicateOrderId=DUPLICATE1" in body
     assert "actionSelect=1" in body
 
-
 def test_place_order_reauthenticates_after_html_session_expiry(atrad_user_config, http_interceptor, monkeypatch):
     client = ATRADClient(atrad_user_config)
     client._is_authenticated = True
