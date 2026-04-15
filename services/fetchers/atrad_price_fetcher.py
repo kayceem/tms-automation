@@ -478,7 +478,8 @@ class ATRADMultiUserPriceFetcher:
                         and not self._market_details_running
                         and self._current_scheduler_mode() == "parallel"
                     )
-                    if ltp is not None and can_publish:
+                    is_fresh = (self._latest_ltp is None or ltp > self._latest_ltp)
+                    if ltp is not None and can_publish and is_fresh:
                         self._latest_ltp = ltp
                         logger.debug(f"[{current_user.name}] Parallel fetch #{fetch_index}: LTP={ltp} ({current_user.symbol})")
                     elif ltp is None:

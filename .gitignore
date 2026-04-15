@@ -71,6 +71,7 @@ headers.txt
 temp/
 
 debug/
+!default.json
 */users/*.json
 
 # Codex files
