@@ -83,7 +83,6 @@ def wait_for_no_ladder_trigger(
 
             if ltp >= trigger_price:
                 service.logger.info(f"[{service.user_id}] TRIGGERED! LTP={ltp} >= Rs. {trigger_price}. ")
-                price_fetcher.pause()
                 return True, None
 
             if not permanently_fast:

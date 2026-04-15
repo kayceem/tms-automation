@@ -1,9 +1,9 @@
 {
-  "trigger_mode_poll_interval_ms": 10,
+  "trigger_mode_poll_interval_ms": 5,
   "multi_fetch_poll_interval_ms": 150,
   "trigger_mode_refresh_interval_seconds": 60,
   "trigger_sell_poll_interval_ms": 250,
-  "trigger_mode_slow_poll_interval_ms": 250,
+  "trigger_mode_slow_poll_interval_ms": 500,
   "trigger_mode_requests_per_fetch_user": 2,
   "trigger_mode_parallel_fetch_enabled": true,
   "trigger_mode_parallel_spawn_interval_ms": 10,

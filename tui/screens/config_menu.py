@@ -8,6 +8,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Input, Label, Select, Static
 
 from tui.services.config import ConfigActionsService
+from tui.widgets import ClockWidget
 
 
 DEFAULT_FIELDS = (
@@ -93,6 +94,7 @@ class ConfigMenuScreen(FocusableScreen):
             yield Static(" CONFIG ▸ MENU ", classes="screen-title")
             yield Static("Adjust defaults and maintain the live order store. Use [bold]Esc[/] to go back.", classes="menu-subtitle")
             with Vertical(classes="menu-section"):
+                yield ClockWidget(classes="panel-clock")
                 with Vertical(classes="menu-list"):
                     yield Button(
                         "[bold #ff9e1b]U[/]  User Defaults  [#6b6b6b]Trigger timing and ATRAD session reset[/]",
@@ -168,6 +170,7 @@ class UserConfigScreen(FocusableScreen):
                                 classes="form-input",
                             )
         yield Static("", id="config-status")
+        yield ClockWidget(classes="panel-clock")
         with Horizontal(id="user-config-actions"):
             yield Button("[R] Reset JSESSIONID", id="reset", classes="action-button")
             yield Button("[Ctrl+S] Save", id="save", classes="action-button")

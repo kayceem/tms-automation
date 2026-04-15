@@ -1,7 +1,6 @@
 """Price fetcher service for monitoring LTP in trigger mode."""
 
 from collections import deque
-import json
 import time
 import threading
 from typing import Literal, Optional, List
@@ -51,10 +50,10 @@ class ATRADPriceFetcher:
         self._paused = False
         self._lock = threading.Lock()
         self._fetch_thread: Optional[threading.Thread] = None
+        self._wakeup_event = threading.Event()
 
         # Market details monitoring
         self._market_details_running = False
-        self._market_details_thread: Optional[threading.Thread] = None
 
         logger.info(
             f"[{self.fetch_client.user_id}] ATRADPriceFetcher initialized for "
@@ -68,6 +67,7 @@ class ATRADPriceFetcher:
             return
 
         self._running = True
+        self._wakeup_event.clear()
         self._fetch_thread = threading.Thread(
             target=self._fetch_loop,
             name=f"APfThread-{self.fetch_client.user_id}",
@@ -82,6 +82,7 @@ class ATRADPriceFetcher:
             return
 
         self._running = False
+        self._wakeup_event.set()
         if self._fetch_thread:
             self._fetch_thread.join(timeout=5.0)
         logger.info(f"[{self.fetch_client.user_id}] ATRADPriceFetcher stopped")
@@ -105,6 +106,7 @@ class ATRADPriceFetcher:
             if not self._paused:
                 self._paused = True
                 logger.info(f"[{self.fetch_client.user_id}] ATRADPriceFetcher paused")
+        self._wakeup_event.set()
 
     def resume(self):
         """
@@ -115,84 +117,32 @@ class ATRADPriceFetcher:
             if self._paused:
                 self._paused = False
                 logger.info(f"[{self.fetch_client.user_id}] ATRADPriceFetcher resumed")
+        self._wakeup_event.set()
 
     def start_market_details(self):
         """
         Start market details monitoring.
-        Pauses LTP fetching and starts fetching market details (bid/ask data).
+        Switches the existing fetch loop to market-details mode.
         """
-        if self._market_details_running:
-            logger.warning(f"[{self.fetch_client.user_id}] Market details monitoring already running")
-            return
-
-        # Pause LTP fetching
-        self.pause()
-
-        # Start market details thread
-        self._market_details_running = True
-        self._market_details_thread = threading.Thread(
-            target=self._market_details_loop,
-            name=f"AMdThread-{self.fetch_client.user_id}",
-            daemon=True
-        )
-        self._market_details_thread.start()
+        with self._lock:
+            if self._market_details_running:
+                logger.warning(f"[{self.fetch_client.user_id}] Market details monitoring already running")
+                return
+            self._market_details_running = True
+        self._wakeup_event.set()
         logger.info(f"[{self.fetch_client.user_id}] Market details monitoring started")
 
     def stop_market_details(self):
         """
         Stop market details monitoring.
-        Stops fetching market details and resumes LTP fetching.
+        Switches the existing fetch loop back to LTP mode.
         """
-        if not self._market_details_running:
-            return
-
-        # Stop market details thread
-        self._market_details_running = False
-        if self._market_details_thread:
-            self._market_details_thread.join(timeout=2.0)
-
-        # Resume LTP fetching
-        self.resume()
+        with self._lock:
+            if not self._market_details_running:
+                return
+            self._market_details_running = False
+        self._wakeup_event.set()
         logger.info(f"[{self.fetch_client.user_id}] Market details monitoring stopped")
-
-    def _market_details_loop(self):
-        """Main loop for fetching market details at regular intervals."""
-        logger.info(
-            f"[{self.fetch_client.user_id}] Starting market details loop "
-            f"(interval={self.poll_interval_ms}ms)"
-        )
-
-        timeout = calculate_request_timeout(self.poll_interval_seconds)
-        sleep_duration = min((self.poll_interval_seconds * 2), 0.005)
-        while self._market_details_running:
-            try:
-                # Fetch market details from client
-                bid = self.fetch_client.get_market_details(self.symbol, timeout=timeout)
-
-                if not bid:
-                    logger.warning(f"[{self.fetch_client.user_id}] Market Details for {self.symbol}: No data available")
-                else:
-                    splits = bid.get('splits', 'N/A')
-                    qty = bid.get('qty', 'N/A')
-                    price = bid.get('price', 'N/A')
-                    logger.debug(f"[{self.fetch_client.user_id}] Price={price}, Qty={qty}, Splits={splits}")
-
-            except KeyboardInterrupt:
-                logger.info(f"[{self.fetch_client.user_id}] Market details loop interrupted by user")
-                break
-            except Exception as e:
-                logger.error(
-                    f"[{self.fetch_client.user_id}] Error in market details loop: {str(e)}"
-                )
-
-            # Sleep for the configured interval
-            try:
-                time.sleep(sleep_duration)
-            except KeyboardInterrupt:
-                logger.info(f"[{self.fetch_client.user_id}] Market details loop interrupted by user")
-                break
-
-        logger.info(f"[{self.fetch_client.user_id}] Market details loop ended")
 
     def _fetch_loop(self):
         """Main loop for fetching LTP at regular intervals."""
@@ -201,26 +151,36 @@ class ATRADPriceFetcher:
             f"(interval={self.poll_interval_ms}ms)"
         )
 
-        # Set timeout to 4x poll interval to prevent blocking
-        timeout = calculate_request_timeout(self.poll_interval_seconds)
-
         while self._running:
+            sleep_duration = self.poll_interval_seconds
             try:
-                # Check if paused
                 with self._lock:
                     is_paused = self._paused
+                    market_details_running = self._market_details_running
+                    poll_interval_seconds = self.poll_interval_seconds
+                    timeout = calculate_request_timeout(poll_interval_seconds)
 
-                if not is_paused:
-                    # Fetch LTP with timeout
+                if is_paused:
+                    sleep_duration = 0.001
+                elif market_details_running:
+                    bid = self.fetch_client.get_market_details(self.symbol, timeout=timeout)
+                    if not bid:
+                        logger.warning(f"[{self.fetch_client.user_id}] Market Details for {self.symbol}: No data available")
+                    else:
+                        splits = bid.get('splits', 'N/A')
+                        qty = bid.get('qty', 'N/A')
+                        price = bid.get('price', 'N/A')
+                        logger.debug(f"[{self.fetch_client.user_id}] Price={price}, Qty={qty}, Splits={splits}")
+                    sleep_duration = min((poll_interval_seconds * 2), 0.005)
+                else:
                     ltp = self.fetch_client.get_ltp(self.symbol, timeout=timeout)
-
-                    # Update latest value
                     if not ltp:
                         logger.warning(f"[{self.fetch_client.user_id}] LTP fetch returned None")
                     else:
                         with self._lock:
                             self._latest_ltp = ltp
                         logger.debug(f"[{self.fetch_client.user_id}] LTP={ltp})")
+                    sleep_duration = poll_interval_seconds
 
             except KeyboardInterrupt:
                 logger.info(f"[{self.fetch_client.user_id}] Fetch loop interrupted by user")
@@ -230,12 +190,8 @@ class ATRADPriceFetcher:
                     f"[{self.fetch_client.user_id}] Error in fetch loop: {str(e)}"
                 )
 
-            # Sleep for the configured interval
-            try:
-                time.sleep(self.poll_interval_seconds)
-            except KeyboardInterrupt:
-                logger.info(f"[{self.fetch_client.user_id}] Fetch loop interrupted by user")
-                break
+            self._wakeup_event.wait(timeout=sleep_duration)
+            self._wakeup_event.clear()
 
         logger.info(f"[{self.fetch_client.user_id}] Fetch loop ended")
 
@@ -285,6 +241,7 @@ class ATRADMultiUserPriceFetcher:
         self._paused = False
         self._lock = threading.RLock()
         self._fetch_thread: Optional[threading.Thread] = None
+        self._wakeup_event = threading.Event()
         self._parallel_completion_queue: deque[str] = deque()
         self._parallel_pending_users: deque[str] = deque()
         self._parallel_dispatch_threads: list[threading.Thread] = []
@@ -300,7 +257,6 @@ class ATRADMultiUserPriceFetcher:
 
         # Market details monitoring
         self._market_details_running = False
-        self._market_details_thread: Optional[threading.Thread] = None
         self._market_details: Optional[List[dict]] = []
 
         user_info = ', '.join(f"{u.name}(sid={u.symbol})" for u in self.fetch_users)
@@ -340,6 +296,7 @@ class ATRADMultiUserPriceFetcher:
             return
 
         self._running = True
+        self._wakeup_event.clear()
         self._fetch_thread = threading.Thread(
             target=self._fetch_loop,
             name="AmuPfThread",
@@ -354,6 +311,7 @@ class ATRADMultiUserPriceFetcher:
             return
 
         self._running = False
+        self._wakeup_event.set()
         if self._fetch_thread:
             self._fetch_thread.join(timeout=5.0)
         for thread in list(self._parallel_dispatch_threads):
@@ -384,6 +342,7 @@ class ATRADMultiUserPriceFetcher:
             self.poll_interval_seconds = poll_interval_ms / 1000.0
             self.enable_cooldown = False
             self.delay = calculate_rotation_delay(self.poll_interval_seconds, 0.005)
+        self._wakeup_event.set()
 
     def update_scheduler_settings(
         self,
@@ -405,6 +364,7 @@ class ATRADMultiUserPriceFetcher:
                 self.parallel_cycle_timeout_ms = parallel_cycle_timeout_ms
             if parallel_wait is not None:
                 self.parallel_wait = parallel_wait
+        self._wakeup_event.set()
 
     def update_scheduler_mode(self, scheduler_mode: Literal["sequential", "parallel"]):
         """Convenience wrapper for switching scheduler modes at runtime."""
@@ -571,6 +531,7 @@ class ATRADMultiUserPriceFetcher:
             if not self._paused:
                 self._paused = True
                 logger.info("ATRADMultiUserPriceFetcher paused")
+        self._wakeup_event.set()
 
     def resume(self):
         """
@@ -581,97 +542,37 @@ class ATRADMultiUserPriceFetcher:
             if self._paused:
                 self._paused = False
                 logger.info("ATRADMultiUserPriceFetcher resumed")
+        self._wakeup_event.set()
 
     def start_market_details(self):
         """
         Start market details monitoring.
-        Pauses LTP fetching and starts fetching market details (bid/ask data).
+        Switches the existing fetch loop to market-details mode.
         """
-        if self._market_details_running:
-            logger.warning("ATRADMultiUserPriceFetcher market details monitoring already running")
-            return
-
-        # Pause LTP fetching
-        self.pause()
-
-        # Start market details thread
-        self._market_details_running = True
-        self._market_details_thread = threading.Thread(
-            target=self._market_details_loop,
-            name="AmuMdThread",
-            daemon=True
-        )
-        self._market_details_thread.start()
+        with self._lock:
+            if self._market_details_running:
+                logger.warning("ATRADMultiUserPriceFetcher market details monitoring already running")
+                return
+            self._market_details_running = True
+        self._wakeup_event.set()
         logger.info("ATRADMultiUserPriceFetcher market details monitoring started")
 
     def stop_market_details(self):
         """
         Stop market details monitoring.
-        Stops fetching market details and resumes LTP fetching.
+        Switches the existing fetch loop back to LTP mode.
         """
-        if not self._market_details_running:
-            return
-
-        # Stop market details thread
-        self._market_details_running = False
-        if self._market_details_thread:
-            self._market_details_thread.join(timeout=2.0)
+        with self._lock:
+            if not self._market_details_running:
+                return
+            self._market_details_running = False
 
         if len(self._market_details) > 0:
-            logger.info(f"Market Details:: {json.dumps(self._market_details, indent=2)}")
+            # logger.info(f"Market Details:: {json.dumps(self._market_details, indent=2)}")
             self._market_details = []
 
-        # Resume LTP fetching
-        self.resume()
+        self._wakeup_event.set()
         logger.info("ATRADMultiUserPriceFetcher market details monitoring stopped")
-
-    def _market_details_loop(self):
-        """Main loop for fetching market details at regular intervals with user rotation."""
-        logger.info(
-            f"Starting multi-user market details loop (interval={self.poll_interval_ms}ms, "
-            f"rotation={self.requests_per_user} requests/user)"
-        )
-
-        timeout = calculate_request_timeout(self.poll_interval_seconds)
-        sleep_duration = self.poll_interval_seconds
-
-        while self._market_details_running:
-            try:
-                # Get next user in rotation
-                current_user = self._get_next_user()
-
-                # Fetch market details from client
-                bid = current_user.client.get_market_details(current_user.symbol, timeout=timeout)
-
-                if not bid:
-                    logger.warning(f"[{current_user.name}] Market Details for {current_user.symbol}: No data available")
-                    time.sleep(self.delay)
-                    continue
-                else:    
-                    bid['fetched_time_ms'] = int(time.time() * 1000)
-                    bid['symbol'] = current_user.symbol
-                    self._market_details.append(bid)
-                    splits = bid.get('splits', 'N/A')
-                    qty = bid.get('qty', 'N/A')
-                    price = bid.get('price', 'N/A')
-                    logger.debug(f"[{current_user.name}] Price={price}, Qty={qty}, Splits={splits}")
-
-            except KeyboardInterrupt:
-                logger.info("Multi-user market details loop interrupted by user")
-                break
-            except Exception as e:
-                logger.error(f"Error in multi-user market details loop: {str(e)}")
-                time.sleep(self.delay)
-                continue
-
-            # Sleep for the configured interval
-            try:
-                time.sleep(sleep_duration)
-            except KeyboardInterrupt:
-                logger.info("Multi-user market details loop interrupted by user")
-                break
-
-        logger.info("Multi-user market details loop ended")
 
     def _fetch_loop(self):
         """Main loop for fetching LTP at regular intervals with user rotation."""
@@ -684,6 +585,8 @@ class ATRADMultiUserPriceFetcher:
         fetch_count = 0
         while self._running:
             current_user_name = "unknown"
+            sleep_duration = self.poll_interval_seconds
+            delay = self.delay
             try:
                 with self._lock:
                     is_paused = self._paused
@@ -699,7 +602,24 @@ class ATRADMultiUserPriceFetcher:
                     active_mode = current_mode
                     logger.info(f"ATRADMultiUserPriceFetcher scheduler mode switched to {current_mode}")
 
-                if not is_paused and not market_details_running:
+                if not is_paused and market_details_running:
+                    current_user = self._get_next_user()
+                    current_user_name = current_user.name
+                    bid = current_user.client.get_market_details(current_user.symbol, timeout=timeout)
+
+                    if not bid:
+                        logger.warning(f"[{current_user.name}] Market Details for {current_user.symbol}: No data available")
+                        sleep_duration = delay
+                    else:
+                        bid['fetched_time_ms'] = int(time.time() * 1000)
+                        bid['symbol'] = current_user.symbol
+                        self._market_details.append(bid)
+                        splits = bid.get('splits', 'N/A')
+                        qty = bid.get('qty', 'N/A')
+                        price = bid.get('price', 'N/A')
+                        logger.debug(f"[{current_user.name}] Price={price}, Qty={qty}, Splits={splits}")
+                        sleep_duration = poll_interval_seconds
+                elif not is_paused and not market_details_running:
                     if current_mode == "parallel":
                         with self._lock:
                             seeded = self._parallel_seeded
@@ -709,7 +629,7 @@ class ATRADMultiUserPriceFetcher:
                         else:
                             self._dispatch_next_parallel_fetch()
                         self._prune_parallel_threads()
-                        time.sleep(0.001)
+                        sleep_duration = 0.001
                         continue
                     else:
                         fetch_count += 1
@@ -721,13 +641,16 @@ class ATRADMultiUserPriceFetcher:
                                 f"[{current_user.name}] Fetch #{fetch_count}: "
                                 f"LTP returned None (sid={current_user.symbol})"
                             )
-                            time.sleep(delay)
+                            self._wakeup_event.wait(timeout=delay)
+                            self._wakeup_event.clear()
                             continue
                         with self._lock:
                             self._latest_ltp = ltp
                         logger.debug(f"[{current_user.name}] LTP={ltp})")
+                        sleep_duration = poll_interval_seconds
                 else:
-                    time.sleep(0.001)
+                    self._wakeup_event.wait(timeout=0.001)
+                    self._wakeup_event.clear()
                     continue
 
             except KeyboardInterrupt:
@@ -737,17 +660,20 @@ class ATRADMultiUserPriceFetcher:
                 logger.error(
                     f"[{current_user_name}] Error in fetch loop (fetch #{fetch_count}): {str(e)}"
                 )
-                time.sleep(delay)
+                self._wakeup_event.wait(timeout=delay)
+                self._wakeup_event.clear()
                 continue
 
             try:
-                time.sleep(poll_interval_seconds)
+                self._wakeup_event.wait(timeout=sleep_duration)
+                self._wakeup_event.clear()
 
                 if enable_cooldown and self._should_add_cooldown_delay():
                     logger.debug(
                         f"Cooldown delay after {self._rotation_cycles_completed} rotation cycles"
                     )
-                    time.sleep(poll_interval_seconds + delay)
+                    self._wakeup_event.wait(timeout=poll_interval_seconds + delay)
+                    self._wakeup_event.clear()
                     if self._rotation_cycles_completed > (self._len_fetch_users * 5):
                         self._rotation_cycles_completed = 0
             except KeyboardInterrupt:

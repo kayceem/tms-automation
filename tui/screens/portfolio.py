@@ -9,6 +9,7 @@ from pathlib import Path
 
 from textual import work
 from textual.app import ComposeResult
+from textual.timer import Timer
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, OptionList, Select, Static, TabbedContent, TabPane
@@ -16,6 +17,7 @@ from textual.widgets.option_list import Option
 
 from tui.models import CustomWatchlistRow, OrderBookRow, WatchlistEntryRow
 from tui.services.portfolio import PortfolioService
+from tui.widgets import ClockWidget
 
 
 class PortfolioScreen(Screen[None]):
@@ -32,6 +34,7 @@ class PortfolioScreen(Screen[None]):
             yield Static(" PORTFOLIO ▸ PLATFORM SELECT ", classes="screen-title")
             yield Static("Choose the broker view to inspect live books. Use [bold]Esc[/] to go back.", classes="menu-subtitle")
             with Vertical(classes="menu-section"):
+                yield ClockWidget(classes="panel-clock")
                 with Vertical(classes="menu-list"):
                     yield Button(
                         "[bold #ff9e1b]A[/]  ATRAD  [#6b6b6b]Account selector and live order book[/]",
@@ -85,6 +88,7 @@ class ATRADUserSelectScreen(Screen[None]):
             yield Static(" PORTFOLIO ▸ ATRAD ▸ SELECT ACCOUNT ", classes="screen-title")
             yield Static("Open a specific ATRAD account and inspect its live book. Use [bold]Esc[/] to go back.", classes="menu-subtitle")
             yield Static("", id="atrad-users-status")
+            yield ClockWidget(classes="panel-clock")
             yield Vertical(classes="menu-section", id="atrad-users-list")
         yield Footer()
 
@@ -288,16 +292,19 @@ class SymbolPromptScreen(ModalScreen[str | None]):
 
 
 class OrderBookScreen(Screen[None]):
+    AUTO_REFRESH_INTERVAL_SECONDS = 30.0
+
     BINDINGS = [
         ("ctrl+1", "show_active_panel", "Active"),
         ("ctrl+2", "show_completed_panel", "Completed"),
         ("ctrl+3", "show_watchlist_panel", "Watchlists"),
         ("ctrl+4", "show_market_panel", "Market"),
-        ("s", "change_market_symbol", "Symbol"),
+        ("s", "change_market_symbol", "Symbol / Sort Watchlist"),
         ("k", "change_market_symbol", "Search Symbol"),
         ("left", "previous_panel", "Prev Panel"),
         ("right", "next_panel", "Next Panel"),
         ("r", "refresh_book", "Refresh"),
+        ("l", "toggle_auto_refresh", "Auto Refresh"),
         ("c", "cancel_selected", "Cancel"),
         ("t", "cycle_watchlist", "Cycle Watchlist"),
         ("a", "add_symbol", "Add Symbol"),
@@ -317,6 +324,11 @@ class OrderBookScreen(Screen[None]):
         self._watchlists_loaded = False
         self._selected_watchlist_id: str | None = None
         self._market_symbol: str | None = None
+        self._watchlist_sort_mode: str = "symbol"
+        self._last_watchlist_updated_time: str = ""
+        self._auto_refresh_enabled = False
+        self._auto_refresh_timer: Timer | None = None
+        self._refresh_in_flight = False
         self.user_label = self.service.get_user_label(self.user_path)
         self._tickers: list[dict] = self.service.load_tickers()
 
@@ -383,6 +395,7 @@ class OrderBookScreen(Screen[None]):
             yield Static("", id="watchlist-response", classes="response-text")
         with VerticalScroll(id="market-response-scroll", classes="response-scroll"):
             yield Static("", id="market-response", classes="response-text")
+        yield ClockWidget(classes="panel-clock")
         with Horizontal(id="portfolio-actions"):
             yield Button("[R] Refresh", id="refresh", classes="action-button")
             yield Button("[C] Cancel Selected", id="cancel", classes="action-button")
@@ -395,6 +408,11 @@ class OrderBookScreen(Screen[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._auto_refresh_timer = self.set_interval(
+            self.AUTO_REFRESH_INTERVAL_SECONDS,
+            self._handle_auto_refresh_tick,
+            pause=True,
+        )
         active_table = self.query_one("#order-book-table", DataTable)
         active_table.add_columns(
             "  SYMBOL",
@@ -426,19 +444,7 @@ class OrderBookScreen(Screen[None]):
             "  UPDATED",
         )
         watchlist_table = self.query_one("#watchlist-table", DataTable)
-        watchlist_table.add_columns(
-            "  SYMBOL",
-            "    LAST",
-            "     CHG",
-            "    CHG%",
-            "    OPEN",
-            "    HIGH",
-            "     LOW",
-            "  VOLUME",
-            "   T/O",
-            "          BID",
-            "          ASK",
-        )
+        watchlist_table.add_columns(*self._watchlist_column_labels())
         bids_table = self.query_one("#market-bids-table", DataTable)
         bids_table.add_columns("#", "splits", "qty", "bid price")
         asks_table = self.query_one("#market-asks-table", DataTable)
@@ -446,6 +452,12 @@ class OrderBookScreen(Screen[None]):
         self.action_show_active_panel()
         active_table.focus()
         self._update_action_buttons()
+        self._update_refresh_button()
+
+    def on_unmount(self) -> None:
+        if self._auto_refresh_timer is not None:
+            self._auto_refresh_timer.stop()
+            self._auto_refresh_timer = None
 
     def _active_panel(self) -> str:
         return self.query_one("#portfolio-tabs", TabbedContent).active
@@ -506,6 +518,18 @@ class OrderBookScreen(Screen[None]):
         for key in ("active", "completed", "watchlist", "market"):
             self.query_one(f"#{key}-response-scroll").display = self._PANEL_KEY.get(panel) == key
 
+    def _update_refresh_button(self) -> None:
+        state = "On" if self._auto_refresh_enabled else "Off"
+        self.query_one("#refresh", Button).label = f"[R] Refresh  Auto: {state}"
+
+    def _panel_status_key(self, panel: str) -> str:
+        return {
+            "tab-active": "active",
+            "tab-completed": "completed",
+            "tab-watchlists": "watchlists",
+            "tab-market": "market",
+        }.get(panel, "active")
+
     def on_tabbed_content_tab_activated(self, _event: TabbedContent.TabActivated) -> None:
         self._focus_current_panel()
         self._update_action_buttons()
@@ -531,6 +555,28 @@ class OrderBookScreen(Screen[None]):
             return
         self.query_one(f"#{panel}-response", Static).update("")
 
+    def action_toggle_auto_refresh(self) -> None:
+        timer = self._auto_refresh_timer
+        if timer is None:
+            return
+        self._auto_refresh_enabled = not self._auto_refresh_enabled
+        if self._auto_refresh_enabled:
+            timer.reset()
+            timer.resume()
+        else:
+            timer.pause()
+        self._update_refresh_button()
+        state = "enabled" if self._auto_refresh_enabled else "disabled"
+        panel = self._panel_status_key(self._active_panel())
+        self._set_status(
+            f"Auto-refresh {state} for active panel every {int(self.AUTO_REFRESH_INTERVAL_SECONDS)}s",
+            panel,
+        )
+
+    def _handle_auto_refresh_tick(self) -> None:
+        if self._auto_refresh_enabled:
+            self._trigger_refresh(source="auto")
+
     @staticmethod
     def _styled_cell(value: str, color: str) -> str:
         return f"[{color}]{value or '-'}[/]"
@@ -550,9 +596,20 @@ class OrderBookScreen(Screen[None]):
         total_text = f"{total:,.2f}" if has_value else "-"
         self.query_one("#portfolio-total", Static).update(f"{label} total amount: {total_text}")
 
-    @work(thread=True)
     def action_refresh_book(self) -> None:
+        self._trigger_refresh(source="manual")
+
+    def _trigger_refresh(self, *, source: str) -> None:
         panel = self._active_panel()
+        if self._refresh_in_flight:
+            if source == "manual":
+                self._set_status("Refresh already in progress.", self._panel_status_key(panel))
+            return
+        self._refresh_in_flight = True
+        self._refresh_book_worker(panel)
+
+    @work(thread=True)
+    def _refresh_book_worker(self, panel: str) -> None:
         try:
             if panel == "tab-active":
                 rows, payload = self.service.fetch_order_book(self.user_path)
@@ -596,14 +653,13 @@ class OrderBookScreen(Screen[None]):
             self.app.call_from_thread(self._apply_watchlist_rows, watch_id, rows, last_updated_time)
             return
         except RuntimeError as exc:
-            panel_status = {
-                "tab-active": "active",
-                "tab-completed": "completed",
-                "tab-watchlists": "watchlists",
-                "tab-market": "market",
-            }.get(panel, "active")
-            self.app.call_from_thread(self._set_status, str(exc), panel_status)
+            self.app.call_from_thread(self._set_status, str(exc), self._panel_status_key(panel))
             return
+        finally:
+            self.app.call_from_thread(self._mark_refresh_complete)
+
+    def _mark_refresh_complete(self) -> None:
+        self._refresh_in_flight = False
 
     _STATUS_PALETTE = {
         "filled": "#3ddc84",
@@ -777,9 +833,12 @@ class OrderBookScreen(Screen[None]):
 
     def _apply_watchlist_rows(self, watch_id: int, rows: list[WatchlistEntryRow], last_updated_time: str) -> None:
         self.watchlist_rows = rows
+        self._last_watchlist_updated_time = last_updated_time
+        sorted_rows = self._sorted_watchlist_rows(rows)
         table = self.query_one("#watchlist-table", DataTable)
         table.clear()
-        for row in rows:
+        self._refresh_watchlist_headers()
+        for row in sorted_rows:
             color = self._watchlist_row_color(row.net_change, row.percent_change)
             try:
                 n = float(str(row.net_change).replace(",", ""))
@@ -839,7 +898,7 @@ class OrderBookScreen(Screen[None]):
                 key=row.security_code,
             )
         self._set_status(
-            f"Watchlist {watch_id} · {len(rows)} symbol(s) · updated {last_updated_time}",
+            f"Watchlist {watch_id} · {len(rows)} symbol(s) · sort: {self._watchlist_sort_label()} · updated {last_updated_time}",
             "watchlists",
         )
         self.query_one("#portfolio-total", Static).update("")
@@ -922,9 +981,86 @@ class OrderBookScreen(Screen[None]):
         self.app.call_from_thread(self._load_watchlist, watch_id)
 
     def action_change_market_symbol(self) -> None:
-        if self._active_panel() != "tab-market":
+        active = self._active_panel()
+        if active == "tab-watchlists":
+            self._cycle_watchlist_sort()
+            return
+        if active != "tab-market":
             return
         self._prompt_market_symbol()
+
+    def _cycle_watchlist_sort(self) -> None:
+        order = ["symbol", "chng_pct", "volume"]
+        try:
+            next_index = (order.index(self._watchlist_sort_mode) + 1) % len(order)
+        except ValueError:
+            next_index = 0
+        self._watchlist_sort_mode = order[next_index]
+        self._refresh_watchlist_headers()
+        if not self._selected_watchlist_id:
+            self._set_status(
+                f"Watchlist sort: {self._watchlist_sort_label()} (no watchlist loaded)",
+                "watchlists",
+            )
+            return
+        try:
+            watch_id = int(self._selected_watchlist_id)
+        except (TypeError, ValueError):
+            return
+        last_updated = self._last_watchlist_updated_time or ""
+        self._apply_watchlist_rows(watch_id, list(self.watchlist_rows), last_updated)
+        self._set_status(
+            f"Watchlist sorted by {self._watchlist_sort_label()}",
+            "watchlists",
+        )
+
+    def _watchlist_sort_label(self) -> str:
+        return {
+            "symbol": "Symbol",
+            "chng_pct": "Chng %",
+            "volume": "Volume",
+        }.get(self._watchlist_sort_mode, "Symbol")
+
+    def _watchlist_column_labels(self) -> list[str]:
+        columns = [
+            ("symbol",   "  SYMBOL"),
+            (None,       "    LAST"),
+            (None,       "     CHG"),
+            ("chng_pct", "    CHG%"),
+            (None,       "    OPEN"),
+            (None,       "    HIGH"),
+            (None,       "     LOW"),
+            ("volume",   "  VOLUME"),
+            (None,       "   T/O"),
+            (None,       "          BID"),
+            (None,       "          ASK"),
+        ]
+        return [
+            f"{base} ▼" if key and key == self._watchlist_sort_mode else base
+            for key, base in columns
+        ]
+
+    def _refresh_watchlist_headers(self) -> None:
+        try:
+            table = self.query_one("#watchlist-table", DataTable)
+        except Exception:
+            return
+        table.clear(columns=True)
+        table.add_columns(*self._watchlist_column_labels())
+
+    def _sorted_watchlist_rows(self, rows: list[WatchlistEntryRow]) -> list[WatchlistEntryRow]:
+        def _to_float(value: str) -> float:
+            try:
+                return float(str(value).replace(",", "").replace("%", ""))
+            except (ValueError, TypeError):
+                return 0.0
+
+        mode = self._watchlist_sort_mode
+        if mode == "chng_pct":
+            return sorted(rows, key=lambda r: _to_float(r.percent_change), reverse=True)
+        if mode == "volume":
+            return sorted(rows, key=lambda r: _to_float(r.volume), reverse=True)
+        return sorted(rows, key=lambda r: (r.security_code or "").upper())
 
     def _prompt_market_symbol(self) -> None:
         self.app.push_screen(

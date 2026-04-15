@@ -5,6 +5,8 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static, Button
 
+from tui.widgets import ClockWidget
+
 
 class MainMenuScreen(Screen[None]):
     BINDINGS = [
@@ -21,6 +23,7 @@ class MainMenuScreen(Screen[None]):
             yield Static(" TMS ▸ MAIN MENU ", id="title")
             yield Static("Operator shortcuts and entry points. Use [bold]Q[/] to quit.", classes="menu-subtitle")
             with Vertical(classes="menu-section"):
+                yield ClockWidget(classes="panel-clock")
                 with Vertical(classes="menu-list"):
                     yield Button(
                         "[bold #ff9e1b]P[/]  Portfolio  [#6b6b6b]ATRAD order book and account views[/]",

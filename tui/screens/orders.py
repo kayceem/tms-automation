@@ -22,6 +22,7 @@ from textual.widgets import (
 
 from tui.services.orders import OrderStoreService
 from tui.services.price_updates import OrderPriceRefreshService
+from tui.widgets import ClockWidget
 
 
 ORDER_TEMPLATE = {
@@ -300,6 +301,7 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
                         yield from self._compose_field("sell_pre_wait_ms")
 
         yield Static("", id="order-editor-status")
+        yield ClockWidget(classes="panel-clock")
         with Horizontal(id="order-editor-actions"):
             yield Button("[Ctrl+S] Save", id="save", classes="action-button")
             yield Button("[Ctrl+1] Main", id="goto-main", classes="action-button")
@@ -606,6 +608,7 @@ class OrdersScreen(Screen[None]):
         table.cursor_type = "row"
         yield table
         yield Static("", id="orders-status")
+        yield ClockWidget(classes="panel-clock")
         with Horizontal(id="orders-actions"):
             yield Button("[A] Add", id="add", classes="action-button")
             yield Button("[E] Edit", id="edit", classes="action-button")
