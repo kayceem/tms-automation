@@ -299,6 +299,7 @@ class OrderBookScreen(Screen[None]):
         ("ctrl+2", "show_completed_panel", "Completed"),
         ("ctrl+3", "show_watchlist_panel", "Watchlists"),
         ("ctrl+4", "show_market_panel", "Market"),
+        ("ctrl+5", "show_top_panel", "Top 10"),
         ("s", "change_market_symbol", "Symbol / Sort Watchlist"),
         ("k", "change_market_symbol", "Search Symbol"),
         ("left", "previous_panel", "Prev Panel"),
@@ -306,7 +307,7 @@ class OrderBookScreen(Screen[None]):
         ("r", "refresh_book", "Refresh"),
         ("l", "toggle_auto_refresh", "Auto Refresh"),
         ("c", "cancel_selected", "Cancel"),
-        ("t", "cycle_watchlist", "Cycle Watchlist"),
+        ("t", "toggle_top_or_cycle_watchlist", "Top/Watchlist"),
         ("a", "add_symbol", "Add Symbol"),
         ("g", "clear_response", "Clear Response"),
         ("enter", "open_selected_watchlist", "Open Watchlist"),
@@ -321,11 +322,15 @@ class OrderBookScreen(Screen[None]):
         self.completed_rows: list[OrderBookRow] = []
         self.watchlists: list[CustomWatchlistRow] = []
         self.watchlist_rows: list[WatchlistEntryRow] = []
+        self.top_rows: list[WatchlistEntryRow] = []
         self._watchlists_loaded = False
         self._selected_watchlist_id: str | None = None
-        self._market_symbol: str | None = None
+        self._market_symbol: str | None = "NABIL"
         self._watchlist_sort_mode: str = "symbol"
+        self._top_sort_mode: str = "chng_pct"
         self._last_watchlist_updated_time: str = ""
+        self._top_gainers_mode = True
+        self._last_top_updated_time: str = ""
         self._auto_refresh_enabled = False
         self._auto_refresh_timer: Timer | None = None
         self._refresh_in_flight = False
@@ -386,6 +391,16 @@ class OrderBookScreen(Screen[None]):
                     yield asks_table
                 with VerticalScroll(id="market-ltp-scroll", classes="market-ltp-scroll"):
                     yield Static("", id="market-ltp", classes="market-ltp")
+
+            with TabPane("Top 10", id="tab-top"):
+                top_table = DataTable(
+                    id="top-table",
+                    zebra_stripes=True,
+                    cursor_foreground_priority="renderable",
+                    cursor_background_priority="css",
+                )
+                top_table.cursor_type = "row"
+                yield top_table
         yield Static("", id="portfolio-total")
         yield Static("", id="portfolio-status")
         with VerticalScroll(id="active-response-scroll", classes="response-scroll"):
@@ -394,6 +409,8 @@ class OrderBookScreen(Screen[None]):
             yield Static("", id="completed-response", classes="response-text")
         with VerticalScroll(id="watchlist-response-scroll", classes="response-scroll"):
             yield Static("", id="watchlist-response", classes="response-text")
+        with VerticalScroll(id="top-response-scroll", classes="response-scroll"):
+            yield Static("", id="top-response", classes="response-text")
         with VerticalScroll(id="market-response-scroll", classes="response-scroll"):
             yield Static("", id="market-response", classes="response-text")
         yield ClockWidget(classes="panel-clock")
@@ -446,6 +463,8 @@ class OrderBookScreen(Screen[None]):
         )
         watchlist_table = self.query_one("#watchlist-table", DataTable)
         watchlist_table.add_columns(*self._watchlist_column_labels())
+        top_table = self.query_one("#top-table", DataTable)
+        top_table.add_columns(*self._top_column_labels())
         bids_table = self.query_one("#market-bids-table", DataTable)
         bids_table.add_columns("#", "splits", "qty", "bid price")
         asks_table = self.query_one("#market-asks-table", DataTable)
@@ -482,7 +501,10 @@ class OrderBookScreen(Screen[None]):
     def action_show_market_panel(self) -> None:
         self._set_panel("tab-market")
 
-    _PANELS = ("tab-active", "tab-completed", "tab-watchlists", "tab-market")
+    def action_show_top_panel(self) -> None:
+        self._set_panel("tab-top")
+
+    _PANELS = ("tab-active", "tab-completed", "tab-watchlists", "tab-market", "tab-top")
 
     def action_previous_panel(self) -> None:
         current = self._PANELS.index(self._active_panel())
@@ -500,6 +522,8 @@ class OrderBookScreen(Screen[None]):
             self.query_one("#completed-order-book-table", DataTable).focus()
         elif panel == "tab-market":
             self.query_one("#market-bids-table", DataTable).focus()
+        elif panel == "tab-top":
+            self.query_one("#top-table", DataTable).focus()
         else:
             self.query_one("#watchlist-table", DataTable).focus()
 
@@ -508,6 +532,7 @@ class OrderBookScreen(Screen[None]):
         "tab-completed": "completed",
         "tab-watchlists": "watchlist",
         "tab-market": "market",
+        "tab-top": "top",
     }
 
     def _update_action_buttons(self) -> None:
@@ -516,7 +541,7 @@ class OrderBookScreen(Screen[None]):
         cancel_button.display = panel == "tab-active"
         selector = self.query_one("#watchlist-selector", Select)
         selector.display = panel == "tab-watchlists"
-        for key in ("active", "completed", "watchlist", "market"):
+        for key in ("active", "completed", "watchlist", "market", "top"):
             self.query_one(f"#{key}-response-scroll").display = self._PANEL_KEY.get(panel) == key
 
     def _update_refresh_button(self) -> None:
@@ -529,6 +554,7 @@ class OrderBookScreen(Screen[None]):
             "tab-completed": "completed",
             "tab-watchlists": "watchlists",
             "tab-market": "market",
+            "tab-top": "top",
         }.get(panel, "active")
 
     def on_tabbed_content_tab_activated(self, _event: TabbedContent.TabActivated) -> None:
@@ -543,6 +569,7 @@ class OrderBookScreen(Screen[None]):
             "completed": "Completed",
             "watchlists": "Watchlists",
             "market": "Market",
+            "top": "Top 10",
         }.get(panel, panel.title())
         self.query_one("#portfolio-status", Static).update(f"{panel_label}: {message}")
 
@@ -643,6 +670,13 @@ class OrderBookScreen(Screen[None]):
                 symbol = self._market_symbol
                 ltp, market_details, last_updated_time = self.service.fetch_script_details(self.user_path, symbol)
                 self.app.call_from_thread(self._apply_market, symbol, market_details, ltp, last_updated_time)
+                return
+            if panel == "tab-top":
+                rows, last_updated_time = self.service.fetch_top_gainers_losers(
+                    self.user_path,
+                    gainers=self._top_gainers_mode,
+                )
+                self.app.call_from_thread(self._apply_top_rows, rows, last_updated_time)
                 return
             if not self._watchlists_loaded:
                 watchlists = self.service.fetch_custom_watchlists(self.user_path)
@@ -906,6 +940,78 @@ class OrderBookScreen(Screen[None]):
         )
         self.query_one("#portfolio-total", Static).update("")
 
+    def _apply_top_rows(self, rows: list[WatchlistEntryRow], last_updated_time: str) -> None:
+        self.top_rows = rows
+        self._last_top_updated_time = last_updated_time
+        table = self.query_one("#top-table", DataTable)
+        table.clear()
+        self._refresh_top_headers()
+        for row in self._sorted_top_rows(rows):
+            color = self._watchlist_row_color(row.net_change, row.percent_change)
+            try:
+                n = float(str(row.net_change).replace(",", ""))
+            except (ValueError, TypeError):
+                n = 0.0
+            arrow = "▲" if n > 0 else ("▼" if n < 0 else "·")
+            sign = "+" if n > 0 else ""
+
+            def rjust(value: str, width: int) -> str:
+                return str(value or "-").rjust(width)
+
+            def tinted(text: str, bold: bool = False) -> str:
+                if color is None:
+                    return text
+                prefix = "bold " if bold else ""
+                return f"[{prefix}{color}]{text}[/]"
+
+            def muted(text: str) -> str:
+                return tinted(text) if color else f"[#6b6b6b]{text}[/]"
+
+            symbol_cell = (
+                f"[bold {color}]{row.security_code}[/]" if color else f"[bold #5fd7ff]{row.security_code}[/]"
+            )
+            last_cell = (
+                f"[bold {color}]{rjust(row.last_price, 10)}[/]"
+                if color
+                else f"[bold #e8e8e8]{rjust(row.last_price, 10)}[/]"
+            )
+            chg_cell = tinted(f"{arrow} {sign}{row.net_change}".rjust(12), bold=True) if color else muted(rjust(row.net_change, 12))
+            pct_cell = tinted(f"{sign}{row.percent_change}%".rjust(9), bold=True) if color else muted(rjust(row.percent_change, 9))
+
+            bid_pair = (
+                f"{row.bid_quantity} × {row.bid_price}"
+                if row.bid_quantity not in ("-", "", None) and row.bid_price not in ("-", "", None)
+                else "-"
+            )
+            ask_pair = (
+                f"{row.ask_price} × {row.ask_quantity}"
+                if row.ask_quantity not in ("-", "", None) and row.ask_price not in ("-", "", None)
+                else "-"
+            )
+            bid_cell = f"[#00d26a]{bid_pair.rjust(14)}[/]" if bid_pair != "-" else muted(rjust("-", 14))
+            ask_cell = f"[#ff4757]{ask_pair.rjust(14)}[/]" if ask_pair != "-" else muted(rjust("-", 14))
+
+            table.add_row(
+                symbol_cell,
+                last_cell,
+                chg_cell,
+                pct_cell,
+                muted(rjust(row.opening_price, 10)),
+                f"[#00d26a]{rjust(row.high_price, 10)}[/]" if row.high_price not in ("-", "", None) else muted(rjust("-", 10)),
+                f"[#ff4757]{rjust(row.low_price, 10)}[/]" if row.low_price not in ("-", "", None) else muted(rjust("-", 10)),
+                muted(rjust(row.volume, 12)),
+                muted(rjust(row.turnover, 14)),
+                bid_cell,
+                ask_cell,
+                key=row.security_code,
+            )
+        mode = "Gainers" if self._top_gainers_mode else "Losers"
+        self._set_status(
+            f"Top 10 {mode} · {len(rows)} symbol(s) · sort: {self._top_sort_label()} · updated {last_updated_time}",
+            "top",
+        )
+        self.query_one("#portfolio-total", Static).update("")
+
     def _open_watchlist_by_row(self, row: CustomWatchlistRow) -> None:
         try:
             watch_id = int(row.watch_list_id)
@@ -928,6 +1034,17 @@ class OrderBookScreen(Screen[None]):
         selector = self.query_one("#watchlist-selector", Select)
         selector.value = next_row.watch_list_id
         self._open_watchlist_by_row(next_row)
+
+    def action_toggle_top_or_cycle_watchlist(self) -> None:
+        panel = self._active_panel()
+        if panel == "tab-top":
+            self._top_gainers_mode = not self._top_gainers_mode
+            mode = "Gainers" if self._top_gainers_mode else "Losers"
+            self._set_status(f"Top 10 mode: {mode}", "top")
+            self.action_refresh_book()
+            return
+        if panel == "tab-watchlists":
+            self.action_cycle_watchlist()
 
     def action_add_symbol(self) -> None:
         if self._active_panel() != "tab-watchlists":
@@ -1050,6 +1167,59 @@ class OrderBookScreen(Screen[None]):
             return
         table.clear(columns=True)
         table.add_columns(*self._watchlist_column_labels())
+
+    def _refresh_top_headers(self) -> None:
+        try:
+            table = self.query_one("#top-table", DataTable)
+        except Exception:
+            return
+        table.clear(columns=True)
+        table.add_columns(*self._top_column_labels())
+
+    def _top_column_labels(self) -> list[str]:
+        columns = [
+            ("symbol",   "  SYMBOL"),
+            (None,       "    LAST"),
+            (None,       "     CHG"),
+            ("chng_pct", "    CHG%"),
+            (None,       "    OPEN"),
+            (None,       "    HIGH"),
+            (None,       "     LOW"),
+            ("volume",   "  VOLUME"),
+            (None,       "   T/O"),
+            (None,       "          BID"),
+            (None,       "          ASK"),
+        ]
+        arrow = "▲" if self._top_gainers_mode else "▼"
+        return [
+            f"{base} {arrow}" if key and key == self._top_sort_mode else base
+            for key, base in columns
+        ]
+
+    def _top_sort_label(self) -> str:
+        return {
+            "symbol": "Symbol",
+            "chng_pct": "Chng %",
+            "volume": "Volume",
+        }.get(self._top_sort_mode, "Chng %")
+
+    def _sorted_top_rows(self, rows: list[WatchlistEntryRow]) -> list[WatchlistEntryRow]:
+        def _to_float(value: str) -> float:
+            try:
+                return float(str(value).replace(",", "").replace("%", ""))
+            except (ValueError, TypeError):
+                return 0.0
+
+        mode = self._top_sort_mode
+        if mode == "chng_pct":
+            return sorted(
+                rows,
+                key=lambda r: _to_float(r.percent_change),
+                reverse=self._top_gainers_mode,
+            )
+        if mode == "volume":
+            return sorted(rows, key=lambda r: _to_float(r.volume), reverse=True)
+        return sorted(rows, key=lambda r: (r.security_code or "").upper())
 
     def _sorted_watchlist_rows(self, rows: list[WatchlistEntryRow]) -> list[WatchlistEntryRow]:
         def _to_float(value: str) -> float:

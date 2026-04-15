@@ -43,6 +43,7 @@ class ATRADClient:
         self.custom_watchlists_endpoint = f"{self.base_url}{user_config.atrad_custom_watchlists_endpoint}"
         self.watchlist_endpoint = f"{self.base_url}{user_config.atrad_watchlist_endpoint}"
         self.add_security_watchlist_endpoint = f"{self.base_url}{user_config.atrad_add_security_watchlist_endpoint}"
+        self.top_gainers_losers_endpoint = f"{self.base_url}{user_config.atrad_top_gainers_losers_endpoint}"
         # Thread-safe session
         self.session = requests.Session()
         self._login_lock = threading.Lock()
@@ -771,6 +772,51 @@ class ATRADClient:
                 return result.get("data", {}).get("watch", [])
             except ValueError:
                 logger.error(f"[{self.user_id}] Invalid ATRAD watchlist response: {response.text}")
+                return None
+
+    def get_top_gainers_losers(self, gainers: bool = True, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
+        """
+        Fetch top gainers or losers (thread-safe).
+
+        Args:
+            gainers: Whether to fetch top gainers (True) or losers (False)
+            timeout: Request timeout in seconds (default: 5.0)
+
+        Returns:
+            List of top gainers/losers data dictionaries, or None if fetch fails
+        """
+        logger.debug(f"[{self.user_id}] Fetching top {'gainers' if gainers else 'losers'}")
+
+        action = "topGainers" if gainers else "topLosers"
+        endpoint = f"{self.top_gainers_losers_endpoint.replace('action=place_holder', f'action={action}')}&dojo.preventCache={self._epoch_time_ms()}"
+
+        with self._request_lock:
+            response = self._request_with_reauth("GET", endpoint, timeout=timeout)
+
+            if response is None:
+                return None
+
+            logger.debug(f"[{self.user_id}] Top gainers/losers fetch response status: {response.status_code}")
+
+            if response.status_code != 200:
+                logger.warning(
+                    f"[{self.user_id}] Top gainers/losers fetch failed: "
+                    f"{response.status_code} {response.reason}"
+                )
+                return None
+
+            try:
+                result = response.text.strip().replace("'", '"')
+                result = json.loads(result)
+                if str(result.get("code")) != "0":
+                    logger.warning(
+                        f"[{self.user_id}] ATRAD top gainers/losers request failed: "
+                        f"{result.get('description', 'Unknown error')}"
+                    )
+                    return None
+                return result.get("data", {}).get("watch", [])
+            except ValueError:
+                logger.error(f"[{self.user_id}] Invalid ATRAD top gainers/losers response: {response.text}")
                 return None
 
     def get_ltp(self, symbol: str, timeout: float = 5.0, complete: bool = False) -> Optional[float]:

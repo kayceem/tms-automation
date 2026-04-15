@@ -1,4 +1,5 @@
 import asyncio
+import time
 from pathlib import Path
 
 import pytest
@@ -83,23 +84,28 @@ def test_order_book_auto_refresh_only_targets_active_panel():
     screen._update_refresh_button = lambda: None  # type: ignore[method-assign]
     screen._set_status = lambda message, panel="active": messages.append((message, panel))  # type: ignore[method-assign]
     screen._trigger_refresh = lambda *, source: refresh_requests.append(f"{source}:{screen._active_panel()}")  # type: ignore[method-assign]
+    original_localtime = time.localtime
+    time.localtime = lambda: type("FakeNow", (), {"tm_hour": 12})()
 
-    assert screen._auto_refresh_enabled is False
-    assert any(binding[0] == "l" for binding in screen.BINDINGS)
+    try:
+        assert screen._auto_refresh_enabled is False
+        assert any(binding[0] == "l" for binding in screen.BINDINGS)
 
-    screen._handle_auto_refresh_tick()
-    assert refresh_requests == []
+        screen._handle_auto_refresh_tick()
+        assert refresh_requests == []
 
-    screen.action_toggle_auto_refresh()
-    assert screen._auto_refresh_enabled is True
-    assert timer.reset_calls == 1
-    assert timer.resume_calls == 1
-    assert messages[-1] == ("Auto-refresh enabled for active panel every 30s", "completed")
+        screen.action_toggle_auto_refresh()
+        assert screen._auto_refresh_enabled is True
+        assert timer.reset_calls == 1
+        assert timer.resume_calls == 1
+        assert messages[-1] == ("Auto-refresh enabled for active panel every 30s", "completed")
 
-    screen._handle_auto_refresh_tick()
-    assert refresh_requests == ["auto:tab-completed"]
+        screen._handle_auto_refresh_tick()
+        assert refresh_requests == ["auto:tab-completed"]
 
-    screen.action_toggle_auto_refresh()
-    assert screen._auto_refresh_enabled is False
-    assert timer.pause_calls == 1
-    assert messages[-1] == ("Auto-refresh disabled for active panel every 30s", "completed")
+        screen.action_toggle_auto_refresh()
+        assert screen._auto_refresh_enabled is False
+        assert timer.pause_calls == 1
+        assert messages[-1] == ("Auto-refresh disabled for active panel every 30s", "completed")
+    finally:
+        time.localtime = original_localtime

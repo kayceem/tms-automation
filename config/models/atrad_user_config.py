@@ -59,6 +59,7 @@ class ATRADUserConfig:
     atrad_custom_watchlists_endpoint: str = '/atsweb/watch?action=getCustomWatches&format=json&exchange=NEPSE'
     atrad_watchlist_endpoint: str = '/atsweb/watch?action=userWatch&format=json&exchange=NEPSE&bookDefId=1'
     atrad_add_security_watchlist_endpoint: str = '/atsweb/watch?action=addUserSecurity&format=json&exchange=NEPSE&bookDefId=1&isquickwatchsecurity=false'
+    atrad_top_gainers_losers_endpoint: str = '/atsweb/watch?action=place_holder&format=json&size=10&exchange=NEPSE&bookDefId=1&lastUpdatedId=0'
 
     # Session management (populated after login)
     _session_id: Optional[str] = None  # JSESSIONID

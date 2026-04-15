@@ -131,6 +131,43 @@ class PortfolioService:
         rows.sort(key=lambda row: row.security_code)
         return rows, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    def fetch_top_gainers_losers(
+        self,
+        path: str | Path,
+        *,
+        gainers: bool = True,
+    ) -> tuple[list[WatchlistEntryRow], str]:
+        client = ATRADClient(self.load_user_config(path))
+        payload = client.get_top_gainers_losers(gainers=gainers)
+        if payload is None:
+            raise RuntimeError("Unable to fetch ATRAD top gainers/losers")
+
+        rows = [
+            WatchlistEntryRow(
+                security_code=_pick_first(item, "security", "securitycode", "securityCode", "symbol", default="-"),
+                bid_quantity=_pick_first(item, "bidqty", "bidQty", default="-"),
+                bid_price=_pick_first(item, "bidprice", "bidPrice", default="-"),
+                ask_quantity=_pick_first(item, "askqty", "askQty", default="-"),
+                ask_price=_pick_first(item, "askprice", "askPrice", default="-"),
+                net_change=_pick_first(item, "netchange", "change", "changeinprice", "changeValue", default="-"),
+                percent_change=_pick_first(item, "perchange", "percentChange", default="-"),
+                last_price=_pick_first(item, "tradeprice", "ltp", "lastTradedPrice", default="-"),
+                last_traded_time=_pick_first(item, "lasttradedtime", "lastTradedTime", default="-"),
+                opening_price=_pick_first(item, "openingprice", "openingPrice", default="-"),
+                high_price=_pick_first(item, "highpx", "highPrice", default="-"),
+                low_price=_pick_first(item, "lowpx", "lowPrice", default="-"),
+                volume=_pick_first(item, "totvolume", "tradeqty", "volume", "ttq", default="-"),
+                turnover=_pick_first(item, "totturnover", "turnover", default="-"),
+                raw=item,
+            )
+            for item in payload
+        ]
+        rows.sort(
+            key=lambda row: float(str(row.percent_change).replace("%", "").replace(",", "") or 0),
+            reverse=gainers,
+        )
+        return rows, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     def build_cancel_url(self, path: str | Path, order: dict) -> str:
         client = ATRADClient(self.load_user_config(path))
         return client.build_cancel_order_url(order)
