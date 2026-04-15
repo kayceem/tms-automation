@@ -1,6 +1,7 @@
 import pytest
 
 from api.atrad_client import ATRADClient
+from api import atrad_client as atrad_client_module
 
 
 def test_login_updates_session_and_persists_cookies(atrad_user_config, http_interceptor):
@@ -416,3 +417,65 @@ def test_cancel_order_raises_runtime_error_on_failed_atrad_response(atrad_user_c
                 "cpmemberid": "0",
             }
         )
+
+
+def test_place_order_buffers_successful_order_without_disk_write(atrad_user_config, http_interceptor, monkeypatch):
+    client = ATRADClient(atrad_user_config)
+    monkeypatch.setattr(client, "_generate_duplicate_order_id", lambda: "D1")
+
+    http_interceptor.add_json(
+        "POST",
+        "https://atrad.test/atsweb/login",
+        payload={"code": "0", "role": "OnlineUser", "broker_code": "NSH", "max_basket_limit": "25", "watchID": "77", "is_dvp_enabled": "Y"},
+        cookies=[{"name": "JSESSIONID", "value": "s1", "domain": "atrad.test"}],
+    )
+    http_interceptor.add_json("POST", "https://atrad.test/atsweb/order", payload={"code": "0"})
+
+    append_calls = []
+    monkeypatch.setattr(atrad_client_module, "append_trade_log", lambda name, entries: append_calls.append((name, list(entries))))
+
+    client.place_order(symbol="NABIL", quantity=5, price=100.0, side="BUY")
+
+    assert append_calls == []
+    assert len(client._sucessful_orders) == 1
+    buffered = client._sucessful_orders[0]
+    assert buffered["symbol"] == "NABIL"
+    assert buffered["user_id"] == client.user_id
+
+
+def test_flush_successful_orders_drains_buffer_and_writes_log(atrad_user_config, monkeypatch):
+    client = ATRADClient(atrad_user_config)
+    client._sucessful_orders = [{"symbol": "A"}, {"symbol": "B"}]
+
+    captured = []
+    monkeypatch.setattr(atrad_client_module, "append_trade_log", lambda name, entries: captured.append((name, list(entries))))
+
+    client.flush_successful_orders()
+
+    assert captured == [("completed", [{"symbol": "A"}, {"symbol": "B"}])]
+    assert client._sucessful_orders == []
+
+
+def test_flush_successful_orders_restores_buffer_on_failure(atrad_user_config, monkeypatch):
+    client = ATRADClient(atrad_user_config)
+    client._sucessful_orders = [{"symbol": "A"}]
+
+    def boom(name, entries):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(atrad_client_module, "append_trade_log", boom)
+
+    client.flush_successful_orders()
+
+    assert client._sucessful_orders == [{"symbol": "A"}]
+
+
+def test_flush_successful_orders_noop_when_buffer_empty(atrad_user_config, monkeypatch):
+    client = ATRADClient(atrad_user_config)
+    calls = []
+    monkeypatch.setattr(atrad_client_module, "append_trade_log", lambda *a, **kw: calls.append((a, kw)))
+
+    client.flush_successful_orders()
+
+    assert calls == []
+

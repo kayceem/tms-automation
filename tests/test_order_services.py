@@ -18,6 +18,7 @@ class DummyATRADClient:
         self.user_id = "atrad-user"
         self.calls = []
         self.ensure_authenticated_calls = 0
+        self.flush_calls = 0
 
     def ensure_authenticated(self):
         self.ensure_authenticated_calls += 1
@@ -26,6 +27,9 @@ class DummyATRADClient:
     def place_order(self, **kwargs):
         self.calls.append(kwargs)
         return {"code": "0", "source": "atrad"}
+
+    def flush_successful_orders(self):
+        self.flush_calls += 1
 
 
 def test_order_service_executes_normal_order_and_double_buy(monkeypatch):

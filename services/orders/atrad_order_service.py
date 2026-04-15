@@ -92,6 +92,69 @@ class ATRADOrderService(BaseOrderService):
         # Convert side
         side = 'SELL' if buy_or_sell == 2 else 'BUY'
 
+        try:
+            return self._dispatch_order(
+                symbol=symbol,
+                order_price=order_price,
+                order_quantity=order_quantity,
+                side=side,
+                ipo_trigger_mode=ipo_trigger_mode,
+                ipo_trigger_low_mode=ipo_trigger_low_mode,
+                trigger_sell_mode=trigger_sell_mode,
+                limit_price=limit_price,
+                base_quantity=base_quantity,
+                double_buy=double_buy,
+                double_buy_quantity=double_buy_quantity,
+                fetch_client=fetch_client,
+                fetch_clients=fetch_clients,
+                skip_first=skip_first,
+                skip_second_last=skip_second_last,
+                no_ladder=no_ladder,
+                fetch_id=fetch_id,
+                ticker=ticker,
+                just_buy=just_buy,
+                just_buy_interval_ms=just_buy_interval_ms,
+                just_buy_timeout=just_buy_timeout,
+                just_buy_pre_wait_ms=just_buy_pre_wait_ms,
+                just_buy_max_requests=just_buy_max_requests,
+                just_buy_fade_interval_ms=just_buy_fade_interval_ms,
+                just_buy_fade_timeout=just_buy_fade_timeout,
+                timeout_ipo_trigger_low=timeout_ipo_trigger_low,
+                **kwargs,
+            )
+        finally:
+            self.client.flush_successful_orders()
+
+    def _dispatch_order(
+        self,
+        symbol,
+        order_price,
+        order_quantity,
+        side,
+        ipo_trigger_mode,
+        ipo_trigger_low_mode,
+        trigger_sell_mode,
+        limit_price,
+        base_quantity,
+        double_buy,
+        double_buy_quantity,
+        fetch_client,
+        fetch_clients,
+        skip_first,
+        skip_second_last,
+        no_ladder,
+        fetch_id,
+        ticker,
+        just_buy,
+        just_buy_interval_ms,
+        just_buy_timeout,
+        just_buy_pre_wait_ms,
+        just_buy_max_requests,
+        just_buy_fade_interval_ms,
+        just_buy_fade_timeout,
+        timeout_ipo_trigger_low,
+        **kwargs,
+    ) -> Dict[str, Any]:
         # IPO Trigger Mode: Price-based ladder triggering
         if ipo_trigger_mode:
             actual_fetch_clients = normalize_fetch_clients(fetch_client, fetch_clients, "IPO trigger mode")

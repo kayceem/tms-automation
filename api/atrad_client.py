@@ -12,6 +12,7 @@ import requests
 from api.network import enable_ipv4_only_requests
 from config.models.atrad_user_config import ATRADUserConfig
 from utils.logger import get_logger
+from utils.trade_logs import append_trade_log
 
 logger = get_logger(__name__)
 
@@ -50,7 +51,7 @@ class ATRADClient:
         self._request_lock = threading.Lock()
         self._is_authenticated = False
 
-        self._sucessful_orders = []
+        self._sucessful_orders: list[dict] = []
         self._sucessful_orders_lock = threading.Lock()
 
         self._setup_headers()
@@ -391,7 +392,7 @@ class ATRADClient:
 
             if str(result.get("code")) == "0":
                 logger.info(f"[{self.user_id}] ATRAD order placed successfully")
-                order = {"symbol": symbol, "price": price, "quantity": quantity, "start_time_ms": start_time, "end_time_ms": end_time}
+                order = {"symbol": symbol, "price": price, "quantity": quantity, "start_time_ms": start_time, "end_time_ms": end_time, "user_id": self.user_id}
                 with self._sucessful_orders_lock:
                     self._sucessful_orders.append(order)
                 return result
@@ -407,6 +408,20 @@ class ATRADClient:
                 return True
             return False
         return self._is_authenticated
+
+    def flush_successful_orders(self) -> None:
+        """Persist buffered successful orders to the daily completed.json log."""
+        with self._sucessful_orders_lock:
+            pending = self._sucessful_orders
+            self._sucessful_orders = []
+        if not pending:
+            return
+        try:
+            append_trade_log("completed", pending)
+        except Exception as exc:
+            logger.warning(f"[{self.user_id}] Failed to persist completed orders: {exc}")
+            with self._sucessful_orders_lock:
+                self._sucessful_orders[:0] = pending
 
     @staticmethod
     def _epoch_time_ms() -> int:

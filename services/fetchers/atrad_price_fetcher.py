@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from api import ATRADClient
 from services.fetchers.fetcher_timing import calculate_request_timeout, calculate_rotation_delay
 from utils.logger import get_logger
+from utils.trade_logs import append_trade_log
 
 logger = get_logger(__name__)
 
@@ -340,7 +341,7 @@ class ATRADMultiUserPriceFetcher:
         with self._lock:
             self.poll_interval_ms = poll_interval_ms
             self.poll_interval_seconds = poll_interval_ms / 1000.0
-            self.enable_cooldown = False
+            self.enable_cooldown = enable_cooldown
             self.delay = calculate_rotation_delay(self.poll_interval_seconds, 0.005)
         self._wakeup_event.set()
 
@@ -568,8 +569,13 @@ class ATRADMultiUserPriceFetcher:
             self._market_details_running = False
 
         if len(self._market_details) > 0:
-            # logger.info(f"Market Details:: {json.dumps(self._market_details, indent=2)}")
-            self._market_details = []
+            try:
+                pending = self._market_details
+                append_trade_log("market", pending)
+            except Exception as exc:
+                logger.warning(f"Failed to persist market detail: {exc}")
+            finally:
+                self._market_details = []
 
         self._wakeup_event.set()
         logger.info("ATRADMultiUserPriceFetcher market details monitoring stopped")
@@ -593,7 +599,6 @@ class ATRADMultiUserPriceFetcher:
                     market_details_running = self._market_details_running
                     timeout = calculate_request_timeout(self.poll_interval_seconds)
                     poll_interval_seconds = self.poll_interval_seconds
-                    enable_cooldown = self.enable_cooldown
                     delay = self.delay
                 current_mode = self._current_scheduler_mode()
 
@@ -614,10 +619,6 @@ class ATRADMultiUserPriceFetcher:
                         bid['fetched_time_ms'] = int(time.time() * 1000)
                         bid['symbol'] = current_user.symbol
                         self._market_details.append(bid)
-                        splits = bid.get('splits', 'N/A')
-                        qty = bid.get('qty', 'N/A')
-                        price = bid.get('price', 'N/A')
-                        logger.debug(f"[{current_user.name}] Price={price}, Qty={qty}, Splits={splits}")
                         sleep_duration = poll_interval_seconds
                 elif not is_paused and not market_details_running:
                     if current_mode == "parallel":
@@ -668,14 +669,6 @@ class ATRADMultiUserPriceFetcher:
                 self._wakeup_event.wait(timeout=sleep_duration)
                 self._wakeup_event.clear()
 
-                if enable_cooldown and self._should_add_cooldown_delay():
-                    logger.debug(
-                        f"Cooldown delay after {self._rotation_cycles_completed} rotation cycles"
-                    )
-                    self._wakeup_event.wait(timeout=poll_interval_seconds + delay)
-                    self._wakeup_event.clear()
-                    if self._rotation_cycles_completed > (self._len_fetch_users * 5):
-                        self._rotation_cycles_completed = 0
             except KeyboardInterrupt:
                 logger.info("Multi-user fetch loop interrupted by user")
                 break
