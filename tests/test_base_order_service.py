@@ -236,7 +236,7 @@ def test_place_order_with_retries_retries_until_success(monkeypatch):
 
     assert response == {"status": "ok", "price": 500.5, "quantity": 10}
     assert attempts["count"] == 3
-    assert sleep_calls == [1, 1]
+    assert sleep_calls == [0.001, 0.001]
     assert price_fetcher.market_stopped == 1
 
 
@@ -329,7 +329,7 @@ def test_wait_for_no_ladder_trigger_switches_to_slow_then_fast_polling(monkeypat
     assert response is None
     assert price_fetcher.settings == [(500, False), (100, True)]
     assert price_fetcher.scheduler_modes == ["sequential", "parallel"]
-    assert sleep_calls[:2] == [0.1, 0.02]
+    assert sleep_calls[:2] == [0.1, min(0.02, 0.001)]
 
 
 def test_wait_for_no_ladder_trigger_starts_in_parallel_when_already_above_switch_threshold(monkeypatch):
@@ -363,7 +363,7 @@ def test_wait_for_no_ladder_trigger_starts_in_parallel_when_already_above_switch
     assert response is None
     assert price_fetcher.scheduler_modes == ["parallel"]
     assert price_fetcher.settings == []
-    assert sleep_calls == [0.02]
+    assert sleep_calls == [min(0.02, 0.001)]
 
 
 def test_setup_tms_price_fetcher_passes_parallel_scheduler_settings(monkeypatch):

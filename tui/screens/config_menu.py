@@ -11,12 +11,16 @@ from tui.services.config import ConfigActionsService
 
 
 DEFAULT_FIELDS = (
-    ("trigger_mode_poll_interval_ms", "Trigger poll (ms)"),
-    ("multi_fetch_poll_interval_ms", "Multi-fetch poll (ms)"),
-    ("trigger_mode_refresh_interval_seconds", "Refresh interval (s)"),
-    ("trigger_sell_poll_interval_ms", "Sell poll (ms)"),
-    ("trigger_mode_slow_poll_interval_ms", "Slow poll (ms)"),
-    ("trigger_mode_requests_per_fetch_user", "Requests per user"),
+    ("trigger_mode_poll_interval_ms", "Trigger poll (ms)", "int"),
+    ("multi_fetch_poll_interval_ms", "Multi-fetch poll (ms)", "int"),
+    ("trigger_mode_refresh_interval_seconds", "Refresh interval (s)", "int"),
+    ("trigger_sell_poll_interval_ms", "Sell poll (ms)", "int"),
+    ("trigger_mode_slow_poll_interval_ms", "Slow poll (ms)", "int"),
+    ("trigger_mode_requests_per_fetch_user", "Requests per user", "int"),
+    ("trigger_mode_parallel_fetch_enabled", "Parallel fetch", "bool"),
+    ("trigger_mode_parallel_spawn_interval_ms", "Parallel spawn (ms)", "int"),
+    ("trigger_mode_parallel_cycle_timeout_ms", "Parallel cycle timeout (ms)", "int"),
+    ("trigger_mode_parallel_wait", "Parallel strict wait", "bool"),
 )
 
 DEFAULT_PRESETS = {
@@ -26,6 +30,8 @@ DEFAULT_PRESETS = {
     "trigger_sell_poll_interval_ms": ["100", "150", "200", "250"],
     "trigger_mode_slow_poll_interval_ms": ["150", "250", "500"],
     "trigger_mode_requests_per_fetch_user": ["1", "2", "5", "10"],
+    "trigger_mode_parallel_spawn_interval_ms": ["5", "10", "15", "20"],
+    "trigger_mode_parallel_cycle_timeout_ms": ["10", "20", "30", "50"],
 }
 
 TRIGGER_PRESETS: dict[str, dict] = {
@@ -37,6 +43,10 @@ TRIGGER_PRESETS: dict[str, dict] = {
         "trigger_sell_poll_interval_ms": 250,
         "trigger_mode_slow_poll_interval_ms": 250,
         "trigger_mode_requests_per_fetch_user": 2,
+        "trigger_mode_parallel_fetch_enabled": True,
+        "trigger_mode_parallel_spawn_interval_ms": 10,
+        "trigger_mode_parallel_cycle_timeout_ms": 20,
+        "trigger_mode_parallel_wait": False,
     },
     "slow-poll": {
         "label": "Slow Poll",
@@ -46,10 +56,15 @@ TRIGGER_PRESETS: dict[str, dict] = {
         "trigger_sell_poll_interval_ms": 500,
         "trigger_mode_slow_poll_interval_ms": 500,
         "trigger_mode_requests_per_fetch_user": 2,
+        "trigger_mode_parallel_fetch_enabled": True,
+        "trigger_mode_parallel_spawn_interval_ms": 10,
+        "trigger_mode_parallel_cycle_timeout_ms": 20,
+        "trigger_mode_parallel_wait": False,
     },
 }
 
 TRIGGER_PRESET_OPTIONS = [(spec["label"], key) for key, spec in TRIGGER_PRESETS.items()]
+BOOLEAN_OPTIONS = [("True", "true"), ("False", "false")]
 
 
 class FocusableScreen(Screen[None]):
@@ -134,15 +149,24 @@ class UserConfigScreen(FocusableScreen):
                         id="defaults-preset",
                     )
                 yield Static(" TRIGGER TIMING", classes="form-section")
-                for field_name, label in DEFAULT_FIELDS:
+                for field_name, label, field_type in DEFAULT_FIELDS:
                     with Horizontal(classes="form-row"):
                         yield Label(label, classes="form-label")
-                        yield Input(
-                            placeholder=" / ".join(DEFAULT_PRESETS[field_name]),
-                            id=f"default-input-{field_name}",
-                            type="integer",
-                            classes="form-input",
-                        )
+                        if field_type == "bool":
+                            yield Select(
+                                BOOLEAN_OPTIONS,
+                                allow_blank=False,
+                                value="false",
+                                id=f"default-input-{field_name}",
+                                classes="form-input",
+                            )
+                        else:
+                            yield Input(
+                                placeholder=" / ".join(DEFAULT_PRESETS[field_name]),
+                                id=f"default-input-{field_name}",
+                                type="integer",
+                                classes="form-input",
+                            )
         yield Static("", id="config-status")
         with Horizontal(id="user-config-actions"):
             yield Button("[R] Reset JSESSIONID", id="reset", classes="action-button")
@@ -151,10 +175,13 @@ class UserConfigScreen(FocusableScreen):
 
     def on_mount(self) -> None:
         defaults = self.service.load_defaults()
-        for field_name, _label in DEFAULT_FIELDS:
+        for field_name, _label, field_type in DEFAULT_FIELDS:
             value = defaults.get(field_name)
             if value is not None:
-                self.query_one(f"#default-input-{field_name}", Input).value = str(value)
+                if field_type == "bool":
+                    self.query_one(f"#default-input-{field_name}", Select).value = "true" if value else "false"
+                else:
+                    self.query_one(f"#default-input-{field_name}", Input).value = str(value)
         self.query_one(f"#default-input-{DEFAULT_FIELDS[0][0]}", Input).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -172,8 +199,11 @@ class UserConfigScreen(FocusableScreen):
         if not isinstance(preset_key, str) or preset_key not in TRIGGER_PRESETS:
             return
         preset = TRIGGER_PRESETS[preset_key]
-        for field_name, _label in DEFAULT_FIELDS:
-            self.query_one(f"#default-input-{field_name}", Input).value = str(preset[field_name])
+        for field_name, _label, field_type in DEFAULT_FIELDS:
+            if field_type == "bool":
+                self.query_one(f"#default-input-{field_name}", Select).value = "true" if preset[field_name] else "false"
+            else:
+                self.query_one(f"#default-input-{field_name}", Input).value = str(preset[field_name])
 
     def _set_status(self, message: str) -> None:
         self.query_one("#config-status", Static).update(message)
@@ -190,8 +220,12 @@ class UserConfigScreen(FocusableScreen):
     def action_save_defaults(self) -> None:
         try:
             payload = {
-                field_name: self.query_one(f"#default-input-{field_name}", Input).value
-                for field_name, _label in DEFAULT_FIELDS
+                field_name: (
+                    self.query_one(f"#default-input-{field_name}", Select).value
+                    if field_type == "bool"
+                    else self.query_one(f"#default-input-{field_name}", Input).value
+                )
+                for field_name, _label, field_type in DEFAULT_FIELDS
             }
             path = self.service.save_defaults(payload)
         except ValueError as exc:

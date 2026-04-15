@@ -21,9 +21,19 @@ TRIGGER_DEFAULT_KEYS = (
     "trigger_sell_poll_interval_ms",
     "trigger_mode_slow_poll_interval_ms",
     "trigger_mode_requests_per_fetch_user",
+    "trigger_mode_parallel_fetch_enabled",
+    "trigger_mode_parallel_spawn_interval_ms",
+    "trigger_mode_parallel_cycle_timeout_ms",
+    "trigger_mode_parallel_wait",
 )
 
 ALLOWED_DEFAULT_KEYS = frozenset(TRIGGER_DEFAULT_KEYS)
+BOOLEAN_DEFAULT_KEYS = frozenset(
+    {
+        "trigger_mode_parallel_fetch_enabled",
+        "trigger_mode_parallel_wait",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -104,13 +114,25 @@ def load_default_trigger_settings(users_dir: str | Path | None = None) -> Dict[s
 
 
 def _validate_default_values(values: Dict[str, Any]) -> Dict[str, int]:
-    validated: Dict[str, int] = {}
+    validated: Dict[str, Any] = {}
     for key, value in values.items():
         if key not in ALLOWED_DEFAULT_KEYS:
             raise ValueError(
                 f"Unsupported default key '{key}'. "
                 f"Allowed keys: {', '.join(sorted(ALLOWED_DEFAULT_KEYS))}"
             )
+        if key in BOOLEAN_DEFAULT_KEYS:
+            if isinstance(value, bool):
+                validated[key] = value
+                continue
+            normalized = str(value).strip().lower()
+            if normalized in {"true", "1", "yes", "on"}:
+                validated[key] = True
+                continue
+            if normalized in {"false", "0", "no", "off"}:
+                validated[key] = False
+                continue
+            raise ValueError(f"Value for '{key}' must be a boolean")
         try:
             numeric_value = int(value)
         except (TypeError, ValueError) as exc:

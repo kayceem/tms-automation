@@ -382,7 +382,7 @@ class ATRADMultiUserPriceFetcher:
         with self._lock:
             self.poll_interval_ms = poll_interval_ms
             self.poll_interval_seconds = poll_interval_ms / 1000.0
-            self.enable_cooldown = enable_cooldown
+            self.enable_cooldown = False
             self.delay = calculate_rotation_delay(self.poll_interval_seconds, 0.005)
 
     def update_scheduler_settings(

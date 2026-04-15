@@ -50,6 +50,14 @@ class ThresholdPriceFetcher:
     def update_scheduler_mode(self, scheduler_mode):
         self.schedule_times.append((scheduler_mode, time.perf_counter()))
 
+    def start_market_details(self):
+        pass
+
+    def stop_market_details(self):
+        pass
+
+    def pause(self):
+        pass
 
 class TriggerPriceFetcher:
     def __init__(self, ltp, trigger_times):
@@ -65,6 +73,9 @@ class TriggerPriceFetcher:
 
     def stop_market_details(self):
         return None
+
+    def pause(self):
+        pass
 
 
 def test_characterize_atrad_parallel_scheduler_and_trigger_overheads(monkeypatch):

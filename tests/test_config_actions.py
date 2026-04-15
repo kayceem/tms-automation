@@ -45,6 +45,8 @@ def test_save_default_trigger_settings_creates_default_json(tmp_path):
         {
             "trigger_mode_poll_interval_ms": 8,
             "trigger_mode_refresh_interval_seconds": 60,
+            "trigger_mode_parallel_fetch_enabled": True,
+            "trigger_mode_parallel_wait": False,
         },
         tmp_path,
     )
@@ -53,12 +55,22 @@ def test_save_default_trigger_settings_creates_default_json(tmp_path):
     persisted = load_default_trigger_settings(tmp_path)
     assert persisted["trigger_mode_poll_interval_ms"] == 8
     assert persisted["trigger_mode_refresh_interval_seconds"] == 60
+    assert persisted["trigger_mode_parallel_fetch_enabled"] is True
+    assert persisted["trigger_mode_parallel_wait"] is False
 
 
 def test_save_default_trigger_settings_rejects_invalid_values(tmp_path):
     with pytest.raises(ValueError, match="must be greater than 0"):
         save_default_trigger_settings(
             {"trigger_mode_poll_interval_ms": 0},
+            tmp_path,
+        )
+
+
+def test_save_default_trigger_settings_rejects_invalid_boolean_values(tmp_path):
+    with pytest.raises(ValueError, match="must be a boolean"):
+        save_default_trigger_settings(
+            {"trigger_mode_parallel_fetch_enabled": "maybe"},
             tmp_path,
         )
 

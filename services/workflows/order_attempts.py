@@ -57,7 +57,7 @@ def place_order_with_retries(
                 )
 
             try:
-                time.sleep(1)
+                time.sleep(0.001)
             except KeyboardInterrupt:
                 service.logger.info(f"[{service.user_id}] IPO trigger interrupted by user")
                 raise

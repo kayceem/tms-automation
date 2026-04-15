@@ -144,8 +144,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--timeout",
         type=float,
-        default=5.0,
-        help="Per-request timeout in seconds (default: 5.0)",
+        default=0.15,
+        help="Per-request timeout in seconds (default: 0.15)",
     )
     parser.add_argument(
         "--parallel",
@@ -215,8 +215,10 @@ def validate_args(args: argparse.Namespace) -> None:
                 "Endpoint 'order' is live and unsafe. Re-run with --allow-live-order "
                 "only if you explicitly want to place real ATRAD orders."
             )
-        if args.parallel:
-            raise ValueError("Endpoint 'order' does not support --parallel for safety reasons")
+        if args.parallel and args.cycle_users:
+            raise ValueError(
+                "Endpoint 'order' does not support --parallel with --cycle-users for safety reasons"
+            )
         for field_name in ("symbol", "price", "quantity"):
             if getattr(args, field_name) in (None, ""):
                 raise ValueError(f"--{field_name} is required for endpoint 'order'")
@@ -375,15 +377,37 @@ def benchmark_user(
                 error=error,
             )
 
-        for index in range(request_count):
-            thread = threading.Thread(
-                target=run_probe,
-                args=(index,),
-                name=f"{user_config.user_id}-probe-{index + 1}",
-            )
-            threads.append(thread)
-            thread.start()
-            time.sleep(spawn_interval_ms / 1000.0)
+        if endpoint == "order":
+            max_in_flight = 2
+            sem = threading.Semaphore(max_in_flight)
+
+            def run_probe_bounded(index: int) -> None:
+                try:
+                    run_probe(index)
+                finally:
+                    sem.release()
+
+            for index in range(request_count):
+                sem.acquire()
+                thread = threading.Thread(
+                    target=run_probe_bounded,
+                    args=(index,),
+                    name=f"{user_config.user_id}-probe-{index + 1}",
+                )
+                threads.append(thread)
+                thread.start()
+                if index == 0 and request_count > 1:
+                    time.sleep(spawn_interval_ms / 1000.0)
+        else:
+            for index in range(request_count):
+                thread = threading.Thread(
+                    target=run_probe,
+                    args=(index,),
+                    name=f"{user_config.user_id}-probe-{index + 1}",
+                )
+                threads.append(thread)
+                thread.start()
+                time.sleep(spawn_interval_ms / 1000.0)
 
         for thread in threads:
             thread.join()
