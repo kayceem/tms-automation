@@ -384,7 +384,8 @@ class OrderBookScreen(Screen[None]):
                     )
                     asks_table.cursor_type = "row"
                     yield asks_table
-                yield Static("", id="market-ltp", classes="market-ltp")
+                with VerticalScroll(id="market-ltp-scroll", classes="market-ltp-scroll"):
+                    yield Static("", id="market-ltp", classes="market-ltp")
         yield Static("", id="portfolio-total")
         yield Static("", id="portfolio-status")
         with VerticalScroll(id="active-response-scroll", classes="response-scroll"):
@@ -1173,14 +1174,10 @@ class OrderBookScreen(Screen[None]):
         lines = [
             f"[bold #ff9e1b]{security}[/]  [#6b6b6b]{company}[/]  [#1a1000 on #ffd166] {asset} [/]",
             "",
-            f"[#5fd7ff]LAST[/]  [bold {color}]{price}[/]   [{color}]{arrow} {sign}{net} ({sign}{pct}%)[/]   [#5fd7ff]@[/] [#ffd166]{last_time}[/]",
+            f"[#5fd7ff]LAST[/]  [bold {color}]{price} @ {size}[/]   [{color}]{arrow} {sign}{net} ({sign}{pct}%)[/]   [#5fd7ff]@[/] [#ffd166]{last_time}[/]",
             "",
-            cell("Open", open_px) + "  " + cell("High", high, "#00d26a"),
-            cell("Close", close) + "  " + cell("Low", low, "#ff4757"),
-            "",
-            cell("Volume", volume) + "  " + cell("Turnover", turnover),
-            cell("Trades", trades) + "  " + cell("Trade Size", size),
-            cell("Odd Lot", odd_lot),
+            cell("Open", open_px) + "  " + cell("DHigh", high, "#00d26a") + "  " + cell("Volume", volume) + "  " + cell("Turnover", turnover),
+            cell("Close", close) + "  " + cell("DLow", low, "#ff4757") + "  " + cell("Trades", trades) + "  " + cell("Odd Lot", odd_lot),
             "",
             f"[#5fd7ff]52W Range[/]  [#ff4757]{w52l:>10}[/] {range_bar} [#00d26a]{w52h}[/]",
         ]

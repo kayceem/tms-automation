@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 
 from utils.config.atrad_config_actions import iter_atrad_user_paths
 from utils.config.update_order_prices import PriceUpdateResult, update_order_store
@@ -27,6 +28,13 @@ class OrderPriceRefreshService:
 
     def refresh_all(self) -> PriceUpdateResult:
         atrad_user_path = self._default_atrad_user_path()
+        if time.localtime().tm_hour >= 11 and time.localtime().tm_hour < 15:
+            return PriceUpdateResult(
+                updated={},
+                skipped_count=0,
+                failed_count=0,
+                message="Warning: Cannot refresh prices during market hours."
+            )
         return update_order_store(
             order_store_path=str(self.order_store_path),
             atrad_user_path=str(atrad_user_path),

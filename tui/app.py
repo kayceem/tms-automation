@@ -530,10 +530,23 @@ Checkbox:focus {
     width: 100%;
     height: auto;
     padding: 1 2;
-    margin: 1 0 0 0;
+    margin: 0;
     background: #050505;
     color: #e8e8e8;
+    border: none;
+}
+
+#market-ltp-scroll {
+    width: 100%;
+    height: 15;
+    min-height: 15;
+    margin: 1 0 0 0;
+    background: #050505;
     border: tall #1a1000;
+    scrollbar-background: #000000;
+    scrollbar-color: #7a4a00;
+    scrollbar-color-hover: #ff9e1b;
+    scrollbar-size-vertical: 1;
 }
 
 #symbol-prompt-shell {

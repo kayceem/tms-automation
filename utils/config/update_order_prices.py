@@ -31,6 +31,7 @@ class PriceUpdateResult:
     skipped_count: int
     failed_count: int
     updated: Dict[str, Dict[str, float | None]]
+    message: Optional[str] = None
 
 
 def get_quote_data(client: ATRADClient, ticker: str) -> Optional[Dict[str, float]]:
@@ -277,6 +278,11 @@ The script will:
     if not atrad_user_path.exists():
         print(f"Error: ATRAD user config not found: {atrad_user_path}")
         sys.exit(1)
+
+    # only update outside of market hours (11:00 - 15:00)
+    if time.localtime().tm_hour >= 11 and time.localtime().tm_hour < 15:
+        print("Warning: It's currently market hours (11:00 - 15:00). Price updates may be inaccurate.")
+        sys.exit(0)
 
     # Run update
     update_order_store(

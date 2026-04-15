@@ -770,6 +770,9 @@ class OrdersScreen(Screen[None]):
     def _handle_refresh_prices_result(self, result) -> None:
         self.service.refresh_store()
         self.reload_table()
+        if result.message:
+            self._set_status(result.message)
+            return
         self._set_status(
             "Prices refreshed"
             f" | updated={result.updated_count}"
