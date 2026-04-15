@@ -109,3 +109,49 @@ def test_order_book_auto_refresh_only_targets_active_panel():
         assert messages[-1] == ("Auto-refresh disabled for active panel every 30s", "completed")
     finally:
         time.localtime = original_localtime
+
+
+def test_order_book_top_tab_defaults_and_toggle_behavior():
+    class FakePortfolioService:
+        def get_user_label(self, _path: Path) -> str:
+            return "demo"
+
+        def load_tickers(self) -> list[dict]:
+            return []
+
+    screen = OrderBookScreen(Path("users/default.json"), service=FakePortfolioService())
+    refresh_calls: list[str] = []
+    statuses: list[tuple[str, str]] = []
+
+    screen._active_panel = lambda: "tab-top"  # type: ignore[method-assign]
+    screen.action_refresh_book = lambda: refresh_calls.append("refresh")  # type: ignore[method-assign]
+    screen._set_status = lambda message, panel="active": statuses.append((message, panel))  # type: ignore[method-assign]
+
+    assert screen._top_gainers_mode is True
+    assert any(binding[0] == "ctrl+4" and binding[1] == "show_top_panel" for binding in screen.BINDINGS)
+    assert any(binding[0] == "ctrl+5" and binding[1] == "show_market_panel" for binding in screen.BINDINGS)
+    assert screen._top_sort_mode == "chng_pct"
+
+    screen.action_toggle_top_or_cycle_watchlist()
+    assert screen._top_gainers_mode is False
+    assert refresh_calls == ["refresh"]
+    assert statuses[-1] == ("Top 10 mode: Losers", "top")
+
+
+def test_order_book_t_binding_is_noop_outside_watchlists_and_top():
+    class FakePortfolioService:
+        def get_user_label(self, _path: Path) -> str:
+            return "demo"
+
+        def load_tickers(self) -> list[dict]:
+            return []
+
+    screen = OrderBookScreen(Path("users/default.json"), service=FakePortfolioService())
+    calls: list[str] = []
+
+    screen._active_panel = lambda: "tab-active"  # type: ignore[method-assign]
+    screen.action_cycle_watchlist = lambda: calls.append("cycle")  # type: ignore[method-assign]
+    screen.action_refresh_book = lambda: calls.append("refresh")  # type: ignore[method-assign]
+
+    screen.action_toggle_top_or_cycle_watchlist()
+    assert calls == []

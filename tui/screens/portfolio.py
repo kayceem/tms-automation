@@ -298,8 +298,8 @@ class OrderBookScreen(Screen[None]):
         ("ctrl+1", "show_active_panel", "Active"),
         ("ctrl+2", "show_completed_panel", "Completed"),
         ("ctrl+3", "show_watchlist_panel", "Watchlists"),
-        ("ctrl+4", "show_market_panel", "Market"),
-        ("ctrl+5", "show_top_panel", "Top 10"),
+        ("ctrl+4", "show_top_panel", "Top 10"),
+        ("ctrl+5", "show_market_panel", "Market"),
         ("s", "change_market_symbol", "Symbol / Sort Watchlist"),
         ("k", "change_market_symbol", "Search Symbol"),
         ("left", "previous_panel", "Prev Panel"),
@@ -371,6 +371,16 @@ class OrderBookScreen(Screen[None]):
                 watchlist_table.cursor_type = "row"
                 yield watchlist_table
 
+            with TabPane("Top 10", id="tab-top"):
+                top_table = DataTable(
+                    id="top-table",
+                    zebra_stripes=True,
+                    cursor_foreground_priority="renderable",
+                    cursor_background_priority="css",
+                )
+                top_table.cursor_type = "row"
+                yield top_table
+
             with TabPane("Market", id="tab-market"):
                 with Horizontal(id="market-tables"):
                     bids_table = DataTable(
@@ -391,16 +401,6 @@ class OrderBookScreen(Screen[None]):
                     yield asks_table
                 with VerticalScroll(id="market-ltp-scroll", classes="market-ltp-scroll"):
                     yield Static("", id="market-ltp", classes="market-ltp")
-
-            with TabPane("Top 10", id="tab-top"):
-                top_table = DataTable(
-                    id="top-table",
-                    zebra_stripes=True,
-                    cursor_foreground_priority="renderable",
-                    cursor_background_priority="css",
-                )
-                top_table.cursor_type = "row"
-                yield top_table
         yield Static("", id="portfolio-total")
         yield Static("", id="portfolio-status")
         with VerticalScroll(id="active-response-scroll", classes="response-scroll"):
@@ -504,7 +504,7 @@ class OrderBookScreen(Screen[None]):
     def action_show_top_panel(self) -> None:
         self._set_panel("tab-top")
 
-    _PANELS = ("tab-active", "tab-completed", "tab-watchlists", "tab-market", "tab-top")
+    _PANELS = ("tab-active", "tab-completed", "tab-watchlists", "tab-top", "tab-market")
 
     def action_previous_panel(self) -> None:
         current = self._PANELS.index(self._active_panel())

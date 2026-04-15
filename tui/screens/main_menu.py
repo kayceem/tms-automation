@@ -14,6 +14,7 @@ class MainMenuScreen(Screen[None]):
         ("down", "focus_next_control", "Next"),
         ("p", "open_portfolio", "Portfolio"),
         ("c", "open_config", "Config"),
+        ("o", "open_order_logs", "Order Logs"),
         ("q", "app.quit", "Quit"),
     ]
 
@@ -36,6 +37,12 @@ class MainMenuScreen(Screen[None]):
                         id="config",
                         classes="menu-item",
                     )
+                    yield Static("─" * 64, classes="menu-divider")
+                    yield Button(
+                        "[bold #ff9e1b]O[/]  Order Logs [#6b6b6b]Inspect market ticks and completed orders[/]",
+                        id="order-logs",
+                        classes="menu-item",
+                    )
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -43,6 +50,8 @@ class MainMenuScreen(Screen[None]):
             self.action_open_portfolio()
         elif event.button.id == "config":
             self.action_open_config()
+        elif event.button.id == "order-logs":
+            self.action_open_order_logs()
 
     def on_mount(self) -> None:
         self.query_one("#portfolio", Button).focus()
@@ -52,6 +61,9 @@ class MainMenuScreen(Screen[None]):
 
     def action_open_config(self) -> None:
         self.app.push_screen("config")
+
+    def action_open_order_logs(self) -> None:
+        self.app.push_screen("order-logs")
 
     def action_focus_next_control(self) -> None:
         self.focus_next(Button)

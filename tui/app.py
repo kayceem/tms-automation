@@ -125,7 +125,8 @@ VerticalScroll {
 }
 
 #user-config-layout,
-#order-editor-layout {
+#order-editor-layout,
+#order-logs-layout {
     width: 100%;
     height: 1fr;
     layout: vertical;
@@ -599,7 +600,8 @@ Label {
 #order-editor-actions,
 #user-config-actions,
 #orders-actions,
-#portfolio-actions {
+#portfolio-actions,
+#order-logs-actions {
     width: 100%;
     height: auto;
     align: left middle;
@@ -740,6 +742,7 @@ TabPane {
 if App is not None:
     from tui.screens.config_menu import ConfigMenuScreen, UserConfigScreen
     from tui.screens.main_menu import MainMenuScreen
+    from tui.screens.order_logs import OrderLogsScreen
     from tui.screens.orders import OrdersScreen
     from tui.screens.portfolio import ATRADUserSelectScreen, PortfolioScreen
 
@@ -754,6 +757,7 @@ if App is not None:
             "orders": OrdersScreen,
             "portfolio": PortfolioScreen,
             "atrad-users": ATRADUserSelectScreen,
+            "order-logs": OrderLogsScreen,
         }
 
         def __init__(self) -> None:
