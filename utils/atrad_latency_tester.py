@@ -43,8 +43,10 @@ class ProbeResult:
     index: int
     user_id: str
     sent_at_ms: float
+    sent_wall_ms: float
     latency_ms: float
     completed_at_ms: float
+    completed_wall_ms: float
     success: bool
     status_code: Optional[int]
     error: Optional[str] = None
@@ -363,15 +365,19 @@ def benchmark_user(
             )
             start = time.perf_counter()
             sent_at_ms = start * 1000
+            sent_wall_ms = time.time() * 1000
             success, status_code, error = _execute_probe_with_session(client.session, spec, timeout)
             completed_at_ms = time.perf_counter() * 1000
+            completed_wall_ms = time.time() * 1000
             latency_ms = completed_at_ms - (start * 1000)
             collected[index] = ProbeResult(
                 index=index + 1,
                 user_id=user_config.user_id,
                 sent_at_ms=sent_at_ms,
+                sent_wall_ms=sent_wall_ms,
                 latency_ms=latency_ms,
                 completed_at_ms=completed_at_ms,
+                completed_wall_ms=completed_wall_ms,
                 success=success,
                 status_code=status_code,
                 error=error,
@@ -425,16 +431,20 @@ def benchmark_user(
             )
             start = time.perf_counter()
             sent_at_ms = start * 1000
+            sent_wall_ms = time.time() * 1000
             success, status_code, error = _execute_probe_with_client(client, spec, timeout)
             completed_at_ms = time.perf_counter() * 1000
+            completed_wall_ms = time.time() * 1000
             latency_ms = completed_at_ms - (start * 1000)
             samples.append(
                 ProbeResult(
                     index=index + 1,
                     user_id=user_config.user_id,
                     sent_at_ms=sent_at_ms,
+                    sent_wall_ms=sent_wall_ms,
                     latency_ms=latency_ms,
                     completed_at_ms=completed_at_ms,
+                    completed_wall_ms=completed_wall_ms,
                     success=success,
                     status_code=status_code,
                     error=error,
@@ -506,16 +516,20 @@ def benchmark_cycle_users(
             sent_counts[client.user_id] += 1
             start = time.perf_counter()
             sent_at_ms = start * 1000
+            sent_wall_ms = time.time() * 1000
             success, status_code, error = _execute_probe_with_client(client, spec, timeout)
             completed_at_ms = time.perf_counter() * 1000
+            completed_wall_ms = time.time() * 1000
             latency_ms = completed_at_ms - (start * 1000)
             probe_index += 1
             sample = ProbeResult(
                 index=probe_index,
                 user_id=client.user_id,
                 sent_at_ms=sent_at_ms,
+                sent_wall_ms=sent_wall_ms,
                 latency_ms=latency_ms,
                 completed_at_ms=completed_at_ms,
+                completed_wall_ms=completed_wall_ms,
                 success=success,
                 status_code=status_code,
                 error=error,
@@ -558,15 +572,19 @@ def benchmark_cycle_users(
                 )
                 start = time.perf_counter()
                 sent_at_ms = start * 1000
+                sent_wall_ms = time.time() * 1000
                 success, status_code, error = _execute_probe_with_session(client.session, spec, timeout)
                 completed_at_ms = time.perf_counter() * 1000
+                completed_wall_ms = time.time() * 1000
                 latency_ms = completed_at_ms - (start * 1000)
                 sample = ProbeResult(
                     index=probe_index,
                     user_id=client.user_id,
                     sent_at_ms=sent_at_ms,
+                    sent_wall_ms=sent_wall_ms,
                     latency_ms=latency_ms,
                     completed_at_ms=completed_at_ms,
+                    completed_wall_ms=completed_wall_ms,
                     success=success,
                     status_code=status_code,
                     error=error,
@@ -642,6 +660,9 @@ def render_report(
     def fmt(value: Optional[float]) -> str:
         return f"{value:.2f}ms" if value is not None else "N/A"
 
+    def fmt_wall(ms: float) -> str:
+        return datetime.fromtimestamp(ms / 1000).strftime("%H:%M:%S.%f")[:-3]
+
     def aggregate_cycle_results() -> UserLatencyResult:
         return UserLatencyResult(
             user_id="ALL_USERS",
@@ -705,7 +726,7 @@ def render_report(
         lines.append("Cycle Response Timeline")
         lines.append("-" * 70)
         lines.append(
-            f"{'recv#':<8} {'probe#':<8} {'user':<18} {'req_at':>12} {'recv_at':>12} {'recv_at_interval':>18} {'latency':>12} {'status':>8} {'result':>10}"
+            f"{'recv#':<8} {'probe#':<8} {'user':<18} {'req_time':>14} {'req_at':>12} {'recv_time':>14} {'recv_at':>12} {'recv_at_interval':>18} {'latency':>12} {'status':>8} {'result':>10}"
         )
         if cycle_samples:
             base_sent_at_ms = min(sample.sent_at_ms for sample in cycle_samples)
@@ -720,7 +741,9 @@ def render_report(
                 f"{receive_index:<8} "
                 f"{sample.index:<8} "
                 f"{sample.user_id:<18} "
+                f"{fmt_wall(sample.sent_wall_ms):>14} "
                 f"{request_offset_ms:>10.2f}ms "
+                f"{fmt_wall(sample.completed_wall_ms):>14} "
                 f"{receive_offset_ms:>10.2f}ms "
                 f"{receive_interval_ms:>16.2f}ms "
                 f"{sample.latency_ms:>10.2f}ms "
@@ -734,7 +757,7 @@ def render_report(
             lines.append(f"Response Timeline :: {result.user_id}")
             lines.append("-" * 70)
             lines.append(
-                f"{'recv#':<8} {'probe#':<8} {'req_at':>12} {'recv_at':>12} {'recv_at_interval':>18} {'latency':>12} {'status':>8} {'result':>10}"
+                f"{'recv#':<8} {'probe#':<8} {'req_time':>14} {'req_at':>12} {'recv_time':>14} {'recv_at':>12} {'recv_at_interval':>18} {'latency':>12} {'status':>8} {'result':>10}"
             )
             if result.samples_by_response_time:
                 base_sent_at_ms = min(sample.sent_at_ms for sample in result.samples_by_response_time)
@@ -748,7 +771,9 @@ def render_report(
                 lines.append(
                     f"{receive_index:<8} "
                     f"{sample.index:<8} "
+                    f"{fmt_wall(sample.sent_wall_ms):>14} "
                     f"{request_offset_ms:>10.2f}ms "
+                    f"{fmt_wall(sample.completed_wall_ms):>14} "
                     f"{receive_offset_ms:>10.2f}ms "
                     f"{receive_interval_ms:>16.2f}ms "
                     f"{sample.latency_ms:>10.2f}ms "

@@ -392,7 +392,7 @@ class ATRADClient:
 
             if str(result.get("code")) == "0":
                 logger.info(f"[{self.user_id}] ATRAD order placed successfully")
-                order = {"symbol": symbol, "price": price, "quantity": quantity, "start_time_ms": start_time, "end_time_ms": end_time, "user_id": self.user_id}
+                order = {"symbol": symbol, "price": price, "qty": quantity, "start_time_ms": start_time, "end_time_ms": end_time, "user_id": self.user_id}
                 with self._sucessful_orders_lock:
                     self._sucessful_orders.append(order)
                 return result
