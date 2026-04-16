@@ -193,7 +193,7 @@ def test_characterize_atrad_parallel_scheduler_and_trigger_overheads(monkeypatch
             detect_times=detect_times,
             schedule_times=schedule_times,
         )
-        triggered, response = service._wait_for_no_ladder_trigger(
+        triggered, response, ltp = service._wait_for_no_ladder_trigger(
             price_fetcher=threshold_fetcher,
             trigger_price=120.0,
             final_price=130.0,
@@ -214,6 +214,7 @@ def test_characterize_atrad_parallel_scheduler_and_trigger_overheads(monkeypatch
         )
         assert triggered is True
         assert response is None
+        assert ltp == 120.0
         switch_overheads.append(schedule_times[0][1] - detect_times[0])
 
         # Trigger-to-placement overhead: after reading a triggered LTP, how long until _place_single_order starts.

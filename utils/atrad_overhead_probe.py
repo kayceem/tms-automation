@@ -237,7 +237,7 @@ def measure_switch_to_parallel(order_client: ATRADClient, iterations: int) -> Me
         schedule_times: list[tuple[str, float]] = []
         fetcher = SwitchingPriceFetcher([115.0, 120.0], detect_times, schedule_times)
 
-        triggered, response = service._wait_for_no_ladder_trigger(
+        triggered, response, ltp = service._wait_for_no_ladder_trigger(
             price_fetcher=fetcher,
             trigger_price=120.0,
             final_price=130.0,
@@ -256,7 +256,7 @@ def measure_switch_to_parallel(order_client: ATRADClient, iterations: int) -> Me
             },
             platform_params={"symbol": "NABIL", "side": "BUY"},
         )
-        if not triggered or response is not None:
+        if not triggered or response is not None or ltp != 120.0:
             raise RuntimeError("Switch probe did not complete the simulated trigger path")
         values.append(schedule_times[0][1] - detect_times[0])
 

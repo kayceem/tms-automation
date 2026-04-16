@@ -95,6 +95,34 @@ class FakePriceFetcher:
         self.scheduler_modes.append(scheduler_mode)
 
 
+class EventDrivenFakePriceFetcher(FakePriceFetcher):
+    def __init__(self, initial_ltp=None):
+        super().__init__([])
+        self._latest_ltp = initial_ltp
+        self._version = 1 if initial_ltp is not None else 0
+        self._condition = threading.Condition()
+
+    def get_latest_ltp(self):
+        with self._condition:
+            return self._latest_ltp
+
+    def get_price_update_version(self):
+        with self._condition:
+            return self._version
+
+    def wait_for_price_update(self, last_seen_version, timeout_seconds=None):
+        with self._condition:
+            if self._version <= last_seen_version:
+                self._condition.wait(timeout=timeout_seconds)
+            return self._latest_ltp, self._version
+
+    def publish_ltp(self, ltp):
+        with self._condition:
+            self._latest_ltp = ltp
+            self._version += 1
+            self._condition.notify_all()
+
+
 def test_calculate_price_levels_without_limit():
     service = DummyService()
 
@@ -267,7 +295,7 @@ def test_execute_no_ladder_mode_starts_market_details_after_order_dispatch(monke
     finish_place = threading.Event()
     call_order = []
 
-    service._wait_for_no_ladder_trigger = lambda **kwargs: (True, None)
+    service._wait_for_no_ladder_trigger = lambda **kwargs: (True, None, 110.0)
 
     def fake_place_order_with_retries(**kwargs):
         call_order.append("place")
@@ -311,7 +339,7 @@ def test_wait_for_no_ladder_trigger_uses_just_buy_for_already_triggered_order():
 
     service._execute_just_buy = fake_execute_just_buy
 
-    triggered, response = service._wait_for_no_ladder_trigger(
+    triggered, response, ltp = service._wait_for_no_ladder_trigger(
         price_fetcher=FakePriceFetcher([100.0]),
         trigger_price=110.0,
         final_price=120.0,
@@ -334,6 +362,7 @@ def test_wait_for_no_ladder_trigger_uses_just_buy_for_already_triggered_order():
 
     assert triggered is True
     assert response == {"status": "ok"}
+    assert ltp is None
     assert calls["final_price"] == 120.0
     assert calls["trigger_price"] == 110.0
 
@@ -346,7 +375,7 @@ def test_wait_for_no_ladder_trigger_switches_to_slow_then_fast_polling(monkeypat
     monkeypatch.setattr("services.orders.base_order_service.time.sleep", lambda seconds: sleep_calls.append(seconds))
     service._execute_just_buy = lambda **kwargs: (False, None)
 
-    triggered, response = service._wait_for_no_ladder_trigger(
+    triggered, response, ltp = service._wait_for_no_ladder_trigger(
         price_fetcher=price_fetcher,
         trigger_price=120.0,
         final_price=130.0,
@@ -368,6 +397,7 @@ def test_wait_for_no_ladder_trigger_switches_to_slow_then_fast_polling(monkeypat
 
     assert triggered is True
     assert response is None
+    assert ltp == 120.0
     assert price_fetcher.settings == [(500, False), (100, True)]
     assert price_fetcher.scheduler_modes == ["sequential", "parallel"]
     assert sleep_calls[:2] == [0.1, min(0.02, 0.001)]
@@ -380,7 +410,7 @@ def test_wait_for_no_ladder_trigger_starts_in_parallel_when_already_above_switch
     sleep_calls = []
     monkeypatch.setattr("services.orders.base_order_service.time.sleep", lambda seconds: sleep_calls.append(seconds))
 
-    triggered, response = service._wait_for_no_ladder_trigger(
+    triggered, response, ltp = service._wait_for_no_ladder_trigger(
         price_fetcher=price_fetcher,
         trigger_price=120.0,
         final_price=130.0,
@@ -402,9 +432,50 @@ def test_wait_for_no_ladder_trigger_starts_in_parallel_when_already_above_switch
 
     assert triggered is True
     assert response is None
+    assert ltp == 120.0
     assert price_fetcher.scheduler_modes == ["parallel"]
     assert price_fetcher.settings == []
     assert sleep_calls == [min(0.02, 0.001)]
+
+
+def test_wait_for_no_ladder_trigger_uses_event_driven_price_updates(monkeypatch):
+    service = DummyService()
+    price_fetcher = EventDrivenFakePriceFetcher()
+    sleep_calls = []
+    original_sleep = time.sleep
+    monkeypatch.setattr("services.workflows.trigger_waiters.time.sleep", lambda seconds: sleep_calls.append(seconds))
+
+    publisher = threading.Thread(
+        target=lambda: (original_sleep(0.01), price_fetcher.publish_ltp(120.0)),
+        daemon=True,
+    )
+    publisher.start()
+
+    triggered, response, ltp = service._wait_for_no_ladder_trigger(
+        price_fetcher=price_fetcher,
+        trigger_price=120.0,
+        final_price=130.0,
+        switch_threshold=110.0,
+        fast_poll_ms=100,
+        slow_poll_ms=500,
+        just_buy=False,
+        just_buy_params={
+            "order_quantity": 10,
+            "interval_ms": 100,
+            "timeout": 5,
+            "pre_wait_ms": 0,
+            "max_requests": None,
+            "fade_interval_ms": None,
+            "fade_timeout": None,
+        },
+        platform_params={"security_id": 101},
+    )
+    publisher.join(timeout=1.0)
+
+    assert triggered is True
+    assert response is None
+    assert ltp == 120.0
+    assert sleep_calls == []
 
 
 def test_setup_tms_price_fetcher_passes_parallel_scheduler_settings(monkeypatch):

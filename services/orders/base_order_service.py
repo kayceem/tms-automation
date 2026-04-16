@@ -850,12 +850,12 @@ class BaseOrderService(ABC):
         just_buy_params: Dict[str, Any],
         platform_params: Dict[str, Any],
         already_triggered: bool = False
-    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    ) -> Tuple[bool, Optional[Dict[str, Any]], Optional[float]]:
         """
         Wait for no_ladder trigger with dynamic polling and optional just_buy.
 
         Returns:
-            Tuple of (triggered: bool, response: Optional[Dict])
+            Tuple of (triggered: bool, response: Optional[Dict], ltp: Optional[float])
         """
         return wait_for_no_ladder_trigger(
             service=self,

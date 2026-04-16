@@ -3,6 +3,8 @@
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+EVENT_WATCHDOG_TIMEOUT_SECONDS = 0.5
+
 
 def wait_for_no_ladder_trigger(
     service: Any,
@@ -16,7 +18,7 @@ def wait_for_no_ladder_trigger(
     just_buy_params: Dict[str, Any],
     platform_params: Dict[str, Any],
     already_triggered: bool = False,
-) -> Tuple[bool, Optional[Dict[str, Any]]]:
+) -> Tuple[bool, Optional[Dict[str, Any]], Optional[float]]:
     """Wait for a no-ladder trigger with dynamic polling and optional just-buy."""
     if already_triggered and just_buy:
         service.logger.info(
@@ -37,9 +39,9 @@ def wait_for_no_ladder_trigger(
             just_buy_fade_timeout=just_buy_params.get("fade_timeout"),
         )
         if success:
-            return True, response
+            return True, response, None
         service.logger.warning(f"[{service.user_id}] Just buy failed.")
-        return False, None
+        return False, None, None
 
     service.logger.info(
         f"[{service.user_id}] NO LADDER MODE: Waiting for LTP >= Rs. {trigger_price} "
@@ -61,80 +63,118 @@ def wait_for_no_ladder_trigger(
     slow_sleep = slow_poll_ms / 5000.0
     fast_sleep = min((fast_poll_ms / 5000.0), 0.001)
     should_use_parallel = getattr(service.client.user_config, "trigger_mode_parallel_fetch_enabled", False)
+    supports_price_update_wait = (
+        hasattr(price_fetcher, "wait_for_price_update")
+        and hasattr(price_fetcher, "get_price_update_version")
+    )
+    last_seen_version = (
+        int(price_fetcher.get_price_update_version()) if supports_price_update_wait else 0
+    )
 
-    while True:
-        ltp = price_fetcher.get_latest_ltp()
-        
-        if ltp is not None:
-            if (
-                not switched_to_parallel
-                and should_use_parallel
-                and ltp >= switch_threshold
-                and not permanently_fast
-                and using_fast_poll
-            ):
+    def process_ltp(ltp: Optional[float]) -> Tuple[bool, Optional[Dict[str, Any]], Optional[float]]:
+        nonlocal using_fast_poll, permanently_fast, switched_to_parallel
+        if ltp is None:
+            return False, None, None
+
+        if (
+            not switched_to_parallel
+            and should_use_parallel
+            and ltp >= switch_threshold
+            and not permanently_fast
+            and using_fast_poll
+        ):
+            service.logger.info(
+                f"[{service.user_id}] LTP Rs. {ltp} >= Rs. {switch_threshold} - "
+                f"starting in FAST parallel mode"
+            )
+            if hasattr(price_fetcher, "update_scheduler_mode"):
+                price_fetcher.update_scheduler_mode("parallel")
+            switched_to_parallel = True
+
+        if ltp >= trigger_price:
+            service.logger.info(f"[{service.user_id}] TRIGGERED! LTP={ltp} >= Rs. {trigger_price}. ")
+            return True, None, ltp
+
+        if not permanently_fast:
+            if using_fast_poll and ltp < switch_threshold:
+                using_fast_poll = False
                 service.logger.info(
-                    f"[{service.user_id}] LTP Rs. {ltp} >= Rs. {switch_threshold} - "
-                    f"starting in FAST parallel mode"
+                    f"[{service.user_id}] LTP Rs. {ltp} < Rs. {switch_threshold} - "
+                    f"switching to SLOW polling ({slow_poll_ms}ms, cooldown OFF)"
                 )
                 if hasattr(price_fetcher, "update_scheduler_mode"):
-                    price_fetcher.update_scheduler_mode("parallel")
-                switched_to_parallel = True
+                    price_fetcher.update_scheduler_mode("sequential")
+                if hasattr(price_fetcher, "update_poll_settings"):
+                    price_fetcher.update_poll_settings(slow_poll_ms, enable_cooldown=False)
+                switched_to_parallel = False
 
-            if ltp >= trigger_price:
-                service.logger.info(f"[{service.user_id}] TRIGGERED! LTP={ltp} >= Rs. {trigger_price}. ")
-                return True, None
+            elif not using_fast_poll and ltp >= switch_threshold:
+                using_fast_poll = True
+                permanently_fast = True
+                service.logger.info(
+                    f"[{service.user_id}] LTP Rs. {ltp} >= Rs. {switch_threshold} - "
+                    f"switch threshold reached!"
+                )
 
-            if not permanently_fast:
-                if using_fast_poll and ltp < switch_threshold:
-                    using_fast_poll = False
-                    service.logger.info(
-                        f"[{service.user_id}] LTP Rs. {ltp} < Rs. {switch_threshold} - "
-                        f"switching to SLOW polling ({slow_poll_ms}ms, cooldown OFF)"
+                if just_buy:
+                    success, response = service._execute_just_buy(
+                        final_price=final_price,
+                        trigger_price=trigger_price,
+                        order_quantity=just_buy_params["order_quantity"],
+                        just_buy_interval_ms=just_buy_params["interval_ms"],
+                        just_buy_timeout=just_buy_params["timeout"],
+                        just_buy_pre_wait_ms=just_buy_params["pre_wait_ms"],
+                        price_fetcher=price_fetcher,
+                        platform_params=platform_params,
+                        just_buy_max_requests=just_buy_params["max_requests"],
+                        just_buy_fade_interval_ms=just_buy_params.get("fade_interval_ms"),
+                        just_buy_fade_timeout=just_buy_params.get("fade_timeout"),
                     )
+                    if success:
+                        return True, response, None
+
+                service.logger.info(
+                    f"[{service.user_id}] Switching to FAST polling ({fast_poll_ms}ms, cooldown ON) PERMANENTLY"
+                )
+                if getattr(service.client.user_config, "trigger_mode_parallel_fetch_enabled", False):
                     if hasattr(price_fetcher, "update_scheduler_mode"):
-                        price_fetcher.update_scheduler_mode("sequential")
-                    if hasattr(price_fetcher, "update_poll_settings"):
-                        price_fetcher.update_poll_settings(slow_poll_ms, enable_cooldown=False)
-                    switched_to_parallel = False
+                        price_fetcher.update_scheduler_mode("parallel")
+                    switched_to_parallel = True
+                if hasattr(price_fetcher, "update_poll_settings"):
+                    price_fetcher.update_poll_settings(fast_poll_ms, enable_cooldown=True)
 
-                elif not using_fast_poll and ltp >= switch_threshold:
-                    using_fast_poll = True
-                    permanently_fast = True
-                    service.logger.info(
-                        f"[{service.user_id}] LTP Rs. {ltp} >= Rs. {switch_threshold} - "
-                        f"switch threshold reached!"
-                    )
+        return False, None, None
 
-                    if just_buy:
-                        success, response = service._execute_just_buy(
-                            final_price=final_price,
-                            trigger_price=trigger_price,
-                            order_quantity=just_buy_params["order_quantity"],
-                            just_buy_interval_ms=just_buy_params["interval_ms"],
-                            just_buy_timeout=just_buy_params["timeout"],
-                            just_buy_pre_wait_ms=just_buy_params["pre_wait_ms"],
-                            price_fetcher=price_fetcher,
-                            platform_params=platform_params,
-                            just_buy_max_requests=just_buy_params["max_requests"],
-                            just_buy_fade_interval_ms=just_buy_params.get("fade_interval_ms"),
-                            just_buy_fade_timeout=just_buy_params.get("fade_timeout"),
-                        )
-                        if success:
-                            return True, response
+    if supports_price_update_wait:
+        triggered, response, ltp = process_ltp(price_fetcher.get_latest_ltp())
+        if triggered:
+            return True, response, ltp
 
-                    service.logger.info(
-                        f"[{service.user_id}] Switching to FAST polling ({fast_poll_ms}ms, cooldown ON) PERMANENTLY"
-                    )
-                    if getattr(service.client.user_config, "trigger_mode_parallel_fetch_enabled", False):
-                        if hasattr(price_fetcher, "update_scheduler_mode"):
-                            price_fetcher.update_scheduler_mode("parallel")
-                        switched_to_parallel = True
-                    if hasattr(price_fetcher, "update_poll_settings"):
-                        price_fetcher.update_poll_settings(fast_poll_ms, enable_cooldown=True)
+    while True:
+        if supports_price_update_wait:
+            try:
+                ltp, updated_version = price_fetcher.wait_for_price_update(
+                    last_seen_version,
+                    timeout_seconds=EVENT_WATCHDOG_TIMEOUT_SECONDS,
+                )
+            except KeyboardInterrupt:
+                service.logger.info(f"[{service.user_id}] IPO trigger interrupted by user")
+                raise
+            if updated_version == last_seen_version:
+                continue
+            last_seen_version = updated_version
+            triggered, response, triggered_ltp = process_ltp(ltp)
+            if triggered:
+                return True, response, triggered_ltp
+            continue
 
+        ltp = price_fetcher.get_latest_ltp()
+        triggered, response, triggered_ltp = process_ltp(ltp)
+        if triggered:
+            return True, response, triggered_ltp
+        sleep_duration = slow_sleep if not using_fast_poll else fast_sleep
         try:
-            time.sleep(slow_sleep if not using_fast_poll else fast_sleep)
+            time.sleep(sleep_duration)
         except KeyboardInterrupt:
             service.logger.info(f"[{service.user_id}] IPO trigger interrupted by user")
             raise
@@ -151,8 +191,15 @@ def wait_for_skip_first_trigger(
         f"[{service.user_id}] Skip-first enabled: waiting for LTP >= Rs. {first_price}"
     )
     sleep_duration = slow_poll_ms / 5000.0
+    supports_price_update_wait = (
+        hasattr(price_fetcher, "wait_for_price_update")
+        and hasattr(price_fetcher, "get_price_update_version")
+    )
+    last_seen_version = (
+        int(price_fetcher.get_price_update_version()) if supports_price_update_wait else 0
+    )
 
-    while True:
+    if supports_price_update_wait:
         ltp = price_fetcher.get_latest_ltp()
         if ltp is not None and ltp >= first_price:
             service.logger.info(
@@ -161,6 +208,30 @@ def wait_for_skip_first_trigger(
             )
             return
 
+    while True:
+        if supports_price_update_wait:
+            try:
+                ltp, updated_version = price_fetcher.wait_for_price_update(
+                    last_seen_version,
+                    timeout_seconds=EVENT_WATCHDOG_TIMEOUT_SECONDS,
+                )
+            except KeyboardInterrupt:
+                service.logger.info(f"[{service.user_id}] IPO trigger interrupted by user")
+                raise
+            if updated_version == last_seen_version:
+                continue
+            last_seen_version = updated_version
+        else:
+            ltp = price_fetcher.get_latest_ltp()
+        if ltp is not None and ltp >= first_price:
+            service.logger.info(
+                f"[{service.user_id}] Initial trigger reached! LTP={ltp} >= "
+                f"Rs. {first_price}. Starting from level 2."
+            )
+            return
+
+        if supports_price_update_wait:
+            continue
         try:
             time.sleep(sleep_duration)
         except KeyboardInterrupt:
@@ -192,8 +263,57 @@ def wait_for_ladder_trigger(
             f"to place order at Rs. {target_price} (+{increment_pct}%)"
         )
 
-    while True:
+    supports_price_update_wait = (
+        hasattr(price_fetcher, "wait_for_price_update")
+        and hasattr(price_fetcher, "get_price_update_version")
+    )
+    last_seen_version = (
+        int(price_fetcher.get_price_update_version()) if supports_price_update_wait else 0
+    )
+
+    if supports_price_update_wait:
         ltp = price_fetcher.get_latest_ltp()
+        if ltp is not None and ltp >= trigger_price:
+            while current_level_index < len(price_levels) - 1 and ltp >= price_levels[current_level_index]:
+                service.logger.warning(
+                    f"[{service.user_id}] LTP={ltp} >= Rs. {price_levels[current_level_index]}, "
+                    f"skipping missed level {current_level_index + 1}"
+                )
+                current_level_index += 1
+
+            if current_level_index == second_last_index and skip_second_last:
+                service.logger.info(
+                    f"[{service.user_id}] Skipping second-to-last level {current_level_index + 1} "
+                    f"(Rs. {price_levels[current_level_index]}) as requested"
+                )
+                current_level_index += 1
+
+            service.logger.info(
+                f"[{service.user_id}] TRIGGERED! LTP={ltp} >= "
+                f"Rs. {trigger_price}. Placing order at Rs. {price_levels[current_level_index]}"
+            )
+
+            if hasattr(price_fetcher, "start_market_details"):
+                service.logger.info(f"[{service.user_id}] Starting market details monitoring for order placement")
+                price_fetcher.start_market_details()
+
+            return ltp, current_level_index
+
+    while True:
+        if supports_price_update_wait:
+            try:
+                ltp, updated_version = price_fetcher.wait_for_price_update(
+                    last_seen_version,
+                    timeout_seconds=EVENT_WATCHDOG_TIMEOUT_SECONDS,
+                )
+            except KeyboardInterrupt:
+                service.logger.info(f"[{service.user_id}] IPO trigger interrupted by user")
+                raise
+            if updated_version == last_seen_version:
+                continue
+            last_seen_version = updated_version
+        else:
+            ltp = price_fetcher.get_latest_ltp()
 
         if ltp is not None and ltp >= trigger_price:
             while current_level_index < len(price_levels) - 1 and ltp >= price_levels[current_level_index]:
@@ -221,6 +341,8 @@ def wait_for_ladder_trigger(
 
             return ltp, current_level_index
 
+        if supports_price_update_wait:
+            continue
         try:
             time.sleep(0.05)
         except KeyboardInterrupt:

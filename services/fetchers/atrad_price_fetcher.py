@@ -50,6 +50,8 @@ class ATRADPriceFetcher:
         self._running = False
         self._paused = False
         self._lock = threading.Lock()
+        self._price_update_condition = threading.Condition(self._lock)
+        self._ltp_version = 0
         self._fetch_thread: Optional[threading.Thread] = None
         self._wakeup_event = threading.Event()
 
@@ -97,6 +99,29 @@ class ATRADPriceFetcher:
         """
         with self._lock:
             return self._latest_ltp
+
+    def get_price_update_version(self) -> int:
+        """Return the monotonic version of the last published LTP update."""
+        with self._lock:
+            return self._ltp_version
+
+    def wait_for_price_update(
+        self,
+        last_seen_version: int,
+        timeout_seconds: float | None = None,
+    ) -> tuple[Optional[float], int]:
+        """Wait until a new LTP is published or the timeout expires."""
+        with self._price_update_condition:
+            if self._ltp_version <= last_seen_version:
+                self._price_update_condition.wait(timeout=timeout_seconds)
+            return self._latest_ltp, self._ltp_version
+
+    def _publish_ltp(self, ltp: float) -> None:
+        """Publish a new LTP value and wake trigger waiters immediately."""
+        with self._price_update_condition:
+            self._latest_ltp = ltp
+            self._ltp_version += 1
+            self._price_update_condition.notify_all()
 
     def pause(self):
         """
@@ -178,8 +203,7 @@ class ATRADPriceFetcher:
                     if not ltp:
                         logger.warning(f"[{self.fetch_client.user_id}] LTP fetch returned None")
                     else:
-                        with self._lock:
-                            self._latest_ltp = ltp
+                        self._publish_ltp(ltp)
                         logger.debug(f"[{self.fetch_client.user_id}] LTP={ltp})")
                     sleep_duration = poll_interval_seconds
 
@@ -241,6 +265,8 @@ class ATRADMultiUserPriceFetcher:
         self._running = False
         self._paused = False
         self._lock = threading.RLock()
+        self._price_update_condition = threading.Condition(self._lock)
+        self._ltp_version = 0
         self._fetch_thread: Optional[threading.Thread] = None
         self._wakeup_event = threading.Event()
         self._parallel_completion_queue: deque[str] = deque()
@@ -328,6 +354,29 @@ class ATRADMultiUserPriceFetcher:
         """
         with self._lock:
             return self._latest_ltp
+
+    def get_price_update_version(self) -> int:
+        """Return the monotonic version of the last published LTP update."""
+        with self._lock:
+            return self._ltp_version
+
+    def wait_for_price_update(
+        self,
+        last_seen_version: int,
+        timeout_seconds: float | None = None,
+    ) -> tuple[Optional[float], int]:
+        """Wait until a new LTP is published or the timeout expires."""
+        with self._price_update_condition:
+            if self._ltp_version <= last_seen_version:
+                self._price_update_condition.wait(timeout=timeout_seconds)
+            return self._latest_ltp, self._ltp_version
+
+    def _publish_ltp(self, ltp: float) -> None:
+        """Publish a new LTP value and wake trigger waiters immediately."""
+        with self._price_update_condition:
+            self._latest_ltp = ltp
+            self._ltp_version += 1
+            self._price_update_condition.notify_all()
 
     def update_poll_settings(self, poll_interval_ms: int, enable_cooldown: bool):
         """
@@ -441,7 +490,7 @@ class ATRADMultiUserPriceFetcher:
                     )
                     is_fresh = (self._latest_ltp is None or ltp > self._latest_ltp)
                     if ltp is not None and can_publish and is_fresh:
-                        self._latest_ltp = ltp
+                        self._publish_ltp(ltp)
                         logger.debug(f"[{current_user.name}] Parallel fetch #{fetch_index}: LTP={ltp} ({current_user.symbol})")
                     elif ltp is None:
                         logger.warning(
@@ -645,8 +694,7 @@ class ATRADMultiUserPriceFetcher:
                             self._wakeup_event.wait(timeout=delay)
                             self._wakeup_event.clear()
                             continue
-                        with self._lock:
-                            self._latest_ltp = ltp
+                        self._publish_ltp(ltp)
                         logger.debug(f"[{current_user.name}] LTP={ltp})")
                         sleep_duration = poll_interval_seconds
                 else:

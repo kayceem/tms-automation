@@ -112,7 +112,7 @@ def execute_no_ladder_mode(
     order_worker = _PrestartedOrderPlacementWorker(service._place_order_with_retries)
 
     try:
-        triggered, just_buy_response = service._wait_for_no_ladder_trigger(
+        triggered, just_buy_response, trigger_ltp = service._wait_for_no_ladder_trigger(
             price_fetcher=price_fetcher,
             trigger_price=trigger_price,
             final_price=final_price,
@@ -133,7 +133,7 @@ def execute_no_ladder_mode(
             service.logger.warning(f"[{service.user_id}] Skipping for already triggered order in multi-queue priority")
             return None
 
-        ltp = price_fetcher.get_latest_ltp()
+        ltp = trigger_ltp if trigger_ltp is not None else trigger_price
         order_params = {**platform_params, "market_price": ltp}
 
         order_worker.dispatch(

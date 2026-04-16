@@ -49,6 +49,8 @@ class PriceFetcher:
         self._running = False
         self._paused = False
         self._lock = threading.Lock()
+        self._price_update_condition = threading.Condition(self._lock)
+        self._ltp_version = 0
         self._fetch_thread: Optional[threading.Thread] = None
 
         logger.info(
@@ -90,6 +92,29 @@ class PriceFetcher:
         """
         with self._lock:
             return self._latest_ltp
+
+    def get_price_update_version(self) -> int:
+        """Return the monotonic version of the last published LTP update."""
+        with self._lock:
+            return self._ltp_version
+
+    def wait_for_price_update(
+        self,
+        last_seen_version: int,
+        timeout_seconds: float | None = None,
+    ) -> tuple[Optional[float], int]:
+        """Wait until a new LTP is published or the timeout expires."""
+        with self._price_update_condition:
+            if self._ltp_version <= last_seen_version:
+                self._price_update_condition.wait(timeout=timeout_seconds)
+            return self._latest_ltp, self._ltp_version
+
+    def _publish_ltp(self, ltp: float) -> None:
+        """Publish a new LTP value and wake trigger waiters immediately."""
+        with self._price_update_condition:
+            self._latest_ltp = ltp
+            self._ltp_version += 1
+            self._price_update_condition.notify_all()
 
     def pause(self):
         """
@@ -133,8 +158,7 @@ class PriceFetcher:
 
                     # Update latest value
                     if ltp is not None:
-                        with self._lock:
-                            self._latest_ltp = ltp
+                        self._publish_ltp(ltp)
                         logger.debug(
                             f"[{self.fetch_client.user_id}] Updated LTP: {ltp}"
                         )
@@ -297,6 +321,8 @@ class MultiUserPriceFetcher:
         self._running = False
         self._paused = False
         self._lock = threading.RLock()
+        self._price_update_condition = threading.Condition(self._lock)
+        self._ltp_version = 0
         self._fetch_thread: Optional[threading.Thread] = None
         self._parallel_completion_queue: deque[str] = deque()
         self._parallel_pending_users: deque[str] = deque()
@@ -377,6 +403,29 @@ class MultiUserPriceFetcher:
         """
         with self._lock:
             return self._latest_ltp
+
+    def get_price_update_version(self) -> int:
+        """Return the monotonic version of the last published LTP update."""
+        with self._lock:
+            return self._ltp_version
+
+    def wait_for_price_update(
+        self,
+        last_seen_version: int,
+        timeout_seconds: float | None = None,
+    ) -> tuple[Optional[float], int]:
+        """Wait until a new LTP is published or the timeout expires."""
+        with self._price_update_condition:
+            if self._ltp_version <= last_seen_version:
+                self._price_update_condition.wait(timeout=timeout_seconds)
+            return self._latest_ltp, self._ltp_version
+
+    def _publish_ltp(self, ltp: float) -> None:
+        """Publish a new LTP value and wake trigger waiters immediately."""
+        with self._price_update_condition:
+            self._latest_ltp = ltp
+            self._ltp_version += 1
+            self._price_update_condition.notify_all()
 
     def update_poll_settings(self, poll_interval_ms: int, enable_cooldown: bool):
         """
@@ -481,7 +530,7 @@ class MultiUserPriceFetcher:
                         and self._current_scheduler_mode() == "parallel"
                     )
                     if ltp is not None and can_publish:
-                        self._latest_ltp = ltp
+                        self._publish_ltp(ltp)
                         logger.debug(
                             f"[{current_user.name}] Parallel fetch #{fetch_index}: "
                             f"LTP={ltp} (sid={current_user.fetch_security_id})"
@@ -634,8 +683,7 @@ class MultiUserPriceFetcher:
                             timeout=timeout,
                         )
                         if ltp is not None:
-                            with self._lock:
-                                self._latest_ltp = ltp
+                            self._publish_ltp(ltp)
                             logger.debug(
                                 f"[{current_user.name}] Fetch #{fetch_count}: "
                                 f"LTP={ltp} (sid={current_user.fetch_security_id})"

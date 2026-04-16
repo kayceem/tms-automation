@@ -48,23 +48,45 @@ class TriggerPriceFetcher:
         self.trigger_available_times = trigger_available_times
         self.trigger_after_ms = trigger_after_ms
         self._trigger_available = False
+        self._ltp: float = self.ltp - 10.0
+        self._ltp_version = 0
         self._availability_lock = threading.Lock()
+        self._price_update_condition = threading.Condition(self._availability_lock)
         self._availability_thread = threading.Thread(target=self._make_trigger_available, daemon=True)
         self._availability_thread.start()
 
     def _make_trigger_available(self) -> None:
         time.sleep(max(self.trigger_after_ms, 0.0) / 1000.0)
-        with self._availability_lock:
+        with self._price_update_condition:
             self._trigger_available = True
+            self._ltp = self.ltp
+            self._ltp_version += 1
             self.trigger_available_times.append(time.perf_counter())
+            self._price_update_condition.notify_all()
 
     def get_latest_ltp(self) -> float:
         with self._availability_lock:
             trigger_available = self._trigger_available
+            ltp = self._ltp
         if trigger_available:
             self.trigger_times.append(time.perf_counter())
-            return self.ltp
-        return self.ltp - 10.0
+        return ltp
+
+    def get_price_update_version(self) -> int:
+        with self._availability_lock:
+            return self._ltp_version
+
+    def wait_for_price_update(
+        self,
+        last_seen_version: int,
+        timeout_seconds: float | None = None,
+    ) -> tuple[float, int]:
+        with self._price_update_condition:
+            if self._ltp_version <= last_seen_version:
+                self._price_update_condition.wait(timeout=timeout_seconds)
+            if self._trigger_available and self._ltp_version > last_seen_version:
+                self.trigger_times.append(time.perf_counter())
+            return self._ltp, self._ltp_version
 
     def pause(self) -> None:
         return None
@@ -244,7 +266,7 @@ def render_report(
         ),
         "=" * 72,
         "Definitions",
-        "- price_update_to_trigger_detect: from the synthetic price source becoming triggered to the polling loop reading that triggered LTP",
+        "- price_update_to_trigger_detect: from the synthetic price source becoming triggered to the event-driven trigger waiter receiving that triggered LTP update",
         "- trigger_to_session_request: from the triggered LTP read to entering client.session.request(...)",
         "- place_order_to_session_request: from entering ATRADClient.place_order(...) to entering client.session.request(...)",
         "",
