@@ -110,6 +110,9 @@ class OrderLogsScreen(Screen[None]):
         self.query_one("#order-logs-table", DataTable).add_columns(*self.COLUMNS)
         self._reload()
 
+    def on_screen_resume(self) -> None:
+        self._reload()
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "refresh":
             self.action_refresh()

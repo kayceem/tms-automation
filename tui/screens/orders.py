@@ -396,6 +396,14 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
         self._apply_dependency_state()
 
     def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "order-user_id":
+            raw_value = event.input.value.strip()
+            if raw_value in {"1", "2", "3", "4", "5", "6", "7", "8", "9"}:
+                event.input.value = f"atrad_user{raw_value}"
+                self.query_one("#order-editor-status", Static).update(
+                    f"User ID set to atrad_user{raw_value}"
+                )
+                return
         if event.input.id in {"order-input-price", "order-input-limit", "order-input-quantity"}:
             self._update_cost_estimate()
 
@@ -590,6 +598,15 @@ class OrdersScreen(Screen[None]):
         ("a", "add_order", "Add"),
         ("e", "edit_order", "Edit"),
         ("d", "delete_order", "Delete"),
+        ("1", "set_row_user_id('1')", "User 1"),
+        ("2", "set_row_user_id('2')", "User 2"),
+        ("3", "set_row_user_id('3')", "User 3"),
+        ("4", "set_row_user_id('4')", "User 4"),
+        ("5", "set_row_user_id('5')", "User 5"),
+        ("6", "set_row_user_id('6')", "User 6"),
+        ("7", "set_row_user_id('7')", "User 7"),
+        ("8", "set_row_user_id('8')", "User 8"),
+        ("9", "set_row_user_id('9')", "User 9"),
         ("t", "toggle_execute", "Toggle Execute"),
         ("r", "refresh_prices", "Refresh Prices"),
         ("u", "refresh_store", "Reload Store"),
@@ -647,6 +664,10 @@ class OrdersScreen(Screen[None]):
         )
         self.reload_table()
         table.focus()
+
+    def on_screen_resume(self) -> None:
+        self.service.refresh_store()
+        self.reload_table()
 
     def reload_table(self) -> None:
         table = self.query_one("#orders-table", DataTable)
@@ -757,6 +778,20 @@ class OrdersScreen(Screen[None]):
         state = "ON" if new_execute else "OFF"
         suffix = " (success reset)" if new_execute else ""
         self._set_status(f"Execute {state} for '{order_id}'{suffix}.")
+
+    def action_set_row_user_id(self, suffix: str) -> None:
+        order_id = self._selected_order_id()
+        if not order_id:
+            self._set_status("Select an order first.")
+            return
+        user_id = f"atrad_user{suffix}"
+        try:
+            self.service.update_order(order_id, {"user_id": user_id})
+        except ValueError as exc:
+            self._set_status(str(exc))
+            return
+        self.reload_table()
+        self._set_status(f"User ID set to '{user_id}' for '{order_id}'.")
 
     def action_refresh_store(self) -> None:
         self.service.refresh_store()

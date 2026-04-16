@@ -177,15 +177,11 @@ class UserConfigScreen(FocusableScreen):
         yield Footer()
 
     def on_mount(self) -> None:
-        defaults = self.service.load_defaults()
-        for field_name, _label, field_type in DEFAULT_FIELDS:
-            value = defaults.get(field_name)
-            if value is not None:
-                if field_type == "bool":
-                    self.query_one(f"#default-input-{field_name}", Select).value = "true" if value else "false"
-                else:
-                    self.query_one(f"#default-input-{field_name}", Input).value = str(value)
+        self._load_defaults()
         self.query_one(f"#default-input-{DEFAULT_FIELDS[0][0]}", Input).focus()
+
+    def on_screen_resume(self) -> None:
+        self._load_defaults()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "reset":
@@ -210,6 +206,16 @@ class UserConfigScreen(FocusableScreen):
 
     def _set_status(self, message: str) -> None:
         self.query_one("#config-status", Static).update(message)
+
+    def _load_defaults(self) -> None:
+        defaults = self.service.load_defaults()
+        for field_name, _label, field_type in DEFAULT_FIELDS:
+            value = defaults.get(field_name)
+            if value is not None:
+                if field_type == "bool":
+                    self.query_one(f"#default-input-{field_name}", Select).value = "true" if value else "false"
+                else:
+                    self.query_one(f"#default-input-{field_name}", Input).value = str(value)
 
     def action_reset_jsession(self) -> None:
         results = self.service.reset_jsession_ids()

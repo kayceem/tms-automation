@@ -81,6 +81,28 @@ def test_order_editor_submits_user_id_field():
     asyncio.run(run())
 
 
+def test_order_editor_digit_shortcut_sets_atrad_user_id():
+    async def run() -> None:
+        app = TMSAutomationTUI()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            screen = OrderEditorScreen("Add Order", ORDER_TEMPLATE)
+            app.push_screen(screen)
+            await pilot.pause()
+
+            user_input = screen.query_one("#order-user_id", Input)
+            user_input.focus()
+            await pilot.pause()
+
+            await pilot.press("3")
+            await pilot.pause()
+
+            assert user_input.value == "atrad_user3"
+
+    asyncio.run(run())
+
+
 def test_order_book_auto_refresh_only_targets_active_panel():
     class FakePortfolioService:
         def get_user_label(self, _path: Path) -> str:
