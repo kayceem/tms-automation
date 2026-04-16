@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import statistics
 import sys
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -32,26 +33,43 @@ class MetricStats:
 
 
 class TriggerPriceFetcher:
-    """Synthetic fetcher that triggers immediately and timestamps LTP reads."""
+    """Synthetic fetcher that timestamps both price availability and trigger detection."""
 
-    def __init__(self, ltp: float, trigger_times: list[float], polls_before_trigger: int = 3) -> None:
+    def __init__(
+        self,
+        ltp: float,
+        trigger_times: list[float],
+        *,
+        trigger_available_times: list[float],
+        trigger_after_ms: float,
+    ) -> None:
         self.ltp = ltp
         self.trigger_times = trigger_times
-        self.polls_before_trigger = polls_before_trigger
-        self._counter = 0
+        self.trigger_available_times = trigger_available_times
+        self.trigger_after_ms = trigger_after_ms
+        self._trigger_available = False
+        self._availability_lock = threading.Lock()
+        self._availability_thread = threading.Thread(target=self._make_trigger_available, daemon=True)
+        self._availability_thread.start()
+
+    def _make_trigger_available(self) -> None:
+        time.sleep(max(self.trigger_after_ms, 0.0) / 1000.0)
+        with self._availability_lock:
+            self._trigger_available = True
+            self.trigger_available_times.append(time.perf_counter())
 
     def get_latest_ltp(self) -> float:
-        if self._counter >= self.polls_before_trigger:
+        with self._availability_lock:
+            trigger_available = self._trigger_available
+        if trigger_available:
             self.trigger_times.append(time.perf_counter())
             return self.ltp
-        self._counter += 1
         return self.ltp - 10.0
 
     def pause(self) -> None:
         return None
 
     def start_market_details(self) -> None:
-        time.sleep(0.01)  # Simulate some delay in starting market details
         return None
 
     def stop_market_details(self) -> None:
@@ -111,16 +129,24 @@ def measure_trigger_to_session_request(
     quantity: int,
     side: str,
     iterations: int,
-) -> tuple[MetricStats, MetricStats]:
+    trigger_after_ms: float,
+) -> tuple[MetricStats, MetricStats, MetricStats]:
     service = ATRADOrderService(client)
+    price_update_to_detect_values: list[float] = []
     trigger_to_request_values: list[float] = []
     place_to_request_values: list[float] = []
 
     for _ in range(iterations):
+        trigger_available_times: list[float] = []
         trigger_times: list[float] = []
         place_order_entry_times: list[float] = []
         request_entry_times: list[float] = []
-        fetcher = TriggerPriceFetcher(trigger_price, trigger_times)
+        fetcher = TriggerPriceFetcher(
+            trigger_price,
+            trigger_times,
+            trigger_available_times=trigger_available_times,
+            trigger_after_ms=trigger_after_ms,
+        )
 
         original_place_order = client.place_order
         original_session_request = client.session.request
@@ -153,13 +179,18 @@ def measure_trigger_to_session_request(
 
         if response is None:
             raise RuntimeError("Probe returned no response")
-        if not trigger_times or not request_entry_times or not place_order_entry_times:
+        if not trigger_available_times or not trigger_times or not request_entry_times or not place_order_entry_times:
             raise RuntimeError("Probe did not capture all timestamps")
 
+        price_update_to_detect_values.append(trigger_times[0] - trigger_available_times[0])
         trigger_to_request_values.append(request_entry_times[0] - trigger_times[0])
         place_to_request_values.append(request_entry_times[0] - place_order_entry_times[0])
 
-    return summarize(trigger_to_request_values), summarize(place_to_request_values)
+    return (
+        summarize(price_update_to_detect_values),
+        summarize(trigger_to_request_values),
+        summarize(place_to_request_values),
+    )
 
 
 def render_report(
@@ -171,6 +202,7 @@ def render_report(
     trigger_price: float,
     final_price: float,
     iterations: int,
+    price_update_to_detect: MetricStats,
     trigger_to_request: MetricStats,
     place_to_request: MetricStats,
 ) -> str:
@@ -190,6 +222,13 @@ def render_report(
         f"{'metric':<30} {'median':>12} {'p95':>12} {'min':>12} {'max':>12}",
         "-" * 72,
         (
+            f"{'price_update_to_trigger_detect':<30} "
+            f"{price_update_to_detect.median_ms:>10.4f}ms "
+            f"{price_update_to_detect.p95_ms:>10.4f}ms "
+            f"{price_update_to_detect.min_ms:>10.4f}ms "
+            f"{price_update_to_detect.max_ms:>10.4f}ms"
+        ),
+        (
             f"{'trigger_to_session_request':<30} "
             f"{trigger_to_request.median_ms:>10.4f}ms "
             f"{trigger_to_request.p95_ms:>10.4f}ms "
@@ -205,6 +244,7 @@ def render_report(
         ),
         "=" * 72,
         "Definitions",
+        "- price_update_to_trigger_detect: from the synthetic price source becoming triggered to the polling loop reading that triggered LTP",
         "- trigger_to_session_request: from the triggered LTP read to entering client.session.request(...)",
         "- place_order_to_session_request: from entering ATRADClient.place_order(...) to entering client.session.request(...)",
         "",
@@ -226,6 +266,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trigger-price", type=float, default=110.0, help="Simulated trigger price")
     parser.add_argument("--final-price", type=float, default=120.0, help="Final order price submitted after trigger")
     parser.add_argument("--iterations", type=int, default=200, help="Number of measurements to collect")
+    parser.add_argument(
+        "--trigger-after-ms",
+        type=float,
+        default=5.0,
+        help="Delay before the synthetic price source flips into the triggered state",
+    )
     parser.add_argument("--output", help="Optional report path")
     return parser.parse_args()
 
@@ -233,7 +279,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     client = load_client(args.user_config)
-    trigger_to_request, place_to_request = measure_trigger_to_session_request(
+    price_update_to_detect, trigger_to_request, place_to_request = measure_trigger_to_session_request(
         client,
         symbol=args.symbol,
         trigger_price=args.trigger_price,
@@ -241,6 +287,7 @@ def main() -> None:
         quantity=args.quantity,
         side=args.side,
         iterations=args.iterations,
+        trigger_after_ms=args.trigger_after_ms,
     )
     report = render_report(
         user_id=client.user_id,
@@ -250,6 +297,7 @@ def main() -> None:
         trigger_price=args.trigger_price,
         final_price=args.final_price,
         iterations=args.iterations,
+        price_update_to_detect=price_update_to_detect,
         trigger_to_request=trigger_to_request,
         place_to_request=place_to_request,
     )

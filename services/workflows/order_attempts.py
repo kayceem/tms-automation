@@ -15,7 +15,7 @@ def place_order_with_retries(
     platform_params: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
     """Place an order with up to three attempts."""
-    service.logger.info(
+    service.logger.debug(
         f"[{service.user_id}] Placing order level {level_display}/{total_levels} "
         f"at Rs. {target_price}, Qty={quantity}"
     )
