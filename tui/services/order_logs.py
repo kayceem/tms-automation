@@ -162,7 +162,7 @@ class OrderLogsService:
             return False
         last_digit = bid_qty_int % 10
         base = order_qty_int % 10
-        targets = {(base + 1) % 10, (base + 2) % 10, base % 10, (base + 5) % 10, (base + 10) % 10}
+        targets = {(base + 1) % 10, (base + 2) % 10, (base + 3) % 10, base % 10, (base + 5) % 10, (base + 10) % 10}
         return last_digit in targets
 
     @staticmethod

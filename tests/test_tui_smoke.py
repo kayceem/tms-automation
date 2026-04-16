@@ -13,6 +13,7 @@ from tui.app import TMSAutomationTUI
 from tui.screens.main_menu import MainMenuScreen
 from tui.screens.orders import ORDER_TEMPLATE, OrderEditorScreen
 from tui.screens.portfolio import OrderBookScreen
+from tui.screens.orders import OrdersScreen
 
 
 def test_tui_main_screen_mounts():
@@ -155,3 +156,34 @@ def test_order_book_t_binding_is_noop_outside_watchlists_and_top():
 
     screen.action_toggle_top_or_cycle_watchlist()
     assert calls == []
+
+
+def test_orders_screen_can_reload_store_from_disk():
+    class FakeOrderStoreService:
+        def __init__(self) -> None:
+            self.refresh_calls = 0
+
+        def list_rows(self):
+            return []
+
+        def refresh_store(self) -> None:
+            self.refresh_calls += 1
+
+    class FakePriceRefreshService:
+        pass
+
+    service = FakeOrderStoreService()
+    screen = OrdersScreen(service=service, price_refresh_service=FakePriceRefreshService())
+    reload_calls: list[str] = []
+    statuses: list[str] = []
+
+    screen.reload_table = lambda: reload_calls.append("reload")  # type: ignore[method-assign]
+    screen._set_status = lambda message: statuses.append(message)  # type: ignore[method-assign]
+
+    assert any(binding[0] == "u" and binding[1] == "refresh_store" for binding in screen.BINDINGS)
+
+    screen.action_refresh_store()
+
+    assert service.refresh_calls == 1
+    assert reload_calls == ["reload"]
+    assert statuses == ["Reloaded order store from disk."]

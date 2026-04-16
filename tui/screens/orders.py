@@ -584,6 +584,7 @@ class OrdersScreen(Screen[None]):
         ("d", "delete_order", "Delete"),
         ("t", "toggle_execute", "Toggle Execute"),
         ("r", "refresh_prices", "Refresh Prices"),
+        ("u", "refresh_store", "Reload Store"),
         ("escape", "app.pop_screen", "Back"),
     ]
 
@@ -615,6 +616,7 @@ class OrdersScreen(Screen[None]):
             yield Button("[D] Remove", id="remove", classes="action-button")
             yield Button("[T] Toggle Execute", id="toggle-execute", classes="action-button")
             yield Button("[R] Refresh Prices", id="refresh-prices", classes="action-button")
+            yield Button("[U] Reload Store", id="refresh-store", classes="action-button")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -745,6 +747,11 @@ class OrdersScreen(Screen[None]):
         suffix = " (success reset)" if new_execute else ""
         self._set_status(f"Execute {state} for '{order_id}'{suffix}.")
 
+    def action_refresh_store(self) -> None:
+        self.service.refresh_store()
+        self.reload_table()
+        self._set_status("Reloaded order store from disk.")
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "add":
             self.action_add_order()
@@ -756,6 +763,8 @@ class OrdersScreen(Screen[None]):
             self.action_toggle_execute()
         elif event.button.id == "refresh-prices":
             self.action_refresh_prices()
+        elif event.button.id == "refresh-store":
+            self.action_refresh_store()
 
     @work(thread=True)
     def action_refresh_prices(self) -> None:

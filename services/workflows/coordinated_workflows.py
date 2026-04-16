@@ -145,29 +145,33 @@ def execute_single_ipo_order(
             "order_validity": "DAY",
         }
 
-    return service._execute_ipo_trigger(
-        base_price=order["price"],
-        order_quantity=order["quantity"],
-        fetch_clients=fetch_clients,
-        limit_price=order.get("limit"),
-        skip_first=order.get("skip_first", False),
-        skip_second_last=order.get("skip_second_last", False),
-        no_ladder=order.get("no_ladder", False),
-        fetch_security_id=order.get("fetch_id"),
-        base_quantity=order.get("base_quantity"),
-        ticker=order.get("ticker"),
-        double_buy=order.get("double_buy", False),
-        double_buy_quantity=order.get("double_buy_quantity"),
-        just_buy=order.get("just_buy", False),
-        just_buy_interval_ms=order.get("just_buy_interval_ms", 100),
-        just_buy_timeout=order.get("just_buy_timeout", 5),
-        just_buy_pre_wait_ms=order.get("just_buy_pre_wait_ms", 0),
-        just_buy_max_requests=order.get("just_buy_max_requests"),
-        just_buy_fade_interval_ms=order.get("just_buy_fade_interval_ms"),
-        just_buy_fade_timeout=order.get("just_buy_fade_timeout"),
-        already_triggered=already_triggered,
-        **platform_params,
-    )
+    try:
+        return service._execute_ipo_trigger(
+            base_price=order["price"],
+            order_quantity=order["quantity"],
+            fetch_clients=fetch_clients,
+            limit_price=order.get("limit"),
+            skip_first=order.get("skip_first", False),
+            skip_second_last=order.get("skip_second_last", False),
+            no_ladder=order.get("no_ladder", False),
+            fetch_security_id=order.get("fetch_id"),
+            base_quantity=order.get("base_quantity"),
+            ticker=order.get("ticker"),
+            double_buy=order.get("double_buy", False),
+            double_buy_quantity=order.get("double_buy_quantity"),
+            just_buy=order.get("just_buy", False),
+            just_buy_interval_ms=order.get("just_buy_interval_ms", 100),
+            just_buy_timeout=order.get("just_buy_timeout", 5),
+            just_buy_pre_wait_ms=order.get("just_buy_pre_wait_ms", 0),
+            just_buy_max_requests=order.get("just_buy_max_requests"),
+            just_buy_fade_interval_ms=order.get("just_buy_fade_interval_ms"),
+            just_buy_fade_timeout=order.get("just_buy_fade_timeout"),
+            already_triggered=already_triggered,
+            **platform_params,
+        )
+    finally:
+        if hasattr(service.client, "flush_successful_orders"):
+            service.client.flush_successful_orders()
 
 
 def execute_ipo_sell_buy_trigger(

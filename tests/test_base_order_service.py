@@ -936,6 +936,33 @@ def test_execute_single_ipo_order_maps_tms_order_fields(monkeypatch):
     assert captured["already_triggered"] is True
 
 
+def test_execute_single_ipo_order_flushes_atrad_successful_orders(monkeypatch):
+    service = DummyService()
+    flush_calls: list[str] = []
+
+    class FakeATRADClient:
+        pass
+
+    monkeypatch.setattr("services.workflows.coordinated_workflows.ATRADClient", FakeATRADClient)
+    monkeypatch.setattr(service, "_execute_ipo_trigger", lambda **kwargs: {"status": "ok", "kwargs": kwargs})
+    service.client.flush_successful_orders = lambda: flush_calls.append("flush")  # type: ignore[attr-defined]
+
+    response = service._execute_single_ipo_order(
+        order={
+            "price": 500.0,
+            "quantity": 10,
+            "symbol": "NABIL",
+            "sell": False,
+            "no_ladder": True,
+        },
+        fetch_clients=[FakeATRADClient()],
+        already_triggered=False,
+    )
+
+    assert response["status"] == "ok"
+    assert flush_calls == ["flush"]
+
+
 def test_execute_multi_queue_ipo_trigger_preserves_just_buy_and_fade_settings(monkeypatch):
     service = DummyService()
     calls = []
