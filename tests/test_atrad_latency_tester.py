@@ -10,6 +10,31 @@ from utils.atrad_latency_tester import (
 )
 
 
+def make_probe_result(
+    *,
+    index: int,
+    user_id: str,
+    sent_at_ms: float,
+    latency_ms: float,
+    completed_at_ms: float,
+    success: bool,
+    status_code: int | None,
+    error: str | None = None,
+) -> ProbeResult:
+    return ProbeResult(
+        index=index,
+        user_id=user_id,
+        sent_at_ms=sent_at_ms,
+        sent_wall_ms=sent_at_ms,
+        latency_ms=latency_ms,
+        completed_at_ms=completed_at_ms,
+        completed_wall_ms=completed_at_ms,
+        success=success,
+        status_code=status_code,
+        error=error,
+    )
+
+
 def test_average_time_between_responses_uses_sorted_completion_times():
     result = UserLatencyResult(
         user_id="atrad-user-1",
@@ -17,9 +42,9 @@ def test_average_time_between_responses_uses_sorted_completion_times():
         request_count=3,
         parallel=True,
         samples=[
-            ProbeResult(index=1, user_id="atrad-user-1", sent_at_ms=900.0, latency_ms=12.5, completed_at_ms=1000.0, success=True, status_code=200),
-            ProbeResult(index=2, user_id="atrad-user-1", sent_at_ms=905.0, latency_ms=12.5, completed_at_ms=1012.0, success=True, status_code=200),
-            ProbeResult(index=3, user_id="atrad-user-1", sent_at_ms=910.0, latency_ms=12.5, completed_at_ms=1010.0, success=True, status_code=200),
+            make_probe_result(index=1, user_id="atrad-user-1", sent_at_ms=900.0, latency_ms=12.5, completed_at_ms=1000.0, success=True, status_code=200),
+            make_probe_result(index=2, user_id="atrad-user-1", sent_at_ms=905.0, latency_ms=12.5, completed_at_ms=1012.0, success=True, status_code=200),
+            make_probe_result(index=3, user_id="atrad-user-1", sent_at_ms=910.0, latency_ms=12.5, completed_at_ms=1010.0, success=True, status_code=200),
         ],
     )
 
@@ -85,8 +110,8 @@ def test_render_report_includes_summary_and_samples():
         request_count=2,
         parallel=False,
         samples=[
-            ProbeResult(index=1, user_id="atrad-user-1", sent_at_ms=900.0, latency_ms=12.5, completed_at_ms=1000.0, success=True, status_code=200),
-            ProbeResult(index=2, user_id="atrad-user-1", sent_at_ms=903.0, latency_ms=20.0, completed_at_ms=1003.0, success=False, status_code=500, error="unexpected response"),
+            make_probe_result(index=1, user_id="atrad-user-1", sent_at_ms=900.0, latency_ms=12.5, completed_at_ms=1000.0, success=True, status_code=200),
+            make_probe_result(index=2, user_id="atrad-user-1", sent_at_ms=903.0, latency_ms=20.0, completed_at_ms=1003.0, success=False, status_code=500, error="unexpected response"),
         ],
     )
 
@@ -125,8 +150,8 @@ def test_render_report_includes_cycle_timeline():
             request_count=2,
             parallel=True,
             samples=[
-                ProbeResult(index=1, user_id="atrad-user-1", sent_at_ms=900.0, latency_ms=10.0, completed_at_ms=1005.0, success=True, status_code=200),
-                ProbeResult(index=3, user_id="atrad-user-1", sent_at_ms=910.0, latency_ms=9.0, completed_at_ms=1015.0, success=True, status_code=200),
+                make_probe_result(index=1, user_id="atrad-user-1", sent_at_ms=900.0, latency_ms=10.0, completed_at_ms=1005.0, success=True, status_code=200),
+                make_probe_result(index=3, user_id="atrad-user-1", sent_at_ms=910.0, latency_ms=9.0, completed_at_ms=1015.0, success=True, status_code=200),
             ],
         ),
         UserLatencyResult(
@@ -135,7 +160,7 @@ def test_render_report_includes_cycle_timeline():
             request_count=2,
             parallel=True,
             samples=[
-                ProbeResult(index=2, user_id="atrad-user-2", sent_at_ms=905.0, latency_ms=8.0, completed_at_ms=1000.0, success=True, status_code=200),
+                make_probe_result(index=2, user_id="atrad-user-2", sent_at_ms=905.0, latency_ms=8.0, completed_at_ms=1000.0, success=True, status_code=200),
             ],
         ),
     ]
@@ -144,9 +169,9 @@ def test_render_report_includes_cycle_timeline():
         results,
         args,
         cycle_samples=[
-            ProbeResult(index=2, user_id="atrad-user-2", sent_at_ms=905.0, latency_ms=8.0, completed_at_ms=1000.0, success=True, status_code=200),
-            ProbeResult(index=1, user_id="atrad-user-1", sent_at_ms=900.0, latency_ms=10.0, completed_at_ms=1005.0, success=True, status_code=200),
-            ProbeResult(index=3, user_id="atrad-user-1", sent_at_ms=910.0, latency_ms=9.0, completed_at_ms=1015.0, success=True, status_code=200),
+            make_probe_result(index=2, user_id="atrad-user-2", sent_at_ms=905.0, latency_ms=8.0, completed_at_ms=1000.0, success=True, status_code=200),
+            make_probe_result(index=1, user_id="atrad-user-1", sent_at_ms=900.0, latency_ms=10.0, completed_at_ms=1005.0, success=True, status_code=200),
+            make_probe_result(index=3, user_id="atrad-user-1", sent_at_ms=910.0, latency_ms=9.0, completed_at_ms=1015.0, success=True, status_code=200),
         ],
     )
 

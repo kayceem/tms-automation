@@ -7,7 +7,7 @@ import pytest
 
 textual = pytest.importorskip("textual")
 
-from textual.widgets import Checkbox, TabbedContent
+from textual.widgets import Checkbox, Input, TabbedContent
 
 from tui.app import TMSAutomationTUI
 from tui.screens.main_menu import MainMenuScreen
@@ -45,9 +45,38 @@ def test_order_editor_uses_main_buy_sell_tabs():
             assert screen.query_one("#order-execute", Checkbox) is not None
             assert screen.query_one("#order-success", Checkbox) is not None
             assert screen.query_one("#order-sell", Checkbox) is not None
+            assert screen.query_one("#order-user_id", Input) is not None
 
             assert screen.query_one("#order-just_buy", Checkbox).disabled is True
             assert screen.query_one("#order-multi_queue", Checkbox).disabled is True
+
+    asyncio.run(run())
+
+
+def test_order_editor_submits_user_id_field():
+    class TestScreen(OrderEditorScreen):
+        def __init__(self) -> None:
+            super().__init__("Edit Order", {**ORDER_TEMPLATE, "user_id": "pool-main"})
+            self.result = None
+
+        def dismiss(self, result=None):
+            self.result = result
+
+    async def run() -> None:
+        app = TMSAutomationTUI()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            screen = TestScreen()
+            app.push_screen(screen)
+            await pilot.pause()
+
+            screen.query_one("#order-user_id", Input).value = "pool-main"
+            screen.action_submit()
+
+            assert screen.result is not None
+            payload = screen.result[1]
+            assert payload["user_id"] == "pool-main"
 
     asyncio.run(run())
 

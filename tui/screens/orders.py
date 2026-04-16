@@ -28,6 +28,7 @@ from tui.widgets import ClockWidget
 ORDER_TEMPLATE = {
     "id": "new-order",
     "ticker": "NABIL",
+    "user_id": "",
     "price": 500,
     "quantity": 10,
     "base_quantity": 10,
@@ -155,6 +156,7 @@ QUICK_FIELD_DEFAULTS = {
 }
 
 TEXT_FIELD_DEFAULTS = {
+    "user_id": "",
     "seller_config": "",
     "buyer_config": "",
 }
@@ -214,6 +216,11 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
                         yield Static(" IDENTITY", classes="form-section")
                         yield from self._compose_input_row("Order ID", "order-id", str(self.order_payload.get("id", "")))
                         yield from self._compose_input_row("Ticker", "order-ticker", str(self.order_payload.get("ticker", "")))
+                        yield from self._compose_input_row(
+                            "User ID",
+                            "order-user_id",
+                            str(self.order_payload.get("user_id", TEXT_FIELD_DEFAULTS["user_id"])),
+                        )
                         with Horizontal(classes="form-row"):
                             yield Label("Mode", classes="form-label")
                             yield Select(
@@ -515,6 +522,7 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
             payload = {
                 "id": self._read_required_input("order-id", "Order ID"),
                 "ticker": self._read_required_input("order-ticker", "Ticker").upper(),
+                "user_id": self._read_optional_input("order-user_id"),
                 "mode": str(self.query_one("#order-mode", Select).value),
                 "queue_id": self._read_quick_value("queue_id"),
                 "time": self._read_quick_value("time"),
@@ -623,6 +631,7 @@ class OrdersScreen(Screen[None]):
         table = self.query_one("#orders-table", DataTable)
         table.add_columns(
             " TICKER",
+            "    USER",
             "  MODE",
             " Q",
             " EXEC",
@@ -649,6 +658,7 @@ class OrdersScreen(Screen[None]):
             nl = bool(row.no_ladder)
 
             ticker_cell = f"[bold #e8e8e8]{row.ticker}[/]"
+            user_cell = f"[#6b6b6b]{(row.user_id or '-'):>8}[/]"
             mode_cell = f"[#ffd166]{row.mode}[/]"
             queue_cell = f"[#e8e8e8]{str(row.queue_id):>2}[/]"
 
@@ -669,6 +679,7 @@ class OrdersScreen(Screen[None]):
 
             table.add_row(
                 ticker_cell,
+                user_cell,
                 mode_cell,
                 queue_cell,
                 exec_cell,

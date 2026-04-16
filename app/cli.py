@@ -18,6 +18,7 @@ def create_parser() -> argparse.ArgumentParser:
 Examples:
   # Using order store (recommended - predefined orders)
   python main.py --user-config users/user1.json --order-store order_store.json
+  python main.py --pool-users users/user1.json users/user2.json --order-store order_store.json
 
   # Manual order with ticker symbol
   python main.py --user-config users/user1.json --ticker NABIL --price 500 --quantity 10
@@ -42,7 +43,8 @@ Examples:
         '''
     )
 
-    parser.add_argument('--user-config', type=str, required=True, help='Path to user configuration JSON file')
+    parser.add_argument('--user-config', type=str, help='Path to user configuration JSON file')
+    parser.add_argument('--pool-users', type=str, nargs='+', help='Paths to pooled user configuration JSON files. Order-store only; order.user_id selects the main user and the remaining users become fetch users.')
     order_mode = parser.add_mutually_exclusive_group(required=True)
     order_mode.add_argument('--order-store', type=str, help='Path to order store JSON file. Executes the order marked with execute=true')
     order_mode.add_argument('--ticker', type=str, help='Ticker symbol (e.g., NABIL, NICA) for manual order. Will auto-populate security-id and exchange-security-id from ticker store')
@@ -86,6 +88,21 @@ Examples:
 
 def validate_args(args: argparse.Namespace):
     """Validate command-line arguments and resolve ticker if provided."""
+    has_pool_users = bool(getattr(args, "pool_users", None))
+    has_user_config = bool(getattr(args, "user_config", None))
+
+    if has_pool_users:
+        if not args.order_store:
+            raise ValueError("--pool-users can only be used with --order-store")
+        if has_user_config:
+            raise ValueError("--pool-users cannot be used together with --user-config")
+        if args.fetch_user or args.fetch_users:
+            raise ValueError("--pool-users cannot be used together with --fetch-user or --fetch-users")
+        if getattr(args, "atrad_fetch", False):
+            raise ValueError("--pool-users cannot be used together with --atrad-fetch")
+    elif not has_user_config:
+        raise ValueError("--user-config is required unless using --pool-users with --order-store")
+
     if args.order_store:
         return
 

@@ -17,6 +17,8 @@ class DummyConfig:
 
 def make_args(**overrides):
     data = {
+        "user_config": "users/main.json",
+        "pool_users": None,
         "order_store": None,
         "ticker": None,
         "security_id": 101,
@@ -58,6 +60,26 @@ def test_validate_args_requires_fetch_user_for_trigger_mode():
     args = make_args(ipo_trigger=True)
 
     with pytest.raises(ValueError, match="--fetch-user or --fetch-users is required when using --ipo-trigger mode"):
+        main.validate_args(args)
+
+
+def test_validate_args_accepts_pool_users_for_order_store_only():
+    args = make_args(
+        user_config=None,
+        pool_users=["users/u1.json", "users/u2.json"],
+        order_store="stores/order_store.json",
+    )
+
+    main.validate_args(args)
+
+
+def test_validate_args_rejects_pool_users_with_user_config():
+    args = make_args(
+        pool_users=["users/u1.json", "users/u2.json"],
+        order_store="stores/order_store.json",
+    )
+
+    with pytest.raises(ValueError, match="--pool-users cannot be used together with --user-config"):
         main.validate_args(args)
 
 
@@ -386,6 +408,242 @@ def test_execute_from_order_store_uses_multi_queue_executor(monkeypatch):
 
     assert result["successful_orders"] == ["mq-1", "mq-2"]
     assert [order["id"] for order in calls["multi_queue"]["orders"]] == ["mq-1", "mq-2"]
+
+
+def test_execute_multi_queue_group_updates_store_after_each_completed_order(monkeypatch):
+    events = []
+
+    class FakeOrderStore:
+        def mark_success(self, order_id):
+            events.append(f"success:{order_id}")
+
+        def mark_failed(self, order_id):
+            events.append(f"failed:{order_id}")
+
+    class FakePlatform:
+        def __init__(self):
+            self.client = object()
+            self.service = self
+
+        def _execute_multi_queue_ipo_trigger(self, orders, fetch_clients, on_order_complete=None):
+            events.append("start")
+            if on_order_complete is not None:
+                on_order_complete(orders[0]["id"], True, None)
+                events.append("after-first")
+                on_order_complete(orders[1]["id"], False, RuntimeError("boom"))
+                events.append("after-second")
+            return {
+                "responses": [{"status": "ok"}],
+                "successful_orders": [orders[0]["id"]],
+                "failed_orders": [orders[1]["id"]],
+            }
+
+    monkeypatch.setattr(execution, "create_order_client_and_service", lambda _user_config: FakePlatform())
+    monkeypatch.setattr(execution, "create_fetch_clients", lambda _configs, _is_atrad: ["fetch-client"])
+    monkeypatch.setattr(execution, "resolve_ticker", lambda ticker, *_args: ResolvedTicker(
+        ticker=ticker.upper(),
+        security_id=101,
+        exchange_security_id=202,
+        fetch_id=303,
+        symbol=ticker.upper(),
+    ))
+
+    with pytest.raises(ValueError, match="Multi-queue had 1 failed order"):
+        execution.execute_multi_queue_group(
+            user_config=DummyConfig("main-user"),
+            orders=[
+                {"id": "mq-1", "ticker": "aaa", "symbol": "AAA", "price": 100.0, "quantity": 10, "queue_id": 1, "multi_queue": True, "no_ladder": True},
+                {"id": "mq-2", "ticker": "bbb", "symbol": "BBB", "price": 110.0, "quantity": 11, "queue_id": 1, "multi_queue": True, "no_ladder": True},
+            ],
+            order_store=FakeOrderStore(),
+            fetch_user_configs=[DummyConfig("fetch-user")],
+            is_atrad_fetch=False,
+        )
+
+    assert events == [
+        "start",
+        "success:mq-1",
+        "after-first",
+        "failed:mq-2",
+        "after-second",
+    ]
+
+
+def test_execute_from_order_store_resolves_pooled_users_per_order(monkeypatch):
+    holder = {}
+
+    class FakeOrderStore:
+        def __init__(self, _path):
+            self.orders = [
+                {
+                    "id": "pool-1",
+                    "ticker": "aaa",
+                    "user_id": "main-b",
+                    "price": 100.0,
+                    "quantity": 10,
+                    "mode": "normal",
+                    "queue_id": 1,
+                    "time": None,
+                    "sell": False,
+                    "skip_first": False,
+                    "skip_second_last": False,
+                    "no_ladder": False,
+                    "limit": None,
+                    "base_quantity": 10,
+                    "double_buy": False,
+                    "double_buy_quantity": None,
+                    "just_buy": False,
+                    "just_buy_interval_ms": 100,
+                    "just_buy_timeout": 5,
+                    "just_buy_pre_wait_ms": 0,
+                    "just_buy_max_requests": None,
+                    "just_buy_fade_interval_ms": None,
+                    "just_buy_fade_timeout": None,
+                    "multi_queue": False,
+                }
+            ]
+            self.marked_success = []
+            holder["store"] = self
+
+        def get_order_summary(self):
+            return "summary"
+
+        def get_executable_orders(self):
+            return list(self.orders)
+
+        def validate_order(self, order):
+            return dict(order)
+
+        def mark_success(self, order_id):
+            self.marked_success.append(order_id)
+
+        def mark_failed(self, order_id):
+            raise AssertionError("should not fail")
+
+    calls = {}
+
+    def fake_resolve_ticker(ticker, fetch_user_configs=None, is_atrad_fetch=False):
+        calls["resolve_ticker"] = {
+            "ticker": ticker,
+            "fetch_user_ids": [cfg.user_id for cfg in fetch_user_configs],
+            "is_atrad_fetch": is_atrad_fetch,
+        }
+        return ResolvedTicker(
+            ticker=ticker.upper(),
+            security_id=101,
+            exchange_security_id=202,
+            fetch_id=303,
+            symbol=ticker.upper(),
+            fetch_host="example.test",
+        )
+
+    def fake_execute_order_for_user(user_config, order_params, scheduled_time=None, fetch_user_configs=None, is_atrad_fetch=False):
+        calls["execute"] = {
+            "user_id": user_config.user_id,
+            "fetch_user_ids": [cfg.user_id for cfg in fetch_user_configs],
+            "is_atrad_fetch": is_atrad_fetch,
+            "order_params": order_params,
+        }
+        return {"status": "ok"}
+
+    user_a = DummyConfig("main-a")
+    user_b = DummyConfig("main-b")
+    user_c = DummyConfig("main-c")
+    pool = execution.UserPool(
+        users_by_id={cfg.user_id: cfg for cfg in [user_a, user_b, user_c]},
+        ordered_users=[user_a, user_b, user_c],
+        is_atrad=False,
+    )
+
+    monkeypatch.setattr(execution, "OrderStore", FakeOrderStore)
+    monkeypatch.setattr(execution, "resolve_ticker", fake_resolve_ticker)
+    monkeypatch.setattr(execution, "execute_order_for_user", fake_execute_order_for_user)
+
+    result = main.execute_from_order_store(
+        user_config=None,
+        order_store_path="stores/order_store.json",
+        user_pool=pool,
+    )
+
+    assert result == {"status": "ok"}
+    assert holder["store"].marked_success == ["pool-1"]
+    assert calls["resolve_ticker"]["fetch_user_ids"] == ["main-a", "main-c"]
+    assert calls["execute"]["user_id"] == "main-b"
+    assert calls["execute"]["fetch_user_ids"] == ["main-a", "main-c"]
+    assert calls["execute"]["is_atrad_fetch"] is False
+
+
+def test_execute_from_order_store_rejects_mixed_pool_users_in_multi_queue(monkeypatch):
+    class FakeOrderStore:
+        def __init__(self, _path):
+            self.orders = [
+                {
+                    "id": "mq-1",
+                    "ticker": "aaa",
+                    "user_id": "main-a",
+                    "price": 100.0,
+                    "quantity": 10,
+                    "mode": "ipo-trigger",
+                    "queue_id": 1,
+                    "multi_queue": True,
+                    "no_ladder": True,
+                },
+                {
+                    "id": "mq-2",
+                    "ticker": "bbb",
+                    "user_id": "main-b",
+                    "price": 110.0,
+                    "quantity": 10,
+                    "mode": "ipo-trigger",
+                    "queue_id": 1,
+                    "multi_queue": True,
+                    "no_ladder": True,
+                },
+            ]
+
+        def get_order_summary(self):
+            return "summary"
+
+        def get_executable_orders(self):
+            return list(self.orders)
+
+        def validate_order(self, order):
+            normalized = {
+                "time": None,
+                "sell": False,
+                "skip_first": False,
+                "skip_second_last": False,
+                "limit": None,
+                "base_quantity": 10,
+                "double_buy": False,
+                "double_buy_quantity": None,
+                "just_buy": False,
+                "just_buy_interval_ms": 100,
+                "just_buy_timeout": 5,
+                "just_buy_pre_wait_ms": 0,
+                "just_buy_max_requests": None,
+                "just_buy_fade_interval_ms": None,
+                "just_buy_fade_timeout": None,
+            }
+            normalized.update(order)
+            return normalized
+
+    user_a = DummyConfig("main-a")
+    user_b = DummyConfig("main-b")
+    pool = execution.UserPool(
+        users_by_id={cfg.user_id: cfg for cfg in [user_a, user_b]},
+        ordered_users=[user_a, user_b],
+        is_atrad=False,
+    )
+
+    monkeypatch.setattr(execution, "OrderStore", FakeOrderStore)
+
+    with pytest.raises(ValueError, match="must all use the same user_id"):
+        main.execute_from_order_store(
+            user_config=None,
+            order_store_path="stores/order_store.json",
+            user_pool=pool,
+        )
 
 
 def test_execute_from_order_store_marks_failed_when_trigger_mode_has_no_fetch_users(monkeypatch):

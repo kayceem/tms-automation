@@ -4,7 +4,12 @@
 import sys
 
 from app.cli import create_parser, validate_args
-from app.config_loader import load_fetch_user_configs, load_trader_config, load_user_config
+from app.config_loader import (
+    load_fetch_user_configs,
+    load_pool_user_config,
+    load_trader_config,
+    load_user_config,
+)
 from app.execution import (
     execute_from_order_store,
     execute_ipo_sell_buy_trigger,
@@ -49,10 +54,18 @@ def main():
 
         validate_args(args)
         user_config = load_user_config(args)
+        user_pool = load_pool_user_config(args)
         fetch_user_configs, is_atrad_fetch = load_fetch_user_configs(args)
 
         if args.order_store:
-            execute_from_order_store(user_config, args.order_store, fetch_user_configs, is_atrad_fetch, args.time)
+            execute_from_order_store(
+                user_config,
+                args.order_store,
+                fetch_user_configs,
+                is_atrad_fetch,
+                args.time,
+                user_pool=user_pool,
+            )
         else:
             if args.ipo_sell_buy_trigger:
                 seller_config = load_trader_config(args.seller, "seller")

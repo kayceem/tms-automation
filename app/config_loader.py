@@ -3,6 +3,7 @@
 import logging
 
 from config.loaders import load_config_by_system, load_configs_for_platform
+from app.pool_users import UserPool, load_user_pool
 
 
 logger = logging.getLogger("main")
@@ -10,8 +11,18 @@ logger = logging.getLogger("main")
 
 def load_user_config(args):
     """Load the main user configuration from JSON."""
+    if not getattr(args, "user_config", None):
+        return None
     logger.info(f"Loading user configuration from {args.user_config}")
     return load_config_by_system(args.user_config, "configuration for user")
+
+
+def load_pool_user_config(args) -> UserPool | None:
+    """Load pooled user configs for order-store execution."""
+    if not getattr(args, "pool_users", None):
+        return None
+    logger.info(f"Loading {len(args.pool_users)} pooled user configurations")
+    return load_user_pool(list(args.pool_users))
 
 
 def load_fetch_user_configs(args):

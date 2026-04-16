@@ -22,9 +22,29 @@ from app.order_requests import (
     get_fetch_user_error,
     log_standard_order_plan,
 )
+from app.pool_users import UserPool, resolve_pool_order_users, validate_pool_orders
 
 
 logger = logging.getLogger("main")
+
+
+def _resolve_execution_users(
+    *,
+    pool: Optional[UserPool],
+    pooled_user_id: Optional[str],
+    default_user_config,
+    default_fetch_user_configs,
+    default_is_atrad_fetch: bool,
+):
+    """Resolve active main/fetch users for one order or queue group."""
+    if pool is None:
+        return default_user_config, default_fetch_user_configs, default_is_atrad_fetch
+
+    if not pooled_user_id:
+        raise ValueError("Pooled order execution requires a user_id")
+
+    main_user, fetch_users = resolve_pool_order_users(pool, pooled_user_id)
+    return main_user, fetch_users, pool.is_atrad
 
 
 def execute_manual_order(user_config, args, fetch_user_configs=None, is_atrad_fetch: bool = False) -> Dict[str, Any]:
@@ -148,10 +168,22 @@ def execute_multi_queue_group(user_config, orders: List[Dict[str, Any]], order_s
         logger.info(f"All orders in this group will execute at: {scheduled_time}")
 
     try:
+        def handle_order_complete(order_id: str, success: bool, _error: Exception | None = None) -> None:
+            if success:
+                order_store.mark_success(order_id)
+                logger.info(f"Order '{order_id}' marked as successful in store")
+            else:
+                order_store.mark_failed(order_id)
+                logger.error(f"Order '{order_id}' marked as failed in store")
+
         if scheduled_time:
             def execute_multi_queue(**kwargs):
                 active_fetch_clients = kwargs.get('fetch_clients', fetch_clients)
-                return platform.service._execute_multi_queue_ipo_trigger(orders=orders, fetch_clients=active_fetch_clients)
+                return platform.service._execute_multi_queue_ipo_trigger(
+                    orders=orders,
+                    fetch_clients=active_fetch_clients,
+                    on_order_complete=handle_order_complete,
+                )
 
             result = OrderScheduler.schedule_order(
                 time_str=scheduled_time,
@@ -161,15 +193,11 @@ def execute_multi_queue_group(user_config, orders: List[Dict[str, Any]], order_s
                 user_id=user_config.user_id,
             )
         else:
-            result = platform.service._execute_multi_queue_ipo_trigger(orders=orders, fetch_clients=fetch_clients)
-
-        for order in orders:
-            if order['id'] in result['successful_orders']:
-                order_store.mark_success(order['id'])
-                logger.info(f"Order '{order['id']}' marked as successful in store")
-            elif order['id'] in result['failed_orders']:
-                order_store.mark_failed(order['id'])
-                logger.error(f"Order '{order['id']}' marked as failed in store")
+            result = platform.service._execute_multi_queue_ipo_trigger(
+                orders=orders,
+                fetch_clients=fetch_clients,
+                on_order_complete=handle_order_complete,
+            )
 
         if len(result['failed_orders']) > 0:
             logger.warning(
@@ -238,7 +266,14 @@ def execute_ipo_sell_buy_trigger(seller_config, buyer_config, fetch_user_configs
     return seller_platform.service._execute_ipo_sell_buy_trigger(fetch_clients=fetch_clients, **exec_params)
 
 
-def execute_from_order_store(user_config, order_store_path: str, fetch_user_configs=None, is_atrad_fetch: bool = False, start_time: Optional[str] = None) -> Dict[str, Any]:
+def execute_from_order_store(
+    user_config,
+    order_store_path: str,
+    fetch_user_configs=None,
+    is_atrad_fetch: bool = False,
+    start_time: Optional[str] = None,
+    user_pool: Optional[UserPool] = None,
+) -> Dict[str, Any]:
     """Execute queued orders from an order store."""
     logger.info(f"Loading order store from {order_store_path}")
     order_store = OrderStore(order_store_path)
@@ -248,14 +283,17 @@ def execute_from_order_store(user_config, order_store_path: str, fetch_user_conf
     if not orders:
         raise ValueError("No orders marked for execution in order store")
 
-    logger.info(f"Found {len(orders)} order(s) in execution queue")
+    validated_orders = [order_store.validate_order(order) for order in orders]
+    if user_pool is not None:
+        validate_pool_orders(validated_orders, user_pool)
+
+    logger.info(f"Found {len(validated_orders)} order(s) in execution queue")
     logger.info("=" * 70)
 
     last_result = None
     queue_groups = defaultdict(list)
-    for order in orders:
-        validated_order = order_store.validate_order(order)
-        queue_groups[validated_order['queue_id']].append(validated_order)
+    for order in validated_orders:
+        queue_groups[order['queue_id']].append(order)
 
     total_executed = 0
     for queue_id in sorted(queue_groups.keys()):
@@ -265,16 +303,24 @@ def execute_from_order_store(user_config, order_store_path: str, fetch_user_conf
 
         is_multi_queue = group_orders[0].get('multi_queue', False)
         if is_multi_queue and len(group_orders) > 1:
+            group_user_id = group_orders[0].get("user_id")
+            active_user_config, active_fetch_user_configs, active_is_atrad_fetch = _resolve_execution_users(
+                pool=user_pool,
+                pooled_user_id=group_user_id,
+                default_user_config=user_config,
+                default_fetch_user_configs=fetch_user_configs,
+                default_is_atrad_fetch=is_atrad_fetch,
+            )
             logger.info("")
             logger.info(f"Queue {queue_id}: MULTI-QUEUE MODE ({len(group_orders)} orders)")
             logger.info("=" * 70)
             try:
                 last_result = execute_multi_queue_group(
-                    user_config=user_config,
+                    user_config=active_user_config,
                     orders=group_orders,
                     order_store=order_store,
-                    fetch_user_configs=fetch_user_configs,
-                    is_atrad_fetch=is_atrad_fetch,
+                    fetch_user_configs=active_fetch_user_configs,
+                    is_atrad_fetch=active_is_atrad_fetch,
                 )
                 total_executed += len(group_orders)
             except Exception as exc:
@@ -288,7 +334,15 @@ def execute_from_order_store(user_config, order_store_path: str, fetch_user_conf
             logger.info("=" * 70)
 
             try:
-                resolved = resolve_ticker(order['ticker'], fetch_user_configs, is_atrad_fetch)
+                active_user_config, active_fetch_user_configs, active_is_atrad_fetch = _resolve_execution_users(
+                    pool=user_pool,
+                    pooled_user_id=order.get("user_id"),
+                    default_user_config=user_config,
+                    default_fetch_user_configs=fetch_user_configs,
+                    default_is_atrad_fetch=is_atrad_fetch,
+                )
+
+                resolved = resolve_ticker(order['ticker'], active_fetch_user_configs, active_is_atrad_fetch)
                 security_id = resolved.security_id
                 exchange_security_id = resolved.exchange_security_id
                 fetch_id = resolved.fetch_id
@@ -305,7 +359,7 @@ def execute_from_order_store(user_config, order_store_path: str, fetch_user_conf
             ipo_sell_buy_trigger_mode = order['mode'] == 'ipo-sell-buy-trigger'
 
             fetch_error = get_fetch_user_error(order["mode"])
-            if fetch_error and not fetch_user_configs:
+            if fetch_error and not active_fetch_user_configs:
                 order_store.mark_failed(order_id)
                 raise ValueError(fetch_error)
 
@@ -360,7 +414,7 @@ def execute_from_order_store(user_config, order_store_path: str, fetch_user_conf
                 order_params = build_store_order_params(order, resolved)
                 mode_str = order["mode"].upper()
                 log_standard_order_plan(
-                    user_id=user_config.user_id,
+                    user_id=active_user_config.user_id,
                     mode=mode_str,
                     is_sell=order["sell"],
                     ticker=order["ticker"],
@@ -375,11 +429,11 @@ def execute_from_order_store(user_config, order_store_path: str, fetch_user_conf
 
                 try:
                     result = execute_order_for_user(
-                        user_config=user_config,
+                        user_config=active_user_config,
                         order_params=order_params,
                         scheduled_time=order['time'],
-                        fetch_user_configs=fetch_user_configs,
-                        is_atrad_fetch=is_atrad_fetch,
+                        fetch_user_configs=active_fetch_user_configs,
+                        is_atrad_fetch=active_is_atrad_fetch,
                     )
                     order_store.mark_success(order_id)
                     logger.info(f"Order '{order_id}' marked as successful in store")

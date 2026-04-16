@@ -23,6 +23,9 @@ runa:
 runaf:
 	python main.py --atrad-fetch --user-config users/atrad_user1.json --order-store stores/order_store.json --fetch-users users/atrad_user2.json users/atrad_user3.json users/atrad_user4.json users/atrad_user5.json users/atrad_user6.json users/atrad_user7.json $(if $(LOG),--log-level $(LOG)) $(if $(TIME),--time $(TIME))
 
+runafp:
+	python main.py --pool-users users/atrad_user1.json users/atrad_user2.json users/atrad_user3.json users/atrad_user4.json users/atrad_user5.json users/atrad_user6.json users/atrad_user7.json --order-store stores/order_store.json $(if $(LOG),--log-level $(LOG)) $(if $(TIME),--time $(TIME))
+
 runaf-sell:
 	python main.py --atrad-fetch --user-config users/atrad_user1.json --order-store stores/sell_store.json --fetch-users users/atrad_user2.json users/atrad_user3.json users/atrad_user4.json users/atrad_user5.json users/atrad_user6.json users/atrad_user7.json --log-level DEBUG
 

@@ -11,6 +11,7 @@ def execute_multi_queue_ipo_trigger(
     service: Any,
     orders: List[Dict[str, Any]],
     fetch_clients: List[Any],
+    on_order_complete: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Execute multi-queue IPO trigger mode for multiple orders."""
     from services.fetchers.multi_symbol_price_fetcher import MultiSymbolSequentialPriceFetcher, SymbolConfig
@@ -95,9 +96,13 @@ def execute_multi_queue_ipo_trigger(
         response = service._execute_single_ipo_order(priority_order, fetch_clients, True)
         responses.append(response)
         successful_orders.append(priority_order["id"])
+        if on_order_complete is not None:
+            on_order_complete(priority_order["id"], True, None)
     except Exception as exc:
         service.logger.error(f"[{service.user_id}] Priority order {priority_order['id']} FAILED: {exc}")
         failed_orders.append(priority_order["id"])
+        if on_order_complete is not None:
+            on_order_complete(priority_order["id"], False, exc)
 
     for remaining_order in remaining_orders:
         remaining_symbol = remaining_order.get("symbol") if is_atrad else remaining_order["ticker"]
@@ -108,9 +113,13 @@ def execute_multi_queue_ipo_trigger(
             response = service._execute_single_ipo_order(remaining_order, fetch_clients, False)
             responses.append(response)
             successful_orders.append(remaining_order["id"])
+            if on_order_complete is not None:
+                on_order_complete(remaining_order["id"], True, None)
         except Exception as exc:
             service.logger.error(f"[{service.user_id}] Remaining order {remaining_order['id']} FAILED: {exc}")
             failed_orders.append(remaining_order["id"])
+            if on_order_complete is not None:
+                on_order_complete(remaining_order["id"], False, exc)
 
     service.logger.info(
         f"[{service.user_id}] MULTI-QUEUE COMPLETE: {len(successful_orders)} successful, {len(failed_orders)} failed"

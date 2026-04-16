@@ -1246,7 +1246,8 @@ class BaseOrderService(ABC):
     def _execute_multi_queue_ipo_trigger(
         self,
         orders: List[Dict[str, Any]],
-        fetch_clients: List[Any]
+        fetch_clients: List[Any],
+        on_order_complete: Any = None,
     ) -> List[Dict[str, Any]]:
         """
         Execute multi-queue IPO trigger mode for multiple orders.
@@ -1265,6 +1266,7 @@ class BaseOrderService(ABC):
             service=self,
             orders=orders,
             fetch_clients=fetch_clients,
+            on_order_complete=on_order_complete,
         )
 
     def _execute_single_ipo_order(

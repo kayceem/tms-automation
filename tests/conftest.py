@@ -1,6 +1,8 @@
 import json
 import logging
+import os
 import re
+import tempfile
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,13 +13,15 @@ import pytest
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+os.environ["TMS_AUTOMATION_LOG_ROOT"] = str(Path(tempfile.gettempdir()) / "tms-automation-pytest-logs")
 
 from config import ATRADUserConfig, UserConfig
 from utils.logger import setup_logger
+import utils.trade_logs as trade_logs
 
 
 TEST_LOGGER_NAME = "main"
-TEST_LOG_DIR = "logs/tests"
+TEST_LOG_DIR = os.environ["TMS_AUTOMATION_LOG_ROOT"]
 
 
 @dataclass
@@ -186,6 +190,28 @@ def log_test_case(request: pytest.FixtureRequest) -> None:
     logger.info(f"TEST START: {node_id}")
     yield
     logger.info(f"TEST END: {node_id}")
+
+
+@pytest.fixture(autouse=True)
+def isolate_trade_logs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(trade_logs, "_BASE_DIR", tmp_path / "logs" / "orders")
+
+
+@pytest.fixture(autouse=True)
+def isolate_tui_logs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    try:
+        import tui.app as tui_app
+    except ImportError:
+        return
+
+    real_setup_logger = tui_app.setup_logger
+
+    def setup_logger_for_tests(*args, **kwargs):
+        if kwargs.get("log_root") == "logs/tui":
+            kwargs["log_root"] = str(tmp_path / "logs" / "tui")
+        return real_setup_logger(*args, **kwargs)
+
+    monkeypatch.setattr(tui_app, "setup_logger", setup_logger_for_tests)
 
 
 @pytest.hookimpl(hookwrapper=True)

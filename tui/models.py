@@ -9,6 +9,7 @@ from dataclasses import dataclass
 class OrderRow:
     id: str
     ticker: str
+    user_id: str
     mode: str
     queue_id: int
     execute: bool

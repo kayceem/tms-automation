@@ -31,6 +31,7 @@ class OrderStoreService:
                 OrderRow(
                     id=str(order.get("id", "")),
                     ticker=str(order.get("ticker", "")),
+                    user_id=str(order.get("user_id") or ""),
                     mode=str(order.get("mode", "")),
                     queue_id=int(order.get("queue_id", 999)),
                     execute=bool(order.get("execute", False)),

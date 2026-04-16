@@ -309,6 +309,7 @@ class OrderStore:
         normalized = {
             'id': order_id,
             'ticker': str(order['ticker']).upper(),
+            'user_id': str(order['user_id']).strip() if order.get('user_id') is not None and str(order.get('user_id')).strip() else None,
             'price': float(order['price']),
             'quantity': int(order['quantity']),
             'base_quantity': base_quantity,
