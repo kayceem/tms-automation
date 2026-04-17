@@ -63,17 +63,16 @@ def get_quote_data(client: ATRADClient, ticker: str) -> Optional[Dict[str, float
             if not security or not isinstance(security, dict):
                 logger.warning(f"No security data for {ticker}")
                 return None
+            print(f"Raw quote data for {ticker}: {security}")
 
             # Extract tradeprice and closingprice
             tradeprice_str = security.get('tradeprice', '')
             closingprice_str = security.get('closingprice', '')
 
-            if not tradeprice_str:
-                logger.warning(f"Missing price data for {ticker}: tradeprice={tradeprice_str}, closingprice={closingprice_str}")
-                return None
-
-            # Remove commas and convert to float
-            tradeprice = float(tradeprice_str.replace(',', ''))
+            if tradeprice_str:
+                tradeprice = float(tradeprice_str.replace(',', ''))
+            else:
+                tradeprice = None
             if closingprice_str:
                 closingprice = float(closingprice_str.replace(',', ''))
             else:
@@ -168,12 +167,11 @@ def update_order_store(
             new_price = quote['price']
             new_limit = quote['limit']
 
-            # Update order price
-            order['price'] = new_price
-
             # Only update limit if new_limit is not None
             if new_limit is not None:
                 order['limit'] = new_limit
+            if new_price is not None:
+                order['price'] = new_price
 
             updated[ticker] = {
                 'price': new_price,
@@ -248,7 +246,7 @@ The script will:
 
     parser.add_argument(
         '--atrad-user',
-        default='users/atrad_user.json',
+        default='users/atrad_user1.json',
         help='Path to ATRAD user config JSON file (default: users/atrad_user.json)'
     )
 

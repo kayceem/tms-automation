@@ -45,6 +45,7 @@ class ATRADClient:
         self.watchlist_endpoint = f"{self.base_url}{user_config.atrad_watchlist_endpoint}"
         self.add_security_watchlist_endpoint = f"{self.base_url}{user_config.atrad_add_security_watchlist_endpoint}"
         self.top_gainers_losers_endpoint = f"{self.base_url}{user_config.atrad_top_gainers_losers_endpoint}"
+        self.ohlc_endpoint = f"{self.base_url}{user_config.atrad_ohlc_endpoint}"
         # Thread-safe session
         self.session = requests.Session()
         self._login_lock = threading.Lock()
@@ -657,6 +658,50 @@ class ATRADClient:
         """
         self.ensure_authenticated()
         return self._is_authenticated
+
+    def get_ohlc_data(self, symbol: str, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
+        """
+        Fetch OHLC data for a given symbol.
+
+        Args:
+            symbol: Stock symbol/ticker to fetch OHLC data for
+            timeout: Request timeout in seconds (default: 5.0)
+        Returns:
+            Parsed ATRAD OHLC response as a dictionary, or None if fetching/parsing fails
+        """
+        logger.debug(f"[{self.user_id}] Fetching OHLC data for symbol: {symbol}")
+
+        today = time.strftime("%m/%d/%Y")
+        endpoint = f"{self.ohlc_endpoint}&security={symbol}&fromDate={today}&toDate={today}&dojo.preventCache={self._epoch_time_ms()}"
+
+        with self._request_lock:
+            response = self._request_with_reauth("GET", endpoint, timeout=timeout)
+
+            if response is None:
+                return None
+
+            logger.debug(f"[{self.user_id}] OHLC fetch response status: {response.status_code}")
+
+            if response.status_code != 200:
+                logger.warning(
+                    f"[{self.user_id}] OHLC fetch failed: "
+                    f"{response.status_code} {response.reason}"
+                )
+                return None
+
+            try:
+                result = response.text.strip().replace("'", '"')
+                result = json.loads(result)
+                if str(result.get("code")) != "0":
+                    logger.warning(
+                        f"[{self.user_id}] ATRAD OHLC request failed: "
+                        f"{result.get('description', 'Unknown error')}"
+                    )
+                    return None
+                return result.get("data", {}).get("watch", [None])
+            except ValueError:
+                logger.error(f"[{self.user_id}] Invalid ATRAD OHLC response: {response.text}")
+                return None
 
     def get_market_status(self, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
         """
