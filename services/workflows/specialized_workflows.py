@@ -36,8 +36,8 @@ def execute_trigger_sell(
         service.logger.info(f"[{service.user_id}] Calculated {len(price_levels)} ladder levels:")
         for i, price in enumerate(price_levels):
             increment = actual_increments[i] if i < len(actual_increments) else -1
-            if increment == -1:
-                service.logger.debug(f"[{service.user_id}] Level {i+1}: Rs. {price} (Limit +10%)")
+            if increment == 15:
+                service.logger.debug(f"[{service.user_id}] Level {i+1}: Rs. {price} (Limit +15%)")
             else:
                 service.logger.debug(f"[{service.user_id}] Level {i+1}: Rs. {price} (+{increment}%)")
 

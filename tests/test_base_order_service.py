@@ -128,17 +128,17 @@ def test_calculate_price_levels_without_limit():
 
     levels, increments = service._calculate_price_levels(1000)
 
-    assert levels == [1000.0, 1020.0, 1040.4, 1061.2, 1082.4, 1104.0]
-    assert increments == [0, 2, 2, 2, 2, 2]
+    assert levels == [1000.0, 1030.0, 1060.9, 1092.7, 1125.4, 1159.1]
+    assert increments == [0, 3, 3, 3, 3, 3]
 
 
-def test_calculate_price_levels_with_limit_appends_limit_plus_ten_percent():
+def test_calculate_price_levels_with_limit_appends_limit_plus_fifteen_percent():
     service = DummyService()
 
     levels, increments = service._calculate_price_levels(1000, limit_price=950)
 
-    assert levels == [1000.0, 1020.0, 1040.4, 1045.0]
-    assert increments == [0, 2, 2, 10]
+    assert levels == [1000.0, 1030.0, 1060.9, 1092.5]
+    assert increments == [0, 3, 3, 15]
 
 
 def test_calculate_price_levels_returns_single_level_for_no_ladder():

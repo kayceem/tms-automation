@@ -69,7 +69,7 @@ Examples:
 
     parser.add_argument('--atrad-fetch', action='store_true', help='Use ATRAD fetch users instead of TMS fetch users. Fetch users will use ATRAD client for LTP monitoring.')
     parser.add_argument('--skip-first', action='store_true', help='Skip the first ladder level in IPO trigger mode. Places first order when LTP reaches ladder[0], starting from ladder[1].')
-    parser.add_argument('--limit', type=float, help='Upper limit price for IPO mode. Orders above +10 percent of this limit will be removed, and +10 percent of limit will be the final order')
+    parser.add_argument('--limit', type=float, help='Upper limit price for IPO mode. Orders above +15 percent of this limit will be removed, and +15 percent of limit will be the final order')
     parser.add_argument('--log-level', type=str, default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], help='Logging level (default: INFO)')
     parser.add_argument('--double-buy', action='store_true', help='Enable double buy: place a second order 0.5s after first order succeeds')
     parser.add_argument('--double-buy-quantity', type=int, help='Quantity for the second order in double buy mode (defaults to same as --quantity if not specified)')

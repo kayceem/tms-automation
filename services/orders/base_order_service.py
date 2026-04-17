@@ -133,18 +133,18 @@ class BaseOrderService(ABC):
         no_ladder: bool = False
     ) -> Tuple[List[float], List[int]]:
         """
-        Calculate price ladder: [0%, +2%, +4%, +6%, +8%, +10%].
+        Calculate price ladder: [0%, +3%, +6%, +9%, +12%, +15%].
 
         This method calculates a ladder of prices starting from base_price,
-        with each level being approximately 2% higher than the previous one.
+        with each level being approximately 3% higher than the previous one.
         All prices are floored to 1 decimal place.
 
         Used by IPO Trigger mode to determine order prices at different levels.
 
         Args:
             base_price: Starting price (level 0)
-            limit_price: Optional upper limit. Orders above +10% of this limit
-                        will be removed, and +10% of limit becomes the final order.
+            limit_price: Optional upper limit. Orders above +15% of this limit
+                        will be removed, and +15% of limit becomes the final order.
             no_ladder: If True, returns only the base_price (single level)
 
         Returns:
@@ -154,7 +154,7 @@ class BaseOrderService(ABC):
 
         Example:
             base_price=1000, limit_price=None
-            Returns: ([1000.0, 1020.0, 1040.8, 1061.6, 1082.8, 1104.4], [0, 2, 2, 2, 2, 2])
+            Returns: ([1000.0, 1030.0, 1060.9, 1092.7, 1125.4, 1159.1], [0, 3, 3, 3, 3, 3])
         """
         price_levels, actual_increments = calculate_price_levels(
             base_price=base_price,
@@ -563,12 +563,12 @@ class BaseOrderService(ABC):
             elif i == second_last_index and skip_second_last:
                 skip_marker = " [SKIP]"
 
-            if increment == -1:
-                self.logger.debug(
-                    f"[{self.user_id}] Level {i+1}: Rs. {price} (Limit +10%){skip_marker}"
+            if increment == 15:
+                self.logger.info(
+                    f"[{self.user_id}] Level {i+1}: Rs. {price} (Limit +15%){skip_marker}"
                 )
             else:
-                self.logger.debug(
+                self.logger.info(
                     f"[{self.user_id}] Level {i+1}: Rs. {price} (+{increment}%){skip_marker}"
                 )
 

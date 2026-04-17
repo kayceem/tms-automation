@@ -1318,7 +1318,6 @@ class OrderBookScreen(Screen[None]):
         w52h = ltp.get("week52High", "-")
         w52l = ltp.get("week52Low", "-")
         last_time = ltp.get("lasttradedtime", "-")
-        odd_lot = ltp.get("oddLotQty", "-")
 
         net_val = cls._float_or_none(net) or 0.0
         color = "#00d26a" if net_val > 0 else ("#ff4757" if net_val < 0 else "#e8e8e8")
@@ -1347,7 +1346,7 @@ class OrderBookScreen(Screen[None]):
             f"[#5fd7ff]LAST[/]  [bold {color}]{price} @ {size}[/]   [{color}]{arrow} {sign}{net} ({sign}{pct}%)[/]   [#5fd7ff]@[/] [#ffd166]{last_time}[/]",
             "",
             cell("Open", open_px) + "  " + cell("DHigh", high, "#00d26a") + "  " + cell("Volume", volume) + "  " + cell("Turnover", turnover),
-            cell("Close", close) + "  " + cell("DLow", low, "#ff4757") + "  " + cell("Trades", trades) + "  " + cell("Odd Lot", odd_lot),
+            cell("Close", close) + "  " + cell("DLow", low, "#ff4757") + "  " + cell("Trades", trades),
             "",
             f"[#5fd7ff]52W Range[/]  [#ff4757]{w52l:>10}[/] {range_bar} [#00d26a]{w52h}[/]",
         ]

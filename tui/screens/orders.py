@@ -249,7 +249,7 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
                         yield from self._compose_field("quantity")
                         yield from self._compose_field("base_quantity")
                         with Horizontal(classes="form-row"):
-                            yield Label("Est. (×1.1)", classes="form-label")
+                            yield Label("Est. (×1.15)", classes="form-label")
                             yield Static("—", id="order-cost-estimate", classes="form-calc")
 
             with TabPane("Buy", id="tab-buy"):
@@ -438,7 +438,7 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
         if qty is None or base is None:
             estimate.update("[#6b6b6b]—[/]")
             return
-        total = qty * base * 1.1
+        total = qty * base * 1.15
         source = "limit" if limit is not None else "price"
         estimate.update(f"[bold #3ddc84]{total:,.2f}[/] [#6b6b6b]({source})[/]")
 
@@ -607,6 +607,8 @@ class OrdersScreen(Screen[None]):
         ("7", "set_row_user_id('7')", "User 7"),
         ("8", "set_row_user_id('8')", "User 8"),
         ("9", "set_row_user_id('9')", "User 9"),
+        ("j", "adjust_quantity(-100)", "Qty -100"),
+        ("k", "adjust_quantity(100)", "Qty +100"),
         ("t", "toggle_execute", "Toggle Execute"),
         ("r", "refresh_prices", "Refresh Prices"),
         ("u", "refresh_store", "Reload Store"),
@@ -792,6 +794,32 @@ class OrdersScreen(Screen[None]):
             return
         self.reload_table()
         self._set_status(f"User ID set to '{user_id}' for '{order_id}'.")
+
+    def action_adjust_quantity(self, delta: int) -> None:
+        order_id = self._selected_order_id()
+        if not order_id:
+            self._set_status("Select an order first.")
+            return
+        payload = self.service.get_order(order_id)
+        if payload is None:
+            self._set_status(f"Order '{order_id}' no longer exists.")
+            return
+
+        current_quantity = int(payload.get("quantity", 0))
+        new_quantity = current_quantity + delta
+        if new_quantity <= 0:
+            self._set_status(f"Quantity change would make '{order_id}' invalid.")
+            return
+
+        try:
+            self.service.update_order(order_id, {"quantity": new_quantity})
+        except ValueError as exc:
+            self._set_status(str(exc))
+            return
+
+        self.reload_table()
+        direction = "increased" if delta > 0 else "decreased"
+        self._set_status(f"Quantity {direction} to {new_quantity} for '{order_id}'.")
 
     def action_refresh_store(self) -> None:
         self.service.refresh_store()

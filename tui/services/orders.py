@@ -25,7 +25,7 @@ class OrderStoreService:
             price = float(order.get("price", 0))
             limit = float(order.get("limit", 0) if order.get("limit") is not None else 0)
             quantity = int(order.get("quantity", 0))
-            total_cost = (limit * quantity * 1.1) if limit != 0 else (price * quantity * 1.1)
+            total_cost = (limit * quantity * 1.15) if limit != 0 else (price * quantity * 1.15)
             cumulative_cost += total_cost
             rows.append(
                 OrderRow(

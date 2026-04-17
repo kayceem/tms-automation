@@ -13,7 +13,7 @@ def calculate_price_levels(
     if no_ladder:
         return [base_price], [0]
 
-    price_increments = [0, 2, 2, 2, 2, 2]
+    price_increments = [0, 3, 3, 3, 3, 3]
     price_levels: List[float] = []
     actual_increments: List[int] = []
 
@@ -26,7 +26,7 @@ def calculate_price_levels(
         actual_increments.append(increment)
 
     if limit_price is not None:
-        max_price_raw = limit_price * 1.10
+        max_price_raw = limit_price * 1.15
         max_price = math.floor(max_price_raw * 10) / 10
 
         filtered_levels = []
@@ -38,7 +38,7 @@ def calculate_price_levels(
 
         if not filtered_levels or filtered_levels[-1] != max_price:
             filtered_levels.append(max_price)
-            filtered_increments.append(10)
+            filtered_increments.append(15)
 
         price_levels = filtered_levels
         actual_increments = filtered_increments

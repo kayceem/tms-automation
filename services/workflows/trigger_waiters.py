@@ -252,10 +252,10 @@ def wait_for_ladder_trigger(
     """Wait for LTP to reach a ladder trigger and handle skipped levels."""
     target_price = price_levels[current_level_index]
 
-    if increment_pct == -1:
+    if increment_pct == 15:
         service.logger.info(
             f"[{service.user_id}] Waiting for LTP >= Rs. {trigger_price} "
-            f"to place order at Rs. {target_price} (Limit +10%)"
+            f"to place order at Rs. {target_price} (Limit +15%)"
         )
     else:
         service.logger.info(
