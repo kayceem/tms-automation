@@ -22,6 +22,7 @@ class UserConfig:
     access_token: str
     request_owner: str
     member_code: str
+    member_id: Optional[str] = None
 
     # System identifier: 'tms' or 'atrad' (only for main order user, NOT for fetch users)
     system: str = 'tms'  # Default to TMS for backward compatibility
@@ -81,6 +82,7 @@ class UserConfig:
             'access_token': self.access_token,
             'request_owner': self.request_owner,
             'member_code': self.member_code,
+            'member_id': self.member_id,
             'system': self.system,
             'client_data': self.client_data,
             'default_order_type': self.default_order_type,

@@ -8,6 +8,7 @@
   "access_token": "xxxxxxxxxxxxxx",
   "request_owner": "xxxxxxxxxxxxxx",
   "member_code": "1",
+  "member_id": "110",
   "system": "tms",
   "client_data": {
     "activeStatus": "A",

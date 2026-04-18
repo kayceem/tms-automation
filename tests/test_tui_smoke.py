@@ -182,6 +182,7 @@ def test_order_book_top_tab_defaults_and_toggle_behavior():
     assert screen._top_gainers_mode is True
     assert any(binding[0] == "ctrl+4" and binding[1] == "show_top_panel" for binding in screen.BINDINGS)
     assert any(binding[0] == "ctrl+5" and binding[1] == "show_market_panel" for binding in screen.BINDINGS)
+    assert any(binding[0] == "ctrl+6" and binding[1] == "show_account_panel" for binding in screen.BINDINGS)
     assert screen._top_sort_mode == "chng_pct"
 
     screen.action_toggle_top_or_cycle_watchlist()

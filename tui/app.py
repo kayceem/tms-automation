@@ -550,6 +550,19 @@ Checkbox:focus {
     scrollbar-size-vertical: 1;
 }
 
+#account-summary-scroll {
+    width: 100%;
+    height: 18;
+    min-height: 18;
+    margin: 1 0 0 0;
+    background: #050505;
+    border: tall #1a1000;
+    scrollbar-background: #000000;
+    scrollbar-color: #7a4a00;
+    scrollbar-color-hover: #ff9e1b;
+    scrollbar-size-vertical: 1;
+}
+
 #symbol-prompt-shell {
     width: 60;
     height: auto;

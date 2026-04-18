@@ -48,10 +48,13 @@ def get_quote_data(client: ATRADClient, ticker: str) -> Optional[Dict[str, float
     try:
         logger.info(f"Fetching quote for {ticker}...")
 
+        tradeprice = None
+        closingprice = None
+
         # Use the existing quote endpoint from client
         epoch_time_ms = lambda: int(round(time.time() * 1000))
-        endpoint = f"{client.quick_watch_endpoint}&securityid={ticker}&watchId={client.user_config._watch_id}&dojo.preventCache="
-        response = client.session.get(endpoint + str(epoch_time_ms()), timeout=5.0)
+        tradeprice_endpoint = f"{client.quick_watch_endpoint}&securityid={ticker}&watchId={client.user_config._watch_id}&dojo.preventCache="
+        response = client.session.get(tradeprice_endpoint + str(epoch_time_ms()), timeout=5.0)
         response.encoding = 'utf-8'
 
         if response.status_code == 200:
@@ -63,30 +66,46 @@ def get_quote_data(client: ATRADClient, ticker: str) -> Optional[Dict[str, float
             if not security or not isinstance(security, dict):
                 logger.warning(f"No security data for {ticker}")
                 return None
-            print(f"Raw quote data for {ticker}: {security}")
 
             # Extract tradeprice and closingprice
             tradeprice_str = security.get('tradeprice', '')
-            closingprice_str = security.get('closingprice', '')
 
             if tradeprice_str:
                 tradeprice = float(tradeprice_str.replace(',', ''))
-            else:
-                tradeprice = None
-            if closingprice_str:
-                closingprice = float(closingprice_str.replace(',', ''))
-            else:
-                closingprice = None
-            logger.info(f"{ticker}: price={tradeprice}, limit={closingprice}")
-
-            return {
-                'price': tradeprice,
-                'limit': closingprice
-            }
-
         else:
             logger.error(f"Failed to fetch quote for {ticker}: HTTP {response.status_code}")
-            return None
+
+        now = time.localtime()
+        if now.tm_hour < 15:
+            day = time.strftime("%m/%d/%Y", time.localtime(time.time() - 24 * 60 * 60))
+        else:
+            day = time.strftime("%m/%d/%Y", now)
+
+        closingprice_endpoint = f"{client.ohlc_endpoint}&security={ticker}&fromDate={day}&toDate={day}&dojo.preventCache={epoch_time_ms()}"
+        response = client.session.get(closingprice_endpoint + str(epoch_time_ms()), timeout=5.0)
+        response.encoding = 'utf-8' 
+        
+        if response.status_code == 200:
+            data = response.text.strip().replace("'", '"')
+            data = json.loads(data)
+
+            ohlc_data = (data.get('data', {}).get('watch', [{}]))
+
+            if not ohlc_data or not isinstance(ohlc_data, list):
+                logger.warning(f"No OHLC data for {ticker}")
+                return None
+
+            closingprice_str = ohlc_data[0].get('closingprice', '')
+
+            if closingprice_str:
+                closingprice = float(closingprice_str.replace(',', ''))
+        else:
+            logger.error(f"Failed to fetch OHLC for {ticker}: HTTP {response.status_code}")
+
+        return {
+            'price': tradeprice,
+            'limit': closingprice
+        }
 
     except Exception as e:
         logger.error(f"Error fetching quote for {ticker}: {str(e)}")

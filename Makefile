@@ -3,7 +3,7 @@
 Arguments := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 
 update:
-	python utils/update_user_tokens.py --auto users
+	python utils/config/update_user_tokens.py --auto users
 
 run:
 	python main.py --user-config users/user1.json --order-store stores/order_store.json --fetch-users users/user2.json users/user3.json users/user4.json --log-level DEBUG

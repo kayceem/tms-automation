@@ -300,6 +300,7 @@ class OrderBookScreen(Screen[None]):
         ("ctrl+3", "show_watchlist_panel", "Watchlists"),
         ("ctrl+4", "show_top_panel", "Top 10"),
         ("ctrl+5", "show_market_panel", "Market"),
+        ("ctrl+6", "show_account_panel", "Account"),
         ("s", "change_market_symbol", "Symbol / Sort Watchlist"),
         ("k", "change_market_symbol", "Search Symbol"),
         ("left", "previous_panel", "Prev Panel"),
@@ -331,6 +332,8 @@ class OrderBookScreen(Screen[None]):
         self._last_watchlist_updated_time: str = ""
         self._top_gainers_mode = True
         self._last_top_updated_time: str = ""
+        self._account_summary: dict = {}
+        self._last_account_updated_time: str = ""
         self._auto_refresh_enabled = False
         self._auto_refresh_timer: Timer | None = None
         self._refresh_in_flight = False
@@ -401,6 +404,10 @@ class OrderBookScreen(Screen[None]):
                     yield asks_table
                 with VerticalScroll(id="market-ltp-scroll", classes="market-ltp-scroll"):
                     yield Static("", id="market-ltp", classes="market-ltp")
+
+            with TabPane("Account Summary", id="tab-account"):
+                with VerticalScroll(id="account-summary-scroll", classes="market-ltp-scroll"):
+                    yield Static("", id="account-summary", classes="market-ltp")
         yield Static("", id="portfolio-total")
         yield Static("", id="portfolio-status")
         with VerticalScroll(id="active-response-scroll", classes="response-scroll"):
@@ -411,6 +418,8 @@ class OrderBookScreen(Screen[None]):
             yield Static("", id="watchlist-response", classes="response-text")
         with VerticalScroll(id="top-response-scroll", classes="response-scroll"):
             yield Static("", id="top-response", classes="response-text")
+        with VerticalScroll(id="account-response-scroll", classes="response-scroll"):
+            yield Static("", id="account-response", classes="response-text")
         with VerticalScroll(id="market-response-scroll", classes="response-scroll"):
             yield Static("", id="market-response", classes="response-text")
         yield ClockWidget(classes="panel-clock")
@@ -504,7 +513,10 @@ class OrderBookScreen(Screen[None]):
     def action_show_top_panel(self) -> None:
         self._set_panel("tab-top")
 
-    _PANELS = ("tab-active", "tab-completed", "tab-watchlists", "tab-top", "tab-market")
+    def action_show_account_panel(self) -> None:
+        self._set_panel("tab-account")
+
+    _PANELS = ("tab-active", "tab-completed", "tab-watchlists", "tab-top", "tab-market", "tab-account")
 
     def action_previous_panel(self) -> None:
         current = self._PANELS.index(self._active_panel())
@@ -524,6 +536,8 @@ class OrderBookScreen(Screen[None]):
             self.query_one("#market-bids-table", DataTable).focus()
         elif panel == "tab-top":
             self.query_one("#top-table", DataTable).focus()
+        elif panel == "tab-account":
+            self.query_one("#account-summary", Static).focus()
         else:
             self.query_one("#watchlist-table", DataTable).focus()
 
@@ -531,6 +545,7 @@ class OrderBookScreen(Screen[None]):
         "tab-active": "active",
         "tab-completed": "completed",
         "tab-watchlists": "watchlist",
+        "tab-account": "account",
         "tab-market": "market",
         "tab-top": "top",
     }
@@ -541,7 +556,7 @@ class OrderBookScreen(Screen[None]):
         cancel_button.display = panel == "tab-active"
         selector = self.query_one("#watchlist-selector", Select)
         selector.display = panel == "tab-watchlists"
-        for key in ("active", "completed", "watchlist", "market", "top"):
+        for key in ("active", "completed", "watchlist", "market", "top", "account"):
             self.query_one(f"#{key}-response-scroll").display = self._PANEL_KEY.get(panel) == key
 
     def _update_refresh_button(self) -> None:
@@ -553,6 +568,7 @@ class OrderBookScreen(Screen[None]):
             "tab-active": "active",
             "tab-completed": "completed",
             "tab-watchlists": "watchlists",
+            "tab-account": "account",
             "tab-market": "market",
             "tab-top": "top",
         }.get(panel, "active")
@@ -568,6 +584,7 @@ class OrderBookScreen(Screen[None]):
             "active": "Active",
             "completed": "Completed",
             "watchlists": "Watchlists",
+            "account": "Account Summary",
             "market": "Market",
             "top": "Top 10",
         }.get(panel, panel.title())
@@ -670,6 +687,10 @@ class OrderBookScreen(Screen[None]):
                 symbol = self._market_symbol
                 ltp, market_details, last_updated_time = self.service.fetch_script_details(self.user_path, symbol)
                 self.app.call_from_thread(self._apply_market, symbol, market_details, ltp, last_updated_time)
+                return
+            if panel == "tab-account":
+                summary, last_updated_time = self.service.fetch_account_summary(self.user_path)
+                self.app.call_from_thread(self._apply_account_summary, summary, last_updated_time)
                 return
             if panel == "tab-top":
                 rows, last_updated_time = self.service.fetch_top_gainers_losers(
@@ -1011,6 +1032,61 @@ class OrderBookScreen(Screen[None]):
             "top",
         )
         self.query_one("#portfolio-total", Static).update("")
+
+    @staticmethod
+    def _summary_amount(value: str) -> str:
+        try:
+            return f"{float(str(value).replace(',', '')):,.2f}"
+        except (ValueError, TypeError):
+            return "-"
+
+    def _apply_account_summary(self, summary: dict, last_updated_time: str) -> None:
+        self._account_summary = summary
+        self._last_account_updated_time = last_updated_time
+        gain_loss_value = self._summary_amount(summary.get("totalGainLoss"))
+        gain_loss_color = "#3ddc84"
+        try:
+            if float(str(summary.get("totalGainLoss", "0")).replace(",", "")) < 0:
+                gain_loss_color = "#f47174"
+        except (ValueError, TypeError):
+            gain_loss_color = "#e8e8e8"
+
+        render = "\n".join(
+            [
+                "[bold #ff9e1b]PRIMARY BALANCES[/]",
+                "",
+                f"[bold #5fd7ff]Cash Balance[/]             [bold #e8e8e8]{self._summary_amount(summary.get('cashBalance'))}[/]",
+                f"[bold #5fd7ff]Available Withdrawal[/]     [bold #e8e8e8]{self._summary_amount(summary.get('cashAvailableForWithdrawal'))}[/]",
+                f"[bold #5fd7ff]Buying Power[/]             [bold #3ddc84]{self._summary_amount(summary.get('buyingPower'))}[/]",
+                f"[bold #5fd7ff]Actual Account Balance[/]   [bold #ffd166]{self._summary_amount(summary.get('acctualAccountBalance'))}[/]",
+                "",
+                "[#6b6b6b]────────────────────────────────────────────────────────[/]",
+                "",
+                "[bold #ff9e1b]PORTFOLIO OVERVIEW[/]",
+                "",
+                f"[bold #5fd7ff]Portfolio Cost[/]           {self._summary_amount(summary.get('totalPortfolioCost'))}",
+                f"[bold #5fd7ff]Portfolio Value[/]          [bold #e8e8e8]{self._summary_amount(summary.get('totalPortfolioMarketValue'))}[/]",
+                f"[bold #5fd7ff]Gain / Loss[/]              [bold {gain_loss_color}]{gain_loss_value}[/]",
+                "",
+                "[#6b6b6b]────────────────────────────────────────────────────────[/]",
+                "",
+                "[bold #ff9e1b]BLOCKS / MARGIN[/]",
+                "",
+                f"[bold #5fd7ff]Unsettled Sales[/]          {self._summary_amount(summary.get('unsettledSalesValue'))}",
+                f"[bold #5fd7ff]Pending Buy Value[/]        {self._summary_amount(summary.get('totalPendingBuyOrderValue'))}",
+                f"[bold #5fd7ff]Cash Block[/]               {self._summary_amount(summary.get('cashBlock'))}",
+                f"[bold #5fd7ff]Margin Block[/]             {self._summary_amount(summary.get('marginBlock'))}",
+                f"[bold #5fd7ff]Exposure %[/]               {self._summary_amount(summary.get('exposurePercentage'))}",
+                f"[bold #5fd7ff]Margin Amount[/]            {self._summary_amount(summary.get('marginAmount'))}",
+                f"[bold #5fd7ff]Utilized Margin Ratio[/]    {self._summary_amount(summary.get('utilizedPortfolioMarginCont'))}",
+            ]
+        )
+        self.query_one("#account-summary", Static).update(render)
+        self.query_one("#portfolio-total", Static).update("")
+        self._set_status(
+            f"Account summary updated {last_updated_time}" if last_updated_time else "Account summary loaded",
+            "account",
+        )
 
     def _open_watchlist_by_row(self, row: CustomWatchlistRow) -> None:
         try:

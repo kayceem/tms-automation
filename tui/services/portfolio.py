@@ -168,6 +168,16 @@ class PortfolioService:
         )
         return rows, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    def fetch_account_summary(self, path: str | Path) -> tuple[dict, str]:
+        client = ATRADClient(self.load_user_config(path))
+        payload = client.get_account_summary()
+        if payload is None:
+            raise RuntimeError("Unable to fetch ATRAD account summary")
+        summary = payload.get("clientSummary")
+        if not isinstance(summary, dict):
+            raise RuntimeError("Invalid ATRAD account summary payload")
+        return summary, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     def build_cancel_url(self, path: str | Path, order: dict) -> str:
         client = ATRADClient(self.load_user_config(path))
         return client.build_cancel_order_url(order)
