@@ -31,7 +31,7 @@ class ATRADUserConfig:
     default_asset_select: str = '1'  # 1=EQUITY
     default_board: str = '1'  # 1=Regular board
     default_order_type: str = '16'  # 16=Day order
-    default_type_of_order: str = '1'  # 1 day validity
+    default_type_of_order: str = '1'  # 1 Regular, 7 Pre Open
     default_product: str = 'web'
 
     # Trigger mode settings (same as TMS for consistency)

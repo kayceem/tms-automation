@@ -11,8 +11,10 @@ from textual.widgets import Checkbox, Input, TabbedContent
 
 from tui.app import TMSAutomationTUI
 from tui.screens.main_menu import MainMenuScreen
+from tui.screens.config_menu import ConfigMenuScreen
+from tui.screens.order_logs import OrderLogsScreen
 from tui.screens.orders import ORDER_TEMPLATE, OrderEditorScreen
-from tui.screens.portfolio import OrderBookScreen
+from tui.screens.portfolio import ATRADUserSelectScreen, OrderBookScreen, PortfolioScreen
 from tui.screens.orders import OrdersScreen
 
 
@@ -22,6 +24,59 @@ def test_tui_main_screen_mounts():
         async with app.run_test() as pilot:
             await pilot.pause()
             assert isinstance(app.screen, MainMenuScreen)
+
+    asyncio.run(run())
+
+
+def test_global_shortcut_ctrl_o_opens_config_orders():
+    async def run() -> None:
+        app = TMSAutomationTUI()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            await pilot.press("ctrl+o")
+            await pilot.pause()
+
+            assert isinstance(app.screen, OrdersScreen)
+            assert len(app.screen_stack) == 4
+            assert isinstance(app.screen_stack[-3], MainMenuScreen)
+            assert isinstance(app.screen_stack[-2], ConfigMenuScreen)
+            assert isinstance(app.screen_stack[-1], OrdersScreen)
+
+    asyncio.run(run())
+
+
+def test_global_shortcut_ctrl_l_opens_order_logs():
+    async def run() -> None:
+        app = TMSAutomationTUI()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            await pilot.press("ctrl+l")
+            await pilot.pause()
+
+            assert isinstance(app.screen, OrderLogsScreen)
+            assert len(app.screen_stack) == 3
+            assert isinstance(app.screen_stack[-2], MainMenuScreen)
+            assert isinstance(app.screen_stack[-1], OrderLogsScreen)
+
+    asyncio.run(run())
+
+
+def test_global_shortcut_ctrl_a_opens_portfolio_atrad():
+    async def run() -> None:
+        app = TMSAutomationTUI()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            await pilot.press("ctrl+a")
+            await pilot.pause()
+
+            assert isinstance(app.screen, ATRADUserSelectScreen)
+            assert len(app.screen_stack) == 4
+            assert isinstance(app.screen_stack[-3], MainMenuScreen)
+            assert isinstance(app.screen_stack[-2], PortfolioScreen)
+            assert isinstance(app.screen_stack[-1], ATRADUserSelectScreen)
 
     asyncio.run(run())
 
@@ -208,6 +263,76 @@ def test_order_book_t_binding_is_noop_outside_watchlists_and_top():
 
     screen.action_toggle_top_or_cycle_watchlist()
     assert calls == []
+
+
+def test_order_book_panel_switch_only_refreshes_unloaded_panels():
+    class FakePortfolioService:
+        def get_user_label(self, _path: Path) -> str:
+            return "demo"
+
+        def load_tickers(self) -> list[dict]:
+            return []
+
+    class FakeTabs:
+        def __init__(self) -> None:
+            self.active = "tab-active"
+
+    screen = OrderBookScreen(Path("users/default.json"), service=FakePortfolioService())
+    tabs = FakeTabs()
+    refresh_calls: list[str] = []
+    focus_calls: list[str] = []
+    action_updates: list[str] = []
+
+    screen.query_one = lambda selector, _type=None: tabs if selector == "#portfolio-tabs" else None  # type: ignore[method-assign]
+    screen._focus_current_panel = lambda: focus_calls.append(tabs.active)  # type: ignore[method-assign]
+    screen._update_action_buttons = lambda: action_updates.append(tabs.active)  # type: ignore[method-assign]
+    screen.action_refresh_book = lambda: refresh_calls.append(tabs.active)  # type: ignore[method-assign]
+
+    screen._set_panel("tab-market")
+    screen._loaded_panels.add("tab-market")
+    screen._set_panel("tab-account")
+    screen._loaded_panels.add("tab-account")
+    screen._set_panel("tab-market")
+    screen._set_panel("tab-account")
+
+    assert refresh_calls == ["tab-market", "tab-account"]
+    assert focus_calls == ["tab-market", "tab-account", "tab-market", "tab-account"]
+    assert action_updates == ["tab-market", "tab-account", "tab-market", "tab-account"]
+
+
+def test_order_book_account_panel_focuses_scroll_container():
+    class FakePortfolioService:
+        def get_user_label(self, _path: Path) -> str:
+            return "demo"
+
+        def load_tickers(self) -> list[dict]:
+            return []
+
+    class FakeTabs:
+        def __init__(self) -> None:
+            self.active = "tab-account"
+
+    class FocusTarget:
+        def __init__(self, name: str, calls: list[str]) -> None:
+            self.name = name
+            self.calls = calls
+
+        def focus(self) -> None:
+            self.calls.append(self.name)
+
+    screen = OrderBookScreen(Path("users/default.json"), service=FakePortfolioService())
+    focus_calls: list[str] = []
+    tabs = FakeTabs()
+    targets = {
+        "#portfolio-tabs": tabs,
+        "#account-summary-scroll": FocusTarget("account-scroll", focus_calls),
+    }
+
+    screen.query_one = lambda selector, _type=None: targets[selector]  # type: ignore[method-assign]
+
+    screen._focus_current_panel()
+
+    assert focus_calls == ["account-scroll"]
 
 
 def test_orders_screen_can_reload_store_from_disk():

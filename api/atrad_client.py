@@ -137,7 +137,7 @@ class ATRADClient:
 
         # Store pre-encoded static body string
         self._static_body = "&".join(body_parts)
-
+        self._pre_order_static_body = self._static_body.replace("cmbTypeOfOrder=1", "cmbTypeOfOrder=7")
 
     def _restore_session_from_cookies(self):
         """

@@ -763,6 +763,11 @@ if App is not None:
         CSS = CSS
         TITLE = "TMS AUTO"
         SUB_TITLE = "OPERATOR TERMINAL"
+        BINDINGS = [
+            ("ctrl+o", "go_config_orders", "Config Orders"),
+            ("ctrl+l", "go_order_logs", "Order Logs"),
+            ("ctrl+a", "go_portfolio_atrad", "Portfolio ATRAD"),
+        ]
         SCREENS = {
             "main": MainMenuScreen,
             "config": ConfigMenuScreen,
@@ -799,6 +804,26 @@ if App is not None:
             logger.propagate = False
             for handler in self._original_log_handlers:
                 logger.addHandler(handler)
+
+        def _reset_to_main(self) -> None:
+            while len(self.screen_stack) > 1 and not isinstance(self.screen, MainMenuScreen):
+                self.pop_screen()
+            if not isinstance(self.screen, MainMenuScreen):
+                self.push_screen("main")
+
+        def action_go_config_orders(self) -> None:
+            self._reset_to_main()
+            self.push_screen("config")
+            self.push_screen("orders")
+
+        def action_go_order_logs(self) -> None:
+            self._reset_to_main()
+            self.push_screen("order-logs")
+
+        def action_go_portfolio_atrad(self) -> None:
+            self._reset_to_main()
+            self.push_screen("portfolio")
+            self.push_screen("atrad-users")
 
 
 def main() -> None:

@@ -334,6 +334,7 @@ class OrderBookScreen(Screen[None]):
         self._last_top_updated_time: str = ""
         self._account_summary: dict = {}
         self._last_account_updated_time: str = ""
+        self._loaded_panels: set[str] = set()
         self._auto_refresh_enabled = False
         self._auto_refresh_timer: Timer | None = None
         self._refresh_in_flight = False
@@ -496,7 +497,8 @@ class OrderBookScreen(Screen[None]):
         tabs.active = panel_id
         self._focus_current_panel()
         self._update_action_buttons()
-        self.action_refresh_book()
+        if panel_id not in self._loaded_panels:
+            self.action_refresh_book()
 
     def action_show_active_panel(self) -> None:
         self._set_panel("tab-active")
@@ -537,7 +539,7 @@ class OrderBookScreen(Screen[None]):
         elif panel == "tab-top":
             self.query_one("#top-table", DataTable).focus()
         elif panel == "tab-account":
-            self.query_one("#account-summary", Static).focus()
+            self.query_one("#account-summary-scroll", VerticalScroll).focus()
         else:
             self.query_one("#watchlist-table", DataTable).focus()
 
@@ -760,6 +762,7 @@ class OrderBookScreen(Screen[None]):
         table_id: str,
         panel: str,
     ) -> None:
+        self._loaded_panels.add("tab-active" if panel == "active" else "tab-completed")
         if panel == "active":
             self.rows = rows
         else:
@@ -890,6 +893,7 @@ class OrderBookScreen(Screen[None]):
         return None
 
     def _apply_watchlist_rows(self, watch_id: int, rows: list[WatchlistEntryRow], last_updated_time: str) -> None:
+        self._loaded_panels.add("tab-watchlists")
         self.watchlist_rows = rows
         self._last_watchlist_updated_time = last_updated_time
         sorted_rows = self._sorted_watchlist_rows(rows)
@@ -962,6 +966,7 @@ class OrderBookScreen(Screen[None]):
         self.query_one("#portfolio-total", Static).update("")
 
     def _apply_top_rows(self, rows: list[WatchlistEntryRow], last_updated_time: str) -> None:
+        self._loaded_panels.add("tab-top")
         self.top_rows = rows
         self._last_top_updated_time = last_updated_time
         table = self.query_one("#top-table", DataTable)
@@ -1041,6 +1046,7 @@ class OrderBookScreen(Screen[None]):
             return "-"
 
     def _apply_account_summary(self, summary: dict, last_updated_time: str) -> None:
+        self._loaded_panels.add("tab-account")
         self._account_summary = summary
         self._last_account_updated_time = last_updated_time
         gain_loss_value = self._summary_amount(summary.get("totalGainLoss"))
@@ -1329,6 +1335,7 @@ class OrderBookScreen(Screen[None]):
         self.action_refresh_book()
 
     def _apply_market(self, symbol: str, details: dict, ltp: dict, last_updated_time: str) -> None:
+        self._loaded_panels.add("tab-market")
         bids_table = self.query_one("#market-bids-table", DataTable)
         asks_table = self.query_one("#market-asks-table", DataTable)
         bids_table.clear()
