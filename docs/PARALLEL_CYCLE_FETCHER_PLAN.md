@@ -74,7 +74,7 @@ Do not add `slow_spawn_interval_ms` or a separate slow parallel scheduler in v1.
 
 ### 3. Config additions
 Add new persisted config fields to both `UserConfig` and `ATRADUserConfig`:
-- `trigger_mode_parallel_fetch_enabled: bool = False`
+- `trigger_mode_parallel_fetch_enabled: bool = True`
 - `trigger_mode_parallel_spawn_interval_ms: int`
 - `trigger_mode_parallel_cycle_timeout_ms: int`
 - `trigger_mode_parallel_wait: bool = False`

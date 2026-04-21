@@ -192,20 +192,14 @@ class PortfolioService:
 
     def fetch_market_details(self, client: ATRADClient, symbol: str) -> dict:
         result = client.get_market_details(symbol, complete=True)
-        if not result:
-            raise RuntimeError(f"No market details available for {symbol}")
-        if isinstance(result, list):
-            if not result:
-                raise RuntimeError(f"Empty market details for {symbol}")
-            return result[0] if isinstance(result[0], dict) else {}
-        if isinstance(result, dict):
-            return result
-        raise RuntimeError(f"Unexpected market details payload for {symbol}")
+        if not isinstance(result, list) or not result:
+            return {}
+        return result[0] if isinstance(result[0], dict) else {}
 
     def fetch_ltp_details(self, client: ATRADClient, symbol: str) -> dict:
         result = client.get_ltp(symbol, complete=True)
         if not isinstance(result, dict) or not result:
-            raise RuntimeError(f"No LTP data available for {symbol}")
+            return {}
         return result
     
     def fetch_script_details(self, path: str | Path, symbol: str) -> tuple[dict, dict, str]:

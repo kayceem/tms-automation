@@ -41,7 +41,7 @@ class ATRADUserConfig:
     trigger_sell_poll_interval_ms: int = 500
     trigger_mode_slow_poll_interval_ms: int = 500
     trigger_mode_requests_per_fetch_user: int = 5
-    trigger_mode_parallel_fetch_enabled: bool = False
+    trigger_mode_parallel_fetch_enabled: bool = True
     trigger_mode_parallel_spawn_interval_ms: int = 10
     trigger_mode_parallel_cycle_timeout_ms: int = 20
     trigger_mode_parallel_wait: bool = False
