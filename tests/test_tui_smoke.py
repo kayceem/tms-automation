@@ -18,6 +18,14 @@ from tui.screens.portfolio import ATRADUserSelectScreen, OrderBookScreen, Portfo
 from tui.screens.orders import OrdersScreen
 
 
+def _binding_key(binding) -> str:
+    return binding.key if hasattr(binding, "key") else binding[0]
+
+
+def _binding_action(binding) -> str:
+    return binding.action if hasattr(binding, "action") else binding[1]
+
+
 def test_tui_main_screen_mounts():
     async def run() -> None:
         app = TMSAutomationTUI()
@@ -196,7 +204,7 @@ def test_order_book_auto_refresh_only_targets_active_panel():
 
     try:
         assert screen._auto_refresh_enabled is False
-        assert any(binding[0] == "l" for binding in screen.BINDINGS)
+        assert any(_binding_key(binding) == "l" for binding in screen.BINDINGS)
 
         screen._handle_auto_refresh_tick()
         assert refresh_requests == []
@@ -235,9 +243,10 @@ def test_order_book_top_tab_defaults_and_toggle_behavior():
     screen._set_status = lambda message, panel="active": statuses.append((message, panel))  # type: ignore[method-assign]
 
     assert screen._top_gainers_mode is True
-    assert any(binding[0] == "ctrl+4" and binding[1] == "show_top_panel" for binding in screen.BINDINGS)
-    assert any(binding[0] == "ctrl+5" and binding[1] == "show_market_panel" for binding in screen.BINDINGS)
-    assert any(binding[0] == "ctrl+6" and binding[1] == "show_account_panel" for binding in screen.BINDINGS)
+    assert any(_binding_key(binding) == "ctrl+4" and _binding_action(binding) == "show_top_panel" for binding in screen.BINDINGS)
+    assert any(_binding_key(binding) == "ctrl+5" and _binding_action(binding) == "show_market_panel" for binding in screen.BINDINGS)
+    assert any(_binding_key(binding) == "ctrl+6" and _binding_action(binding) == "show_market_depth_panel" for binding in screen.BINDINGS)
+    assert any(_binding_key(binding) == "ctrl+7" and _binding_action(binding) == "show_account_panel" for binding in screen.BINDINGS)
     assert screen._top_sort_mode == "chng_pct"
 
     screen.action_toggle_top_or_cycle_watchlist()
@@ -333,6 +342,36 @@ def test_order_book_account_panel_focuses_scroll_container():
     screen._focus_current_panel()
 
     assert focus_calls == ["account-scroll"]
+
+
+def test_order_book_market_depth_panel_focuses_first_depth_table():
+    class FakePortfolioService:
+        def get_user_label(self, _path: Path) -> str:
+            return "demo"
+
+        def load_tickers(self) -> list[dict]:
+            return []
+
+    class FocusTarget:
+        def __init__(self) -> None:
+            self.focus_calls = 0
+
+        def focus(self) -> None:
+            self.focus_calls += 1
+
+    screen = OrderBookScreen(Path("users/default.json"), service=FakePortfolioService())
+    class FakeTabs:
+        def __init__(self) -> None:
+            self.active = "tab-market-depth"
+
+    tabs = FakeTabs()
+    target = FocusTarget()
+
+    screen.query_one = lambda selector, _type=None: tabs if selector == "#portfolio-tabs" else target  # type: ignore[method-assign]
+
+    screen._focus_current_panel()
+
+    assert target.focus_calls == 1
 
 
 def test_orders_screen_can_reload_store_from_disk():

@@ -9,7 +9,13 @@ from typing import Iterable
 
 from api.atrad_client import ATRADClient
 from config import ATRADUserConfig
-from tui.models import CustomWatchlistRow, OrderBookRow, WatchlistEntryRow
+from tui.models import (
+    CustomWatchlistRow,
+    MarketDepthLevelRow,
+    MarketDepthSnapshot,
+    OrderBookRow,
+    WatchlistEntryRow,
+)
 from utils.config.atrad_config_actions import iter_atrad_user_paths
 
 
@@ -43,6 +49,37 @@ class PortfolioService:
 
     def __init__(self, users_dir: str | Path = "users") -> None:
         self.users_dir = Path(users_dir)
+
+    def load_portfolio_defaults(
+        self,
+        path: str | Path = "stores/default_store.json",
+    ) -> tuple[str | None, list[str | None]]:
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+        except (OSError, ValueError):
+            return None, [None, None, None, None]
+
+        portfolio = payload.get("portfolio")
+        if not isinstance(portfolio, dict):
+            return None, [None, None, None, None]
+
+        market_summary = portfolio.get("market_summary")
+        market_symbol = str(market_summary).strip().upper() if market_summary else None
+
+        raw_depth = portfolio.get("market_depth")
+        market_depth: list[str | None] = [None, None, None, None]
+        if isinstance(raw_depth, list):
+            for index, symbol in enumerate(raw_depth[:4]):
+                cleaned = str(symbol).strip().upper() if symbol else ""
+                market_depth[index] = cleaned or None
+
+        if market_symbol is None:
+            market_symbol = next((symbol for symbol in market_depth if symbol), None)
+        if market_depth[0] is None:
+            market_depth[0] = market_symbol
+
+        return market_symbol, market_depth
 
     def list_atrad_users(self) -> list[Path]:
         return iter_atrad_user_paths(self.users_dir)
@@ -205,13 +242,58 @@ class PortfolioService:
         if not isinstance(result, dict) or not result:
             return {}
         return result
-    
+
     def fetch_script_details(self, path: str | Path, symbol: str) -> tuple[dict, dict, str]:
         client = ATRADClient(self.load_user_config(path))
         ltp = self.fetch_ltp_details(client, symbol)
         market_details = self.fetch_market_details(client, symbol)
         last_updated_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return ltp, market_details, last_updated_time
+
+    @staticmethod
+    def _depth_levels(levels: Iterable[dict], *, limit: int = 3) -> list[MarketDepthLevelRow]:
+        rows: list[MarketDepthLevelRow] = []
+        for item in list(levels)[:limit]:
+            if not isinstance(item, dict):
+                continue
+            rows.append(
+                MarketDepthLevelRow(
+                    splits=_pick_first(item, "splits", default="-"),
+                    quantity=_pick_first(item, "qty", "quantity", default="-"),
+                    price=_pick_first(item, "price", default="-"),
+                )
+            )
+        return rows
+
+    def fetch_market_depth_snapshot(
+        self,
+        path: str | Path,
+        symbol: str,
+        *,
+        levels: int = 5,
+    ) -> MarketDepthSnapshot:
+        client = ATRADClient(self.load_user_config(path))
+        ltp = self.fetch_ltp_details(client, symbol)
+        market_details = self.fetch_market_details(client, symbol)
+        last_updated_time = datetime.now().strftime("%H:%M:%S")
+
+        bids = self._depth_levels(market_details.get("bid", []), limit=levels)
+        asks = self._depth_levels(market_details.get("ask", []), limit=levels)
+
+        return MarketDepthSnapshot(
+            symbol=symbol,
+            last_updated_time=last_updated_time,
+            last_price=_pick_first(ltp, "tradeprice", default="-"),
+            net_change=_pick_first(ltp, "netchange", default="-"),
+            percent_change=_pick_first(ltp, "perchange", default="-"),
+            volume=_pick_first(ltp, "totvolume", default="-"),
+            total_bids=_pick_first(market_details, "totalbids", default="0"),
+            total_asks=_pick_first(market_details, "totalask", default="0"),
+            bids=bids,
+            asks=asks,
+            ltp_raw=ltp,
+            market_raw=market_details,
+        )
 
     def load_tickers(self, path: str | Path = "stores/tickers.json") -> list[dict]:
         try:

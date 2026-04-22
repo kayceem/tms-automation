@@ -67,3 +67,26 @@ class WatchlistEntryRow:
     volume: str
     turnover: str
     raw: dict
+
+
+@dataclass(frozen=True)
+class MarketDepthLevelRow:
+    splits: str
+    quantity: str
+    price: str
+
+
+@dataclass(frozen=True)
+class MarketDepthSnapshot:
+    symbol: str
+    last_updated_time: str
+    last_price: str
+    net_change: str
+    percent_change: str
+    volume: str
+    total_bids: str
+    total_asks: str
+    bids: list[MarketDepthLevelRow]
+    asks: list[MarketDepthLevelRow]
+    ltp_raw: dict
+    market_raw: dict

@@ -527,6 +527,56 @@ Checkbox:focus {
     border: solid #ff9e1b;
 }
 
+#market-depth-shell {
+    width: 100%;
+    height: auto;
+    padding: 0;
+    margin: 0;
+}
+
+.market-depth-row {
+    width: 100%;
+    height: auto;
+    margin: 0;
+}
+
+.market-depth-card {
+    width: 1fr;
+    height: auto;
+    margin: 0 1 0 1;
+    padding: 0;
+    border: solid #1a1000;
+    background: #050505;
+}
+
+.market-depth-slot-tables {
+    width: 100%;
+    height: auto;
+    align: center top;
+    padding: 0;
+    margin: 0;
+}
+
+.market-depth-book-table {
+    width: 1fr;
+    height: 9;
+    min-height: 9;
+    max-height: 9;
+    margin: 0 0;
+    border: solid #7a4a00;
+}
+
+.market-depth-book-table:focus {
+    border: solid #ff9e1b;
+}
+
+.market-depth-text {
+    padding: 0 1;
+    margin: 0;
+    min-height: 1;
+    height: auto;
+}
+
 .market-ltp {
     width: 100%;
     height: auto;

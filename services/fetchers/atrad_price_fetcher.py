@@ -3,7 +3,7 @@
 from collections import deque
 import time
 import threading
-from typing import Literal, Optional, List
+from typing import Callable, Literal, Optional, List
 from dataclasses import dataclass
 from api import ATRADClient
 from services.fetchers.fetcher_timing import calculate_request_timeout, calculate_rotation_delay
@@ -54,6 +54,8 @@ class ATRADPriceFetcher:
         self._ltp_version = 0
         self._fetch_thread: Optional[threading.Thread] = None
         self._wakeup_event = threading.Event()
+        self._trigger_callback: Optional[Callable[[float], None]] = None
+        self._trigger_callback_lock = threading.Lock()
 
         # Market details monitoring
         self._market_details_running = False
@@ -122,6 +124,24 @@ class ATRADPriceFetcher:
             self._latest_ltp = ltp
             self._ltp_version += 1
             self._price_update_condition.notify_all()
+
+    def set_trigger_callback(self, callback: Callable[[float], None]) -> None:
+        """Register a callback invoked after each published LTP."""
+        with self._trigger_callback_lock:
+            self._trigger_callback = callback
+
+    def clear_trigger_callback(self, callback: Callable[[float], None] | None = None) -> None:
+        """Clear the registered callback when it matches the active callback."""
+        with self._trigger_callback_lock:
+            if callback is None or self._trigger_callback is callback:
+                self._trigger_callback = None
+
+    def _notify_trigger_callback(self, ltp: float) -> None:
+        """Invoke the registered trigger callback outside the publish lock."""
+        with self._trigger_callback_lock:
+            callback = self._trigger_callback
+        if callback is not None:
+            callback(ltp)
 
     def pause(self):
         """
@@ -204,6 +224,7 @@ class ATRADPriceFetcher:
                         logger.warning(f"[{self.fetch_client.user_id}] LTP fetch returned None")
                     else:
                         self._publish_ltp(ltp)
+                        self._notify_trigger_callback(ltp)
                         logger.debug(f"[{self.fetch_client.user_id}] LTP={ltp})")
                     sleep_duration = poll_interval_seconds
 
@@ -277,6 +298,8 @@ class ATRADMultiUserPriceFetcher:
         self._parallel_pending_set: set[str] = set()
         self._parallel_dispatch_threads: list[threading.Thread] = []
         self._parallel_inflight_users: set[str] = set()
+        self._trigger_callback: Optional[Callable[[float], None]] = None
+        self._trigger_callback_lock = threading.Lock()
         self._parallel_last_dispatch_ms = {user.name: 0.0 for user in self.fetch_users}
         self._parallel_last_dispatch_any_ms = 0.0
         self._parallel_seeded = False
@@ -383,6 +406,24 @@ class ATRADMultiUserPriceFetcher:
             self._latest_ltp_snapshot = ltp
             self._ltp_version += 1
             self._price_update_condition.notify_all()
+
+    def set_trigger_callback(self, callback: Callable[[float], None]) -> None:
+        """Register a callback invoked after each published LTP."""
+        with self._trigger_callback_lock:
+            self._trigger_callback = callback
+
+    def clear_trigger_callback(self, callback: Callable[[float], None] | None = None) -> None:
+        """Clear the registered callback when it matches the active callback."""
+        with self._trigger_callback_lock:
+            if callback is None or self._trigger_callback is callback:
+                self._trigger_callback = None
+
+    def _notify_trigger_callback(self, ltp: float) -> None:
+        """Invoke the registered trigger callback outside the publish lock."""
+        with self._trigger_callback_lock:
+            callback = self._trigger_callback
+        if callback is not None:
+            callback(ltp)
 
     def _append_parallel_completion(self, user_name: str) -> None:
         """Record a completed parallel fetch without contending on the publish lock."""
@@ -511,6 +552,7 @@ class ATRADMultiUserPriceFetcher:
             self._parallel_last_dispatch_any_ms = now_ms
 
         def run_fetch() -> None:
+            published_ltp: Optional[float] = None
             try:
                 ltp = current_user.client.get_ltp(current_user.symbol, timeout=timeout)
                 latest_snapshot = self._latest_ltp_snapshot
@@ -535,7 +577,9 @@ class ATRADMultiUserPriceFetcher:
                     is_fresh = (self._latest_ltp is None or ltp > self._latest_ltp)
                     if can_publish and is_fresh:
                         self._publish_ltp(ltp)
-                        logger.debug(f"[{current_user.name}] Parallel fetch #{fetch_index}: LTP={ltp} ({current_user.symbol})")
+                        published_ltp = ltp
+                if published_ltp is not None:
+                    self._notify_trigger_callback(published_ltp)
                 self._append_parallel_completion(current_user.name)
             except Exception as e:
                 logger.error(

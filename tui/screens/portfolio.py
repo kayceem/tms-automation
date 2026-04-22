@@ -9,13 +9,14 @@ from pathlib import Path
 
 from textual import work
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.timer import Timer
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, OptionList, Select, Static, TabbedContent, TabPane
 from textual.widgets.option_list import Option
 
-from tui.models import CustomWatchlistRow, OrderBookRow, WatchlistEntryRow
+from tui.models import CustomWatchlistRow, MarketDepthSnapshot, OrderBookRow, WatchlistEntryRow
 from tui.services.portfolio import PortfolioService
 from tui.widgets import ClockWidget
 
@@ -293,6 +294,7 @@ class SymbolPromptScreen(ModalScreen[str | None]):
 
 class OrderBookScreen(Screen[None]):
     AUTO_REFRESH_INTERVAL_SECONDS = 30.0
+    MARKET_DEPTH_INTERVAL_SECONDS = 1.0
 
     BINDINGS = [
         ("ctrl+1", "show_active_panel", "Active"),
@@ -300,11 +302,16 @@ class OrderBookScreen(Screen[None]):
         ("ctrl+3", "show_watchlist_panel", "Watchlists"),
         ("ctrl+4", "show_top_panel", "Top 10"),
         ("ctrl+5", "show_market_panel", "Market"),
-        ("ctrl+6", "show_account_panel", "Account"),
+        ("ctrl+6", "show_market_depth_panel", "Market Depth"),
+        ("ctrl+7", "show_account_panel", "Account"),
         ("s", "change_market_symbol", "Symbol / Sort Watchlist"),
         ("k", "change_market_symbol", "Search Symbol"),
-        ("left", "previous_panel", "Prev Panel"),
-        ("right", "next_panel", "Next Panel"),
+        ("1", "edit_market_depth_slot_1", "Depth Slot 1"),
+        ("2", "edit_market_depth_slot_2", "Depth Slot 2"),
+        ("3", "edit_market_depth_slot_3", "Depth Slot 3"),
+        ("4", "edit_market_depth_slot_4", "Depth Slot 4"),
+        Binding("left", "previous_panel", "Prev Panel", priority=True),
+        Binding("right", "next_panel", "Next Panel", priority=True),
         ("r", "refresh_book", "Refresh"),
         ("l", "toggle_auto_refresh", "Auto Refresh"),
         ("c", "cancel_selected", "Cancel"),
@@ -320,6 +327,14 @@ class OrderBookScreen(Screen[None]):
         super().__init__()
         self.user_path = user_path
         self.service = service or PortfolioService()
+        default_market_symbol = None
+        default_market_depth_symbols: list[str | None] = [None, None, None, None]
+        load_defaults = getattr(self.service, "load_portfolio_defaults", None)
+        if callable(load_defaults):
+            try:
+                default_market_symbol, default_market_depth_symbols = load_defaults()
+            except Exception:
+                default_market_symbol, default_market_depth_symbols = None, [None, None, None, None]
         self.rows: list[OrderBookRow] = []
         self.completed_rows: list[OrderBookRow] = []
         self.watchlists: list[CustomWatchlistRow] = []
@@ -327,7 +342,7 @@ class OrderBookScreen(Screen[None]):
         self.top_rows: list[WatchlistEntryRow] = []
         self._watchlists_loaded = False
         self._selected_watchlist_id: str | None = None
-        self._market_symbol: str | None = "NABIL"
+        self._market_symbol: str | None = default_market_symbol
         self._watchlist_sort_mode: str = "symbol"
         self._top_sort_mode: str = "chng_pct"
         self._last_watchlist_updated_time: str = ""
@@ -338,9 +353,14 @@ class OrderBookScreen(Screen[None]):
         self._loaded_panels: set[str] = set()
         self._auto_refresh_enabled = False
         self._auto_refresh_timer: Timer | None = None
+        self._market_depth_timer: Timer | None = None
         self._refresh_in_flight = False
         self.user_label = self.service.get_user_label(self.user_path)
         self._tickers: list[dict] = self.service.load_tickers()
+        self._market_depth_symbols: list[str | None] = default_market_depth_symbols
+        self._market_depth_data: list[MarketDepthSnapshot | None] = [None, None, None, None]
+        self._market_depth_refresh_index = 0
+        self._market_depth_refresh_in_flight = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -407,6 +427,99 @@ class OrderBookScreen(Screen[None]):
                 with VerticalScroll(id="market-ltp-scroll", classes="market-ltp-scroll"):
                     yield Static("", id="market-ltp", classes="market-ltp")
 
+            with TabPane("Market Depth", id="tab-market-depth"):
+                with Vertical(id="market-depth-shell"):
+                    with Horizontal(classes="market-depth-row"):
+                        with Vertical(classes="market-depth-card"):
+                            yield Static("", id="market-depth-title-0", classes="market-ltp market-depth-text")
+                            with Horizontal(classes="market-depth-slot-tables"):
+                                table = DataTable(
+                                    id="market-depth-bids-table-0",
+                                    classes="market-depth-book-table",
+                                    zebra_stripes=True,
+                                    cursor_foreground_priority="renderable",
+                                    cursor_background_priority="css",
+                                )
+                                table.cursor_type = "row"
+                                yield table
+                                table = DataTable(
+                                    id="market-depth-asks-table-0",
+                                    classes="market-depth-book-table",
+                                    zebra_stripes=True,
+                                    cursor_foreground_priority="renderable",
+                                    cursor_background_priority="css",
+                                )
+                                table.cursor_type = "row"
+                                yield table
+                            yield Static("", id="market-depth-summary-0", classes="market-ltp market-depth-text")
+                        with Vertical(classes="market-depth-card"):
+                            yield Static("", id="market-depth-title-1", classes="market-ltp market-depth-text")
+                            with Horizontal(classes="market-depth-slot-tables"):
+                                table = DataTable(
+                                    id="market-depth-bids-table-1",
+                                    classes="market-depth-book-table",
+                                    zebra_stripes=True,
+                                    cursor_foreground_priority="renderable",
+                                    cursor_background_priority="css",
+                                )
+                                table.cursor_type = "row"
+                                yield table
+                                table = DataTable(
+                                    id="market-depth-asks-table-1",
+                                    classes="market-depth-book-table",
+                                    zebra_stripes=True,
+                                    cursor_foreground_priority="renderable",
+                                    cursor_background_priority="css",
+                                )
+                                table.cursor_type = "row"
+                                yield table
+                            yield Static("", id="market-depth-summary-1", classes="market-ltp market-depth-text")
+                    with Horizontal(classes="market-depth-row"):
+                        with Vertical(classes="market-depth-card"):
+                            yield Static("", id="market-depth-title-2", classes="market-ltp market-depth-text")
+                            with Horizontal(classes="market-depth-slot-tables"):
+                                table = DataTable(
+                                    id="market-depth-bids-table-2",
+                                    classes="market-depth-book-table",
+                                    zebra_stripes=True,
+                                    cursor_foreground_priority="renderable",
+                                    cursor_background_priority="css",
+                                )
+                                table.cursor_type = "row"
+                                yield table
+                                table = DataTable(
+                                    id="market-depth-asks-table-2",
+                                    classes="market-depth-book-table",
+                                    zebra_stripes=True,
+                                    cursor_foreground_priority="renderable",
+                                    cursor_background_priority="css",
+                                )
+                                table.cursor_type = "row"
+                                yield table
+                            yield Static("", id="market-depth-summary-2", classes="market-ltp market-depth-text")
+                        with Vertical(classes="market-depth-card"):
+                            yield Static("", id="market-depth-title-3", classes="market-ltp market-depth-text")
+                            with Horizontal(classes="market-depth-slot-tables"):
+                                table = DataTable(
+                                    id="market-depth-bids-table-3",
+                                    classes="market-depth-book-table",
+                                    zebra_stripes=True,
+                                    cursor_foreground_priority="renderable",
+                                    cursor_background_priority="css",
+                                )
+                                table.cursor_type = "row"
+                                yield table
+                                table = DataTable(
+                                    id="market-depth-asks-table-3",
+                                    classes="market-depth-book-table",
+                                    zebra_stripes=True,
+                                    cursor_foreground_priority="renderable",
+                                    cursor_background_priority="css",
+                                )
+                                table.cursor_type = "row"
+                                yield table
+                            yield Static("", id="market-depth-summary-3", classes="market-ltp market-depth-text")
+
             with TabPane("Account Summary", id="tab-account"):
                 with VerticalScroll(id="account-summary-scroll", classes="market-ltp-scroll"):
                     yield Static("", id="account-summary", classes="market-ltp")
@@ -424,6 +537,8 @@ class OrderBookScreen(Screen[None]):
             yield Static("", id="account-response", classes="response-text")
         with VerticalScroll(id="market-response-scroll", classes="response-scroll"):
             yield Static("", id="market-response", classes="response-text")
+        with VerticalScroll(id="market-depth-response-scroll", classes="response-scroll"):
+            yield Static("", id="market-depth-response", classes="response-text")
         yield ClockWidget(classes="panel-clock")
         with Horizontal(id="portfolio-actions"):
             yield Button("[R] Refresh", id="refresh", classes="action-button")
@@ -441,6 +556,11 @@ class OrderBookScreen(Screen[None]):
             self.AUTO_REFRESH_INTERVAL_SECONDS,
             self._handle_auto_refresh_tick,
             pause=True,
+        )
+        self._market_depth_timer = self.set_interval(
+            self.MARKET_DEPTH_INTERVAL_SECONDS,
+            self._handle_market_depth_tick,
+            pause=False,
         )
         active_table = self.query_one("#order-book-table", DataTable)
         active_table.add_columns(
@@ -480,15 +600,24 @@ class OrderBookScreen(Screen[None]):
         bids_table.add_columns("#", "splits", "qty", "bid price")
         asks_table = self.query_one("#market-asks-table", DataTable)
         asks_table.add_columns("#", "ask price", "qty", "splits")
+        for index in range(4):
+            depth_bids_table = self.query_one(f"#market-depth-bids-table-{index}", DataTable)
+            depth_bids_table.add_columns("#", "splits", "qty", "bid price")
+            depth_asks_table = self.query_one(f"#market-depth-asks-table-{index}", DataTable)
+            depth_asks_table.add_columns("#", "ask price", "qty", "splits")
         self.action_show_active_panel()
         active_table.focus()
         self._update_action_buttons()
         self._update_refresh_button()
+        self._refresh_market_depth_cards()
 
     def on_unmount(self) -> None:
         if self._auto_refresh_timer is not None:
             self._auto_refresh_timer.stop()
             self._auto_refresh_timer = None
+        if self._market_depth_timer is not None:
+            self._market_depth_timer.stop()
+            self._market_depth_timer = None
 
     def _active_panel(self) -> str:
         return self.query_one("#portfolio-tabs", TabbedContent).active
@@ -513,13 +642,16 @@ class OrderBookScreen(Screen[None]):
     def action_show_market_panel(self) -> None:
         self._set_panel("tab-market")
 
+    def action_show_market_depth_panel(self) -> None:
+        self._set_panel("tab-market-depth")
+
     def action_show_top_panel(self) -> None:
         self._set_panel("tab-top")
 
     def action_show_account_panel(self) -> None:
         self._set_panel("tab-account")
 
-    _PANELS = ("tab-active", "tab-completed", "tab-watchlists", "tab-top", "tab-market", "tab-account")
+    _PANELS = ("tab-active", "tab-completed", "tab-watchlists", "tab-top", "tab-market", "tab-market-depth", "tab-account")
 
     def action_previous_panel(self) -> None:
         current = self._PANELS.index(self._active_panel())
@@ -537,6 +669,8 @@ class OrderBookScreen(Screen[None]):
             self.query_one("#completed-order-book-table", DataTable).focus()
         elif panel == "tab-market":
             self.query_one("#market-bids-table", DataTable).focus()
+        elif panel == "tab-market-depth":
+            self.query_one("#market-depth-bids-table-0", DataTable).focus()
         elif panel == "tab-top":
             self.query_one("#top-table", DataTable).focus()
         elif panel == "tab-account":
@@ -550,6 +684,7 @@ class OrderBookScreen(Screen[None]):
         "tab-watchlists": "watchlist",
         "tab-account": "account",
         "tab-market": "market",
+        "tab-market-depth": "market-depth",
         "tab-top": "top",
     }
 
@@ -559,8 +694,8 @@ class OrderBookScreen(Screen[None]):
         cancel_button.display = panel == "tab-active"
         selector = self.query_one("#watchlist-selector", Select)
         selector.display = panel == "tab-watchlists"
-        for key in ("active", "completed", "watchlist", "market", "top", "account"):
-            self.query_one(f"#{key}-response-scroll").display = self._PANEL_KEY.get(panel) == key
+        for key in ("active", "completed", "watchlist", "market", "market-depth", "top", "account"):
+            self.query_one(f"#{key}-response-scroll").display = self._PANEL_KEY.get(panel) == key and key != "market-depth"
 
     def _update_refresh_button(self) -> None:
         state = "On" if self._auto_refresh_enabled else "Off"
@@ -573,6 +708,7 @@ class OrderBookScreen(Screen[None]):
             "tab-watchlists": "watchlists",
             "tab-account": "account",
             "tab-market": "market",
+            "tab-market-depth": "market-depth",
             "tab-top": "top",
         }.get(panel, "active")
 
@@ -581,6 +717,8 @@ class OrderBookScreen(Screen[None]):
         self._update_action_buttons()
         if self._active_panel() == "tab-market" and self._market_symbol is None:
             self._prompt_market_symbol()
+        if self._active_panel() == "tab-market-depth":
+            self._refresh_market_depth_cards()
 
     def _set_status(self, message: str, panel: str = "active") -> None:
         panel_label = {
@@ -589,6 +727,7 @@ class OrderBookScreen(Screen[None]):
             "watchlists": "Watchlists",
             "account": "Account Summary",
             "market": "Market",
+            "market-depth": "Market Depth",
             "top": "Top 10",
         }.get(panel, panel.title())
         self.query_one("#portfolio-status", Static).update(f"{panel_label}: {message}")
@@ -626,6 +765,11 @@ class OrderBookScreen(Screen[None]):
             if time.localtime().tm_hour < 11 or time.localtime().tm_hour >= 15:
                 self.action_toggle_auto_refresh()
             self._trigger_refresh(source="auto")
+
+    def _handle_market_depth_tick(self) -> None:
+        if self._active_panel() != "tab-market-depth":
+            return
+        self._trigger_market_depth_refresh()
 
     @staticmethod
     def _styled_cell(value: str, color: str) -> str:
@@ -691,6 +835,9 @@ class OrderBookScreen(Screen[None]):
                 ltp, market_details, last_updated_time = self.service.fetch_script_details(self.user_path, symbol)
                 self.app.call_from_thread(self._apply_market, symbol, market_details, ltp, last_updated_time)
                 return
+            if panel == "tab-market-depth":
+                self.app.call_from_thread(self._trigger_market_depth_refresh, True)
+                return
             if panel == "tab-account":
                 summary, last_updated_time = self.service.fetch_account_summary(self.user_path)
                 self.app.call_from_thread(self._apply_account_summary, summary, last_updated_time)
@@ -721,6 +868,53 @@ class OrderBookScreen(Screen[None]):
 
     def _mark_refresh_complete(self) -> None:
         self._refresh_in_flight = False
+
+    def _trigger_market_depth_refresh(self, reset_cycle: bool = False) -> None:
+        if reset_cycle:
+            self._market_depth_refresh_index = 0
+        if self._market_depth_refresh_in_flight:
+            return
+        active_slots = [index for index, symbol in enumerate(self._market_depth_symbols) if symbol]
+        if not active_slots:
+            self._set_status("Assign symbols to slots 1-4 for Market Depth.", "market-depth")
+            return
+        next_index = None
+        if reset_cycle:
+            next_index = active_slots[0]
+            self._market_depth_refresh_index = (next_index + 1) % len(self._market_depth_symbols)
+        else:
+            for _ in range(len(self._market_depth_symbols)):
+                candidate = self._market_depth_refresh_index % len(self._market_depth_symbols)
+                self._market_depth_refresh_index = (candidate + 1) % len(self._market_depth_symbols)
+                if self._market_depth_symbols[candidate]:
+                    next_index = candidate
+                    break
+        if next_index is None:
+            return
+        self._market_depth_refresh_in_flight = True
+        self._refresh_market_depth_slot(next_index)
+
+    @work(thread=True)
+    def _refresh_market_depth_slot(self, slot_index: int) -> None:
+        symbol = self._market_depth_symbols[slot_index]
+        if not symbol:
+            self.app.call_from_thread(self._mark_market_depth_refresh_complete)
+            return
+        try:
+            snapshot = self.service.fetch_market_depth_snapshot(self.user_path, symbol)
+        except RuntimeError as exc:
+            self.app.call_from_thread(self._set_status, str(exc), "market-depth")
+            self.app.call_from_thread(self._mark_market_depth_refresh_complete)
+            return
+        self.app.call_from_thread(
+            self._apply_market_depth_slot,
+            slot_index,
+            snapshot,
+        )
+        self.app.call_from_thread(self._mark_market_depth_refresh_complete)
+
+    def _mark_market_depth_refresh_complete(self) -> None:
+        self._market_depth_refresh_in_flight = False
 
     _STATUS_PALETTE = {
         "filled": "#3ddc84",
@@ -1240,9 +1434,24 @@ class OrderBookScreen(Screen[None]):
         if active == "tab-watchlists":
             self._cycle_watchlist_sort()
             return
+        if active == "tab-market-depth":
+            self._prompt_market_depth_symbol(0)
+            return
         if active != "tab-market":
             return
         self._prompt_market_symbol()
+
+    def action_edit_market_depth_slot_1(self) -> None:
+        self._prompt_market_depth_symbol(0)
+
+    def action_edit_market_depth_slot_2(self) -> None:
+        self._prompt_market_depth_symbol(1)
+
+    def action_edit_market_depth_slot_3(self) -> None:
+        self._prompt_market_depth_symbol(2)
+
+    def action_edit_market_depth_slot_4(self) -> None:
+        self._prompt_market_depth_symbol(3)
 
     def _cycle_watchlist_sort(self) -> None:
         order = ["symbol", "chng_pct", "volume"]
@@ -1387,6 +1596,27 @@ class OrderBookScreen(Screen[None]):
         self._market_symbol = symbol
         self.action_refresh_book()
 
+    def _prompt_market_depth_symbol(self, slot_index: int) -> None:
+        if self._active_panel() != "tab-market-depth":
+            return
+        self.app.push_screen(
+            SymbolPromptScreen(
+                title=f"MARKET DEPTH ▸ SLOT {slot_index + 1} ▸ ENTER SYMBOL",
+                submit_label="Load",
+                initial=self._market_depth_symbols[slot_index] or "",
+                tickers=self._tickers,
+            ),
+            lambda symbol: self._handle_market_depth_symbol_result(slot_index, symbol),
+        )
+
+    def _handle_market_depth_symbol_result(self, slot_index: int, symbol: str | None) -> None:
+        if not symbol:
+            return
+        self._market_depth_symbols[slot_index] = symbol
+        self._market_depth_data[slot_index] = None
+        self._refresh_market_depth_cards()
+        self._trigger_market_depth_refresh(reset_cycle=True)
+
     def _apply_market(self, symbol: str, details: dict, ltp: dict, last_updated_time: str) -> None:
         self._loaded_panels.add("tab-market")
         bids_table = self.query_one("#market-bids-table", DataTable)
@@ -1426,6 +1656,96 @@ class OrderBookScreen(Screen[None]):
         self._set_status(
             f"{symbol} · LTP {ltp.get('tradeprice', '-')} · updated {last_updated_time}",
             "market",
+        )
+
+    def _refresh_market_depth_cards(self) -> None:
+        for index in range(4):
+            self._render_market_depth_slot(index, self._market_depth_data[index])
+
+    def _apply_market_depth_slot(
+        self,
+        slot_index: int,
+        snapshot: MarketDepthSnapshot,
+    ) -> None:
+        self._loaded_panels.add("tab-market-depth")
+        self._market_depth_data[slot_index] = snapshot
+        self._render_market_depth_slot(slot_index, snapshot)
+        self.query_one("#portfolio-total", Static).update("")
+        self._set_status(
+            f"Market Depth slot {slot_index + 1} · {snapshot.symbol} · updated {snapshot.last_updated_time}",
+            "market-depth",
+        )
+
+    def _render_market_depth_slot(
+        self,
+        slot_index: int,
+        snapshot: MarketDepthSnapshot | None,
+    ) -> None:
+        title = self.query_one(f"#market-depth-title-{slot_index}", Static)
+        summary = self.query_one(f"#market-depth-summary-{slot_index}", Static)
+        bids_table = self.query_one(f"#market-depth-bids-table-{slot_index}", DataTable)
+        asks_table = self.query_one(f"#market-depth-asks-table-{slot_index}", DataTable)
+        bids_table.clear()
+        asks_table.clear()
+        if snapshot is None:
+            title.update("")
+            title.display = False
+            summary.update(f"[#6b6b6b]Slot {slot_index + 1}: press {slot_index + 1} to assign[/]")
+            bids_table.add_row("-", "-", "-", "-")
+            asks_table.add_row("-", "-", "-", "-")
+            return
+
+        title.update("")
+        title.display = False
+        if snapshot.bids:
+            for row_index, bid in enumerate(snapshot.bids, start=1):
+                bids_table.add_row(
+                    str(row_index),
+                    bid.splits,
+                    bid.quantity,
+                    f"[#00d26a]{bid.price}[/]",
+                )
+        else:
+            bids_table.add_row("-", "-", "-", "-")
+        bids_table.add_row(
+            "[bold #ff9e1b]TOTAL[/]",
+            "",
+            f"[bold #00d26a]{snapshot.total_bids}[/]",
+            "",
+        )
+        if snapshot.asks:
+            for row_index, ask in enumerate(snapshot.asks, start=1):
+                asks_table.add_row(
+                    str(row_index),
+                    f"[#ff4757]{ask.price}[/]",
+                    ask.quantity,
+                    ask.splits,
+                )
+        else:
+            asks_table.add_row("-", "-", "-", "-")
+        asks_table.add_row(
+            "[bold #ff9e1b]TOTAL[/]",
+            "",
+            f"[bold #ff4757]{snapshot.total_asks}[/]",
+            "",
+        )
+        summary.update(self._format_market_depth_summary(snapshot))
+
+    @classmethod
+    def _format_market_depth_summary(cls, snapshot: MarketDepthSnapshot) -> str:
+        price = snapshot.last_price
+        net = snapshot.net_change
+        pct = snapshot.percent_change
+        volume = snapshot.volume
+        net_val = cls._float_or_none(net) or 0.0
+        color = "#00d26a" if net_val > 0 else ("#ff4757" if net_val < 0 else "#e8e8e8")
+        arrow = "▲" if net_val > 0 else ("▼" if net_val < 0 else "●")
+        sign = "+" if net_val > 0 else ""
+        return (
+            f"[bold #5fd7ff]{snapshot.symbol}[/]   [#6b6b6b]{snapshot.last_updated_time or '-'}[/]   "
+            f"[#5fd7ff]LTP[/] [bold #e8e8e8]{price}[/]   "
+            f"[#5fd7ff]CHG[/] [bold {color}]{arrow} {sign}{net} ({sign}{pct}%)[/]   "
+            f"[#5fd7ff]VOL[/] [#e8e8e8]{volume}[/]"
         )
 
     @staticmethod
