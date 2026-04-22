@@ -156,7 +156,7 @@ class ATRADPriceFetcher:
                 return
             self._market_details_running = True
         self._wakeup_event.set()
-        logger.info(f"[{self.fetch_client.user_id}] Market details monitoring started")
+        logger.debug(f"[{self.fetch_client.user_id}] Market details monitoring started")
 
     def stop_market_details(self):
         """
@@ -191,7 +191,7 @@ class ATRADPriceFetcher:
                 elif market_details_running:
                     bid = self.fetch_client.get_market_details(self.symbol, timeout=timeout)
                     if not bid:
-                        logger.warning(f"[{self.fetch_client.user_id}] Market Details for {self.symbol}: No data available")
+                        logger.debug(f"[{self.fetch_client.user_id}] Market Details for {self.symbol}: No data available")
                     else:
                         splits = bid.get('splits', 'N/A')
                         qty = bid.get('qty', 'N/A')
@@ -262,16 +262,21 @@ class ATRADMultiUserPriceFetcher:
         self.parallel_wait = parallel_wait
 
         self._latest_ltp: Optional[float] = None
+        self._latest_ltp_snapshot: Optional[float] = None
         self._running = False
         self._paused = False
         self._lock = threading.RLock()
         self._price_update_condition = threading.Condition(self._lock)
+        self._parallel_queue_lock = threading.Lock()
         self._ltp_version = 0
         self._fetch_thread: Optional[threading.Thread] = None
         self._wakeup_event = threading.Event()
         self._parallel_completion_queue: deque[str] = deque()
+        self._parallel_completion_set: set[str] = set()
         self._parallel_pending_users: deque[str] = deque()
+        self._parallel_pending_set: set[str] = set()
         self._parallel_dispatch_threads: list[threading.Thread] = []
+        self._parallel_inflight_users: set[str] = set()
         self._parallel_last_dispatch_ms = {user.name: 0.0 for user in self.fetch_users}
         self._parallel_last_dispatch_any_ms = 0.0
         self._parallel_seeded = False
@@ -375,8 +380,17 @@ class ATRADMultiUserPriceFetcher:
         """Publish a new LTP value and wake trigger waiters immediately."""
         with self._price_update_condition:
             self._latest_ltp = ltp
+            self._latest_ltp_snapshot = ltp
             self._ltp_version += 1
             self._price_update_condition.notify_all()
+
+    def _append_parallel_completion(self, user_name: str) -> None:
+        """Record a completed parallel fetch without contending on the publish lock."""
+        with self._parallel_queue_lock:
+            self._parallel_inflight_users.discard(user_name)
+            if user_name not in self._parallel_completion_set:
+                self._parallel_completion_queue.append(user_name)
+                self._parallel_completion_set.add(user_name)
 
     def update_poll_settings(self, poll_interval_ms: int, enable_cooldown: bool):
         """
@@ -429,9 +443,13 @@ class ATRADMultiUserPriceFetcher:
 
     def _reset_parallel_state(self):
         """Reset transient scheduler state when entering or leaving parallel mode."""
-        with self._lock:
+        with self._parallel_queue_lock:
             self._parallel_completion_queue.clear()
+            self._parallel_completion_set.clear()
             self._parallel_pending_users.clear()
+            self._parallel_pending_set.clear()
+            self._parallel_inflight_users.clear()
+        with self._lock:
             self._parallel_last_dispatch_ms = {user.name: 0.0 for user in self.fetch_users}
             self._parallel_last_dispatch_any_ms = 0.0
             self._parallel_seeded = False
@@ -473,6 +491,20 @@ class ATRADMultiUserPriceFetcher:
                 or self._current_scheduler_mode() != "parallel"
             ):
                 return False
+        with self._parallel_queue_lock:
+            if current_user.name in self._parallel_inflight_users:
+                return False
+            self._parallel_inflight_users.add(current_user.name)
+            self._parallel_completion_set.discard(current_user.name)
+            self._parallel_pending_set.discard(current_user.name)
+            if self._parallel_pending_users and self._parallel_pending_users[0] == current_user.name:
+                self._parallel_pending_users.popleft()
+            else:
+                try:
+                    self._parallel_pending_users.remove(current_user.name)
+                except ValueError:
+                    pass
+        with self._lock:
             self._parallel_fetch_count += 1
             fetch_index = self._parallel_fetch_count
             self._parallel_last_dispatch_ms[current_user.name] = now_ms
@@ -481,29 +513,35 @@ class ATRADMultiUserPriceFetcher:
         def run_fetch() -> None:
             try:
                 ltp = current_user.client.get_ltp(current_user.symbol, timeout=timeout)
+                latest_snapshot = self._latest_ltp_snapshot
+                if ltp is None:
+                    logger.warning(
+                        f"[{current_user.name}] Parallel fetch #{fetch_index}: "
+                        f"LTP returned None ({current_user.symbol})"
+                    )
+                    self._append_parallel_completion(current_user.name)
+                    return
+                if latest_snapshot is not None and ltp <= latest_snapshot:
+                    self._append_parallel_completion(current_user.name)
+                    return
                 with self._lock:
                     can_publish = (
                         self._running
                         and not self._paused
                         and not self._market_details_running
-                        and self._current_scheduler_mode() == "parallel"
+                        and self.parallel_fetch_enabled
+                        and self.scheduler_mode == "parallel"
                     )
                     is_fresh = (self._latest_ltp is None or ltp > self._latest_ltp)
-                    if ltp is not None and can_publish and is_fresh:
+                    if can_publish and is_fresh:
                         self._publish_ltp(ltp)
                         logger.debug(f"[{current_user.name}] Parallel fetch #{fetch_index}: LTP={ltp} ({current_user.symbol})")
-                    elif ltp is None:
-                        logger.warning(
-                            f"[{current_user.name}] Parallel fetch #{fetch_index}: "
-                            f"LTP returned None ({current_user.symbol})"
-                        )
-                    self._parallel_completion_queue.append(current_user.name)
+                self._append_parallel_completion(current_user.name)
             except Exception as e:
                 logger.error(
                     f"[{current_user.name}] Error in parallel fetch loop (fetch #{fetch_index}): {str(e)}"
                 )
-                with self._lock:
-                    self._parallel_completion_queue.append(current_user.name)
+                self._append_parallel_completion(current_user.name)
 
         thread = threading.Thread(
             target=run_fetch,
@@ -536,18 +574,23 @@ class ATRADMultiUserPriceFetcher:
         """Dispatch the next parallel fetch based on completions or oldest-user fallback."""
         timeout = calculate_request_timeout(self.poll_interval_seconds)
 
-        with self._lock:
+        with self._parallel_queue_lock:
             if self._parallel_completion_queue:
-                self._parallel_pending_users.append(self._parallel_completion_queue.popleft())
+                completed_user_name = self._parallel_completion_queue.popleft()
+                self._parallel_completion_set.discard(completed_user_name)
+                if completed_user_name not in self._parallel_pending_set:
+                    self._parallel_pending_users.append(completed_user_name)
+                    self._parallel_pending_set.add(completed_user_name)
 
-        with self._lock:
+        with self._parallel_queue_lock:
             pending_user_name = self._parallel_pending_users[0] if self._parallel_pending_users else None
         if pending_user_name:
             current_user = self._get_fetch_user_by_name(pending_user_name)
             if current_user and self._spawn_parallel_fetch(current_user, timeout):
-                with self._lock:
+                with self._parallel_queue_lock:
                     if self._parallel_pending_users and self._parallel_pending_users[0] == pending_user_name:
                         self._parallel_pending_users.popleft()
+                        self._parallel_pending_set.discard(pending_user_name)
                 return True
 
         now_ms = time.perf_counter() * 1000
@@ -605,7 +648,7 @@ class ATRADMultiUserPriceFetcher:
                 return
             self._market_details_running = True
         self._wakeup_event.set()
-        logger.info("ATRADMultiUserPriceFetcher market details monitoring started")
+        logger.debug("ATRADMultiUserPriceFetcher market details monitoring started")
 
     def stop_market_details(self):
         """
@@ -662,7 +705,7 @@ class ATRADMultiUserPriceFetcher:
                     bid = current_user.client.get_market_details(current_user.symbol, timeout=timeout)
 
                     if not bid:
-                        logger.warning(f"[{current_user.name}] Market Details for {current_user.symbol}: No data available")
+                        logger.debug(f"[{current_user.name}] Market Details for {current_user.symbol}: No data available")
                         sleep_duration = delay
                     else:
                         bid['fetched_time_ms'] = int(time.time() * 1000)

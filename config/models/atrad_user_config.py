@@ -18,6 +18,8 @@ class ATRADUserConfig:
     username: str
     password: str
     account_id: str  # UCC/Account ID for order placement
+    debug_base_url: Optional[str] = None
+    debug_host: Optional[str] = None
 
     # Additional account information
     client_account: Optional[str] = None  # Client account display string
@@ -91,6 +93,8 @@ class ATRADUserConfig:
             'user_id': self.user_id,
             'atrad_base_url': self.atrad_base_url,
             'atrad_host': self.atrad_host,
+            'debug_base_url': self.debug_base_url,
+            'debug_host': self.debug_host,
             'username': self.username,
             'password': self.password,
             'account_id': self.account_id,

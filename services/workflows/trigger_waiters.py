@@ -92,7 +92,7 @@ def wait_for_no_ladder_trigger(
             switched_to_parallel = True
 
         if ltp >= trigger_price:
-            service.logger.info(f"[{service.user_id}] TRIGGERED! LTP={ltp} >= Rs. {trigger_price}. ")
+            service.logger.debug(f"[{service.user_id}] TRIGGERED! LTP={ltp} >= Rs. {trigger_price}. ")
             return True, None, ltp
 
         if not permanently_fast:
@@ -288,13 +288,13 @@ def wait_for_ladder_trigger(
                 )
                 current_level_index += 1
 
-            service.logger.info(
+            service.logger.debug(
                 f"[{service.user_id}] TRIGGERED! LTP={ltp} >= "
                 f"Rs. {trigger_price}. Placing order at Rs. {price_levels[current_level_index]}"
             )
 
             if hasattr(price_fetcher, "start_market_details"):
-                service.logger.info(f"[{service.user_id}] Starting market details monitoring for order placement")
+                service.logger.debug(f"[{service.user_id}] Starting market details monitoring for order placement")
                 price_fetcher.start_market_details()
 
             return ltp, current_level_index
@@ -330,13 +330,13 @@ def wait_for_ladder_trigger(
                 )
                 current_level_index += 1
 
-            service.logger.info(
+            service.logger.debug(
                 f"[{service.user_id}] TRIGGERED! LTP={ltp} >= "
                 f"Rs. {trigger_price}. Placing order at Rs. {price_levels[current_level_index]}"
             )
 
             if hasattr(price_fetcher, "start_market_details"):
-                service.logger.info(f"[{service.user_id}] Starting market details monitoring for order placement")
+                service.logger.debug(f"[{service.user_id}] Starting market details monitoring for order placement")
                 price_fetcher.start_market_details()
 
             return ltp, current_level_index

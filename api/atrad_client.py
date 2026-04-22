@@ -1039,7 +1039,7 @@ class ATRADClient:
                     )
                     return None
             else:
-                logger.warning(
+                logger.debug(
                     f"[{self.user_id}] Market details fetch failed: "
                     f"{response.status_code} {response.reason}"
                 )

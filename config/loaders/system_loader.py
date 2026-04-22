@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Union
 
+from app.debug_mode import apply_debug_host_overrides
 from utils import detect_system_from_config
 
 from config.loaders.defaults import apply_inherited_defaults
@@ -28,6 +29,7 @@ def load_config_by_system(config_path: str, role_label: str, is_atrad: bool = Fa
     user_config = config_cls.from_dict(config_data)
     user_config._config_file_path = str(Path(config_path).resolve())
     user_config._inherited_default_keys = inherited_keys
+    user_config = apply_debug_host_overrides(user_config)
 
     logger.info(f"Loaded {system_type.upper()} {role_label}: {user_config.user_id}")
     return user_config

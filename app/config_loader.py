@@ -1,7 +1,6 @@
 """Configuration loading helpers for the application entrypoint."""
 
 import logging
-
 from config.loaders import load_config_by_system, load_configs_for_platform
 from app.pool_users import UserPool, load_user_pool
 
