@@ -147,5 +147,13 @@
         "fetch_id": {
             "tms01.nepsetms.com.np": 3013
         }
+    },
+    "NHPC": {
+        "security_id": 3013,
+        "exchange_security_id": 9184,
+        "name": "National Hydorpower Company",
+        "fetch_id": {
+            "tms01.nepsetms.com.np": 3013
+        }
     }
 }

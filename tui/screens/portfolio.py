@@ -310,6 +310,7 @@ class OrderBookScreen(Screen[None]):
         ("c", "cancel_selected", "Cancel"),
         ("t", "toggle_top_or_cycle_watchlist", "Top/Watchlist"),
         ("a", "add_symbol", "Add Symbol"),
+        ("d", "remove_symbol", "Remove Symbol"),
         ("g", "clear_response", "Clear Response"),
         ("enter", "open_selected_watchlist", "Open Watchlist"),
         ("escape", "app.pop_screen", "Back"),
@@ -867,6 +868,19 @@ class OrderBookScreen(Screen[None]):
                 return row
         return None
 
+    def _selected_watchlist_row(self) -> WatchlistEntryRow | None:
+        table = self.query_one("#watchlist-table", DataTable)
+        if table.row_count == 0 or table.cursor_row < 0:
+            return None
+        row_key = table.coordinate_to_cell_key((table.cursor_row, 0)).row_key
+        if row_key is None:
+            return None
+        key = str(row_key.value)
+        for row in self.watchlist_rows:
+            if row.security_code == key:
+                return row
+        return None
+
     @work(thread=True)
     def _load_watchlist(self, watch_id: int) -> None:
         try:
@@ -1179,6 +1193,45 @@ class OrderBookScreen(Screen[None]):
         )
         self.app.call_from_thread(
             self._set_status, f"Added {symbol} to watchlist. Refreshing...", "watchlists",
+        )
+        self.app.call_from_thread(self._load_watchlist, watch_id)
+
+    def action_remove_symbol(self) -> None:
+        if self._active_panel() != "tab-watchlists":
+            return
+        if not self._selected_watchlist_id:
+            self._set_status("Select a watchlist first.", "watchlists")
+            return
+        row = self._selected_watchlist_row()
+        if row is None:
+            self._set_status("Select a symbol to remove.", "watchlists")
+            return
+        try:
+            watch_id = int(self._selected_watchlist_id)
+        except ValueError:
+            self._set_status(f"Invalid watchlist ID: {self._selected_watchlist_id}", "watchlists")
+            return
+        self._remove_symbol(watch_id, row.security_code)
+
+    @work(thread=True)
+    def _remove_symbol(self, watch_id: int, symbol: str) -> None:
+        try:
+            result = self.service.remove_symbol_from_watchlist(self.user_path, watch_id, symbol)
+        except RuntimeError as exc:
+            self.app.call_from_thread(
+                self._set_status, f"Remove failed: {exc}", "watchlists",
+            )
+            return
+        except Exception as exc:
+            self.app.call_from_thread(
+                self._set_status, f"Unexpected error: {exc}", "watchlists",
+            )
+            return
+        self.app.call_from_thread(
+            self._set_response, json.dumps(result, indent=2, sort_keys=True), "watchlist",
+        )
+        self.app.call_from_thread(
+            self._set_status, f"Removed {symbol} from watchlist. Refreshing...", "watchlists",
         )
         self.app.call_from_thread(self._load_watchlist, watch_id)
 

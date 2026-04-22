@@ -19,7 +19,7 @@ INHERITED_TRIGGER_SETTING_KEYS = (
     "trigger_mode_parallel_cycle_timeout_ms",
     "trigger_mode_parallel_wait",
 )
-
+DEBUG_FIELDS = ("debug_base_url", "debug_host")
 
 def apply_inherited_defaults(file_path: str, data: Dict[str, Any], allowed_keys: Iterable[str] = INHERITED_TRIGGER_SETTING_KEYS) -> Tuple[Dict[str, Any], set[str]]:
     """Merge selected fields from sibling default.json when absent in the user file."""
@@ -35,3 +35,7 @@ def apply_inherited_defaults(file_path: str, data: Dict[str, Any], allowed_keys:
             merged[key] = defaults[key]
             inherited_keys.add(key)
     return merged, inherited_keys
+
+def get_debug_fields() -> Dict[str, Any]:
+    """Get the set of debug fields that should be overridden in debug mode, for use in ATRADUserConfig."""
+    return DEBUG_FIELDS

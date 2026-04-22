@@ -43,7 +43,7 @@ class ATRADClient:
         self.quick_watch_endpoint = f"{self.base_url}{user_config.atrad_quick_watch_endpoint}"
         self.custom_watchlists_endpoint = f"{self.base_url}{user_config.atrad_custom_watchlists_endpoint}"
         self.watchlist_endpoint = f"{self.base_url}{user_config.atrad_watchlist_endpoint}"
-        self.add_security_watchlist_endpoint = f"{self.base_url}{user_config.atrad_add_security_watchlist_endpoint}"
+        self.atrad_security_watchlist_endpoint = f"{self.base_url}{user_config.atrad_security_watchlist_endpoint}"
         self.top_gainers_losers_endpoint = f"{self.base_url}{user_config.atrad_top_gainers_losers_endpoint}"
         self.ohlc_endpoint = f"{self.base_url}{user_config.atrad_ohlc_endpoint}"
         self.account_summary_endpoint = f"{self.base_url}{user_config.atrad_account_summary_endpoint}"
@@ -603,9 +603,9 @@ class ATRADClient:
             logger.error(f"[{self.user_id}] ATRAD cancel failed: {error_msg}")
             raise RuntimeError(f"Order cancellation failed: {error_msg}")
 
-    def add_security_to_watchlist(self, watch_id: int, symbol: str, timeout: float = 5.0) -> Dict[str, Any]:
+    def add_or_remove_security_from_watchlist(self, watch_id: int, symbol: str, timeout: float = 5.0, remove: bool = False) -> Dict[str, Any]:
         """
-        Add a security to a custom watchlist.
+        Add or remove a security from a custom watchlist.
 
         Args:
             watch_id: ID of the watchlist to add the security to
@@ -622,26 +622,31 @@ class ATRADClient:
             logger.warning(f"[{self.user_id}] Not authenticated, attempting login...")
             self.login()
 
-        endpoint = f"{self.add_security_watchlist_endpoint}&watchId={watch_id}&securityid={symbol}&dojo.preventCache={self._epoch_time_ms()}"
+        endpoint = f"{self.atrad_security_watchlist_endpoint}&watchId={watch_id}&securityid={symbol}&dojo.preventCache={self._epoch_time_ms()}"
 
-        logger.info(f"[{self.user_id}] Adding symbol {symbol} to watchlist ID {watch_id}")
+        if remove:
+            endpoint = endpoint.replace("action=place_holder", "action=deleteUserSecurity")
+        else:
+            endpoint = endpoint.replace("action=place_holder", "action=addUserSecurity")
+
+        logger.info(f"[{self.user_id}] {'Removing' if remove else 'Adding'} symbol {symbol} from watchlist ID {watch_id}")
 
         with self._request_lock:
             response = self._request_with_reauth("GET", endpoint, timeout=timeout)
 
             if response is None:
-                raise RuntimeError("Failed to add security to watchlist: no response from ATRAD server")
+                raise RuntimeError("Failed to update security in watchlist: no response from ATRAD server")
 
-            logger.debug(f"[{self.user_id}] Add to watchlist response status: {response.status_code}")
+            logger.debug(f"[{self.user_id}] Update watchlist response status: {response.status_code}")
 
             response.raise_for_status()
 
             try:
                 result = response.text.strip().replace("'", '"')
                 result = json.loads(result)
-                logger.debug(f"[{self.user_id}] Add to watchlist response: {json.dumps(result, indent=2)}")
+                logger.debug(f"[{self.user_id}] Updated watchlist response: {json.dumps(result, indent=2)}")
             except ValueError:
-                logger.error(f"[{self.user_id}] Invalid add to watchlist response: {response.text}")
+                logger.error(f"[{self.user_id}] Invalid watchlist response: {response.text}")
                 raise RuntimeError(f"Invalid response from ATRAD server: {response.text}")
 
             if str(result.get("code")) == "0":
@@ -649,8 +654,8 @@ class ATRADClient:
                 return result
 
             error_msg = result.get("description", "Unknown error")
-            logger.error(f"[{self.user_id}] ATRAD add to watchlist failed: {error_msg}")
-            raise RuntimeError(f"Failed to add security to watchlist: {error_msg}")
+            logger.error(f"[{self.user_id}] ATRAD update to watchlist failed: {error_msg}")
+            raise RuntimeError(f"Failed to update security in watchlist: {error_msg}")
 
     def refresh_tokens(self) -> bool:
         """

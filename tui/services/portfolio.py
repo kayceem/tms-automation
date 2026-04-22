@@ -188,7 +188,11 @@ class PortfolioService:
 
     def add_symbol_to_watchlist(self, path: str | Path, watch_id: int, symbol: str) -> dict:
         client = ATRADClient(self.load_user_config(path))
-        return client.add_security_to_watchlist(watch_id, symbol)
+        return client.add_or_remove_security_from_watchlist(watch_id, symbol)
+
+    def remove_symbol_from_watchlist(self, path: str | Path, watch_id: int, symbol: str) -> dict:
+        client = ATRADClient(self.load_user_config(path))
+        return client.add_or_remove_security_from_watchlist(watch_id, symbol, remove=True)
 
     def fetch_market_details(self, client: ATRADClient, symbol: str) -> dict:
         result = client.get_market_details(symbol, complete=True)

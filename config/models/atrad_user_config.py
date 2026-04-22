@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
 
-from config.loaders import apply_inherited_defaults
+from config.loaders import apply_inherited_defaults, get_debug_fields
 from config.loaders.file_utils import load_json_file, save_json_file
 
 
@@ -60,7 +60,7 @@ class ATRADUserConfig:
     atrad_quick_watch_endpoint: str = '/atsweb/watch?action=getQuickWatch&format=json&exchange=NEPSE&bookDefId=1&isquickwatchsecurity=true&lastUpdatedId=undefined'
     atrad_custom_watchlists_endpoint: str = '/atsweb/watch?action=getCustomWatches&format=json&exchange=NEPSE'
     atrad_watchlist_endpoint: str = '/atsweb/watch?action=userWatch&format=json&exchange=NEPSE&bookDefId=1'
-    atrad_add_security_watchlist_endpoint: str = '/atsweb/watch?action=addUserSecurity&format=json&exchange=NEPSE&bookDefId=1&isquickwatchsecurity=false'
+    atrad_security_watchlist_endpoint: str = '/atsweb/watch?action=place_holder&format=json&exchange=NEPSE&bookDefId=1'
     atrad_top_gainers_losers_endpoint: str = '/atsweb/watch?action=place_holder&format=json&size=10&exchange=NEPSE&bookDefId=1&lastUpdatedId=0'
     atrad_ohlc_endpoint: str = '/atsweb/marketdetails?action=getOHLC&format=json&asset=Equity&board=All&pageNumber=1'
     atrad_account_summary_endpoint: str = '/atsweb/client?action=getClientAccountSummary&format=json&exchange=NEPSE'
@@ -77,6 +77,7 @@ class ATRADUserConfig:
     # Internal: file path for auto-saving
     _config_file_path: Optional[str] = None
     _inherited_default_keys: set[str] = field(default_factory=set)
+    _debug_fields: set[str] = field(default_factory=set)
 
     def __post_init__(self):
         """Validate required fields."""
@@ -86,13 +87,16 @@ class ATRADUserConfig:
             raise ValueError(
                 f"Missing required ATRAD configuration for user {self.user_id}: {', '.join(missing)}"
             )
+        self._debug_fields = set(get_debug_fields())
+        self._original_atrad_base_url = self.atrad_base_url
+        self._original_atrad_host = self.atrad_host
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         data = {
             'user_id': self.user_id,
-            'atrad_base_url': self.atrad_base_url,
-            'atrad_host': self.atrad_host,
+            'atrad_base_url': self._original_atrad_base_url,
+            'atrad_host': self._original_atrad_host,
             'debug_base_url': self.debug_base_url,
             'debug_host': self.debug_host,
             'username': self.username,
@@ -119,6 +123,9 @@ class ATRADUserConfig:
             'trigger_mode_parallel_wait': self.trigger_mode_parallel_wait,
         }
         for key in self._inherited_default_keys:
+            data.pop(key, None)
+        
+        for key in self._debug_fields:
             data.pop(key, None)
 
         # Include cookies if available (for session persistence)
