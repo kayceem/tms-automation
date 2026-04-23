@@ -54,6 +54,8 @@ def _resolve_execution_users(
 
 def _resolve_order_just_buy_user_configs(order: Dict[str, Any], global_just_buy_user_configs=None):
     """Resolve effective just-buy users for one order, preferring store overrides."""
+    if not order.get("just_buy", False):
+        return []
     order_just_buy_users = order.get("just_buy_users") or []
     if order_just_buy_users:
         return load_just_buy_user_specs(order_just_buy_users, "order just-buy user")

@@ -110,6 +110,8 @@
     },
     {
       "id": "test_order",
+      "execute": false,
+      "success": false,
       "ticker": "NHPC",
       "user_id": "atrad_user6",
       "mode": "ipo-trigger",
@@ -125,7 +127,7 @@
       "no_ladder": true,
       "double_buy": false,
       "double_buy_quantity": null,
-      "just_buy": true,
+      "just_buy": false,
       "just_buy_interval_ms": 5,
       "just_buy_timeout": 5,
       "just_buy_pre_wait_ms": 3000,
@@ -137,8 +139,6 @@
       "buyer_config": null,
       "sell_quantity": null,
       "sell_pre_wait_ms": 5000,
-      "execute": false,
-      "success": true,
       "just_buy_users": [
         "users/atrad_user1.json",
         "users/atrad_user6.json",

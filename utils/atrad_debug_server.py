@@ -67,8 +67,7 @@ class DebugServerState:
         normalized_symbol = (symbol or "").upper()
         profile = self.ticker_profiles.get(normalized_symbol)
         if profile:
-            profile.order_request_count = 0
-            profile.request_count = 0
+            profile.reset()
 
     def reset_all_state(self) -> None:
         self.fallback_profile.reset()
