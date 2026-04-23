@@ -4,22 +4,17 @@ import math
 import time
 from typing import Any, Dict, List, Optional
 
-from api import ATRADClient
-
-
 def execute_trigger_sell(
     service: Any,
     sell_price: float,
     order_quantity: int,
-    fetch_client: Any,
+    fetch_clients: List[Any],
     fetch_security_id: Optional[int] = None,
     ticker: Optional[str] = None,
     limit_price: Optional[float] = None,
     **platform_params,
 ) -> Optional[Dict[str, Any]]:
     """Execute the trigger-sell workflow."""
-    from services.fetchers.price_fetcher import PriceFetcher
-
     identifier = service._get_identifier_for_logging(**platform_params)
 
     if fetch_security_id is None:
@@ -52,7 +47,7 @@ def execute_trigger_sell(
             f"[{service.user_id}] Will place sell order at Rs. {final_sell_price} when triggered"
         )
     else:
-        trigger_price = sell_price / 1.02
+        trigger_price = sell_price / 1.03
         trigger_price = math.ceil(trigger_price * 10) / 10
         final_sell_price = sell_price
 
@@ -66,40 +61,13 @@ def execute_trigger_sell(
         )
 
     poll_interval_ms = getattr(service.client.user_config, "trigger_sell_poll_interval_ms", 500)
-    is_atrad_fetch = isinstance(fetch_client, ATRADClient)
-
-    if is_atrad_fetch:
-        from services.fetchers.atrad_price_fetcher import ATRADPriceFetcher
-
-        symbol = platform_params.get("symbol")
-        service.logger.info(
-            f"[{service.user_id}] Using ATRAD fetch with symbol={symbol} for trigger sell LTP monitoring"
-        )
-        price_fetcher = ATRADPriceFetcher(
-            fetch_client=fetch_client,
-            symbol=symbol,
-            poll_interval_ms=poll_interval_ms,
-        )
-    else:
-        if ticker:
-            try:
-                from utils import get_ticker_store
-
-                ticker_store = get_ticker_store()
-                user_fetch_id = ticker_store.get_fetch_id(ticker, host=fetch_client.user_config.tms_host)
-                if user_fetch_id:
-                    fetch_security_id = user_fetch_id
-                    service.logger.info(
-                        f"[{service.user_id}] Using host-specific fetch_id={fetch_security_id} for ticker {ticker}"
-                    )
-            except Exception as exc:
-                service.logger.debug(f"[{service.user_id}] Could not resolve host-specific fetch_id: {exc}")
-
-        price_fetcher = PriceFetcher(
-            fetch_client=fetch_client,
-            security_id=fetch_security_id,
-            poll_interval_ms=poll_interval_ms,
-        )
+    price_fetcher = service._setup_price_fetcher(
+        fetch_clients=fetch_clients,
+        fetch_security_id=fetch_security_id,
+        symbol=platform_params.get("symbol"),
+        ticker=ticker,
+        poll_interval_ms=poll_interval_ms,
+    )
 
     token_manager = service._setup_token_manager()
     if token_manager:
@@ -108,7 +76,6 @@ def execute_trigger_sell(
             f"[{service.user_id}] Token refresh started (interval: {refresh_interval}s)"
         )
 
-    price_fetcher.start()
     order_placed = False
     last_response = None
 

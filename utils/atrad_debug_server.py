@@ -42,6 +42,10 @@ class TickerProfile:
         self.request_count += 1
         return price
 
+    def reset(self) -> None:
+        self.request_count = 0
+        self.order_request_count = 0
+
 
 @dataclass
 class DebugServerState:
@@ -51,18 +55,31 @@ class DebugServerState:
     watch_id: int
     fallback_profile: TickerProfile
     ticker_profiles: dict[str, TickerProfile] = field(default_factory=dict)
-    order_accept_after_requests: int = 1000
+    order_accept_after_requests: int = 10
+    inactivity_reset_seconds: float = 5.0
+    last_request_monotonic: float = field(default_factory=time.monotonic)
 
     def get_profile(self, symbol: str | None) -> TickerProfile:
         normalized_symbol = (symbol or "").upper()
         return self.ticker_profiles.get(normalized_symbol, self.fallback_profile)
-    
+
     def reset_count_for_symbol(self, symbol: str | None) -> None:
         normalized_symbol = (symbol or "").upper()
         profile = self.ticker_profiles.get(normalized_symbol)
         if profile:
             profile.order_request_count = 0
             profile.request_count = 0
+
+    def reset_all_state(self) -> None:
+        self.fallback_profile.reset()
+        for profile in self.ticker_profiles.values():
+            profile.reset()
+
+    def note_request(self, now: float | None = None) -> None:
+        current = time.monotonic() if now is None else now
+        if current - self.last_request_monotonic >= self.inactivity_reset_seconds:
+            self.reset_all_state()
+        self.last_request_monotonic = current
 
     async def apply_delay(self, short_delay: bool = False) -> None:
         delay_ms = random.uniform(self.min_delay_ms, self.max_delay_ms)
@@ -121,18 +138,22 @@ def build_profiles_from_order_store(order_store_path: str, base_requests_per_ste
     orders_by_ticker: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for order in validated_orders:
         mode = order.get("mode")
-        if mode not in {"ipo-trigger", "ipo-sell-buy-trigger", "ipo-trigger-low"}:
+        if mode not in {"ipo-trigger", "ipo-sell-buy-trigger", "ipo-trigger-low", "trigger-sell"}:
             continue
         orders_by_ticker[order["ticker"]].append(order)
 
     profiles: dict[str, TickerProfile] = {}
     for ticker, orders in orders_by_ticker.items():
         representative = _select_representative_order(orders)
-        price_levels, _ = calculate_price_levels(
-            base_price=float(representative["price"]),
-            limit_price=representative.get("limit"),
-            no_ladder=False,
-        )
+        if order.get("mode") in {"trigger-sell"}:
+            price = float(representative["price"])
+            price_levels = [price * 0.94, price * 0.98, price]
+        else:
+            price_levels, _ = calculate_price_levels(
+                base_price=float(representative["price"]),
+                limit_price=representative.get("limit"),
+                no_ladder=False,
+            )
         if not price_levels:
             continue
 
@@ -141,7 +162,8 @@ def build_profiles_from_order_store(order_store_path: str, base_requests_per_ste
         is_multi_queue = any(order.get("multi_queue", False) for order in orders)
         just_buy_enabled = any(order.get("just_buy", False) for order in orders)
         if is_multi_queue:
-            requests_per_step *= 2
+            requests_per_step = requests_per_step * 2
+
 
         profiles[ticker] = TickerProfile(
             symbol=ticker,
@@ -161,6 +183,11 @@ def build_app(state: DebugServerState):
     from fastapi.responses import JSONResponse
 
     app = FastAPI(title="ATRAD Debug Server")
+
+    @app.middleware("http")
+    async def reset_on_inactivity(request: Request, call_next):
+        state.note_request()
+        return await call_next(request)
 
     @app.post("/atsweb/login")
     async def login(txtUserName: str = Form(...), txtPassword: str = Form(...), action: str = Form(...), format: str = Form(...)) -> JSONResponse:  # noqa: N803
@@ -284,11 +311,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--start-price", type=float, default=100.0)
     parser.add_argument("--price-step", type=float, default=1.0)
     parser.add_argument("--price-step-every-requests", type=int, default=100)
-    parser.add_argument("--order-accept-after-requests", type=int, default=1000)
+    parser.add_argument("--order-accept-after-requests", type=int, default=10)
     parser.add_argument("--min-delay-ms", type=float, default=6.0)
     parser.add_argument("--max-delay-ms", type=float, default=15.0)
     parser.add_argument("--broker-code", default="DBG")
     parser.add_argument("--watch-id", type=int, default=77)
+    parser.add_argument("--inactivity-reset-seconds", type=float, default=5.0)
     return parser.parse_args()
 
 
@@ -323,6 +351,7 @@ def main() -> None:
         fallback_profile=fallback_profile,
         ticker_profiles=ticker_profiles,
         order_accept_after_requests=args.order_accept_after_requests,
+        inactivity_reset_seconds=args.inactivity_reset_seconds,
     )
     app = build_app(state)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")

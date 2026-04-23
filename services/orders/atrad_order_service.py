@@ -9,7 +9,6 @@ from services.orders.base_order_service import BaseOrderService
 from services.orders.order_dispatch import (
     normalize_fetch_clients,
     resolve_fetch_security_id,
-    select_trigger_sell_client,
 )
 from utils.logger import get_logger
 
@@ -207,14 +206,14 @@ class ATRADOrderService(BaseOrderService):
 
         # Trigger Sell Mode: Monitor LTP and sell when price drops to trigger level
         if trigger_sell_mode:
-            actual_fetch_client = select_trigger_sell_client(fetch_client, fetch_clients)
+            actual_fetch_clients = normalize_fetch_clients(fetch_client, fetch_clients, "trigger sell mode")
 
             return self._execute_trigger_sell(
                 symbol=symbol,
                 sell_price=order_price,
                 order_quantity=order_quantity,
                 side=side,
-                fetch_client=actual_fetch_client,
+                fetch_clients=actual_fetch_clients,
                 fetch_security_id=resolve_fetch_security_id(fetch_id, fetch_id),
                 ticker=ticker,
                 limit_price=limit_price,

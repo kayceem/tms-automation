@@ -609,8 +609,8 @@ def test_execute_just_buy_uses_fade_phase_after_main_phase_failure(monkeypatch):
     assert success is True
     assert response["price"] == 120.0
     assert attempts["count"] == 3
-    assert price_fetcher.market_started == 1
-    assert price_fetcher.market_stopped == 1
+    assert price_fetcher.market_started == 0
+    assert price_fetcher.market_stopped == 0
     assert sleep_calls[:3] == [0.1, 0.1, 0.25]
 
 
@@ -645,8 +645,8 @@ def test_execute_just_buy_returns_failure_when_fade_phase_also_fails(monkeypatch
 
     assert success is False
     assert response is None
-    assert price_fetcher.market_started == 1
-    assert price_fetcher.market_stopped == 1
+    assert price_fetcher.market_started == 0
+    assert price_fetcher.market_stopped == 0
     assert sleep_calls[:3] == [0.1, 0.1, 0.25]
 
 
@@ -768,13 +768,18 @@ def test_execute_just_buy_uses_parallel_user_pool():
         just_buy_pre_wait_ms=0,
         price_fetcher=price_fetcher,
         platform_params={"security_id": 101},
-        just_buy_services=[worker1, worker2],
+        just_buy_services=[
+            {"service": worker1, "quantity_override": 337},
+            {"service": worker2, "quantity_override": None},
+        ],
         just_buy_max_requests=2,
     )
 
     assert success is True
     assert response["status"] == "ok"
     assert {entry[0] for entry in calls} == {"jb-user-1", "jb-user-2"}
+    assert ("jb-user-1", 120.0, 337) in calls
+    assert ("jb-user-2", 120.0, 10) in calls
 
 
 def test_execute_ipo_trigger_uses_no_ladder_path_and_cleans_up():
@@ -917,7 +922,11 @@ def test_execute_ipo_trigger_low_returns_none_on_timeout(monkeypatch):
 def test_execute_trigger_sell_places_sell_order_when_trigger_price_reached(monkeypatch):
     service = DummyService()
     fake_fetcher = FakePriceFetcher([None, 490.0, 500.0])
-    monkeypatch.setattr("services.fetchers.price_fetcher.PriceFetcher", lambda fetch_client, security_id, poll_interval_ms: fake_fetcher)
+    monkeypatch.setattr(
+        service,
+        "_setup_price_fetcher",
+        lambda **kwargs: fake_fetcher.start() or fake_fetcher,
+    )
     monkeypatch.setattr("services.workflows.specialized_workflows.time.sleep", lambda _seconds: None)
 
     fetch_client = type(
@@ -932,7 +941,7 @@ def test_execute_trigger_sell_places_sell_order_when_trigger_price_reached(monke
     response = service._execute_trigger_sell(
         sell_price=500.0,
         order_quantity=10,
-        fetch_client=fetch_client,
+        fetch_clients=[fetch_client],
         fetch_security_id=123,
         security_id=101,
         exchange_security_id=202,
@@ -942,7 +951,7 @@ def test_execute_trigger_sell_places_sell_order_when_trigger_price_reached(monke
     assert response["price"] == 500.0
     assert response["quantity"] == 10
     assert response["params"]["buy_or_sell"] == 2
-    assert response["params"]["market_price"] == 500.0
+    assert response["params"]["market_price"] == 490.0
     assert fake_fetcher.started == 1
     assert fake_fetcher.paused == 1
     assert fake_fetcher.resumed == 1

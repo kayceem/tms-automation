@@ -261,12 +261,40 @@ class OrderStore:
                 raise ValueError(f"Order '{order_id}' has invalid just_buy_users: must be a list")
 
             for idx, value in enumerate(order['just_buy_users'], 1):
+                if isinstance(value, dict):
+                    normalized_path = str(value.get('user', '')).strip()
+                    if not normalized_path:
+                        raise ValueError(
+                            f"Order '{order_id}' has invalid just_buy_users entry at position {idx}: missing user"
+                        )
+                    quantity_override = value.get('quantity')
+                    if quantity_override is not None:
+                        try:
+                            quantity_override = int(quantity_override)
+                            if quantity_override <= 0:
+                                raise ValueError
+                        except (TypeError, ValueError):
+                            raise ValueError(
+                                f"Order '{order_id}' has invalid just_buy_users quantity at position {idx}: {value.get('quantity')}"
+                            )
+                    just_buy_users.append({
+                        'user': normalized_path,
+                        'quantity': quantity_override,
+                    })
+                    continue
+
                 normalized_path = str(value).strip()
                 if not normalized_path:
                     raise ValueError(
                         f"Order '{order_id}' has invalid just_buy_users entry at position {idx}"
                     )
                 just_buy_users.append(normalized_path)
+
+        trigger_sell_queue = bool(order.get('trigger_sell_queue', False))
+        if trigger_sell_queue and mode != 'trigger-sell':
+            raise ValueError(
+                f"Order '{order_id}': trigger_sell_queue requires mode='trigger-sell'"
+            )
 
         # Validate multi_queue
         multi_queue = bool(order.get('multi_queue', False))
@@ -281,6 +309,10 @@ class OrderStore:
                 raise ValueError(
                     f"Order '{order_id}': multi_queue requires mode='ipo-trigger'"
                 )
+        if multi_queue and trigger_sell_queue:
+            raise ValueError(
+                f"Order '{order_id}': multi_queue and trigger_sell_queue cannot both be true"
+            )
 
         # Validate ipo-sell-buy-trigger mode
         if mode == 'ipo-sell-buy-trigger':
@@ -345,6 +377,7 @@ class OrderStore:
             'just_buy_fade_interval_ms': just_buy_fade_interval_ms,
             'just_buy_fade_timeout': just_buy_fade_timeout,
             'multi_queue': multi_queue,
+            'trigger_sell_queue': trigger_sell_queue,
             'seller_config': order.get('seller_config') if mode == 'ipo-sell-buy-trigger' else None,
             'buyer_config': order.get('buyer_config') if mode == 'ipo-sell-buy-trigger' else None,
             'sell_quantity': int(order['sell_quantity']) if mode == 'ipo-sell-buy-trigger' and 'sell_quantity' in order else None,
@@ -356,7 +389,7 @@ class OrderStore:
 
     def _validate_multi_queue_consistency(self, orders: List[Dict[str, Any]]) -> None:
         """
-        Validate that all orders with the same queue_id have consistent multi_queue values.
+        Validate that all orders with the same queue_id have consistent queue-mode values.
 
         Args:
             orders: List of validated orders
@@ -379,6 +412,7 @@ class OrderStore:
 
             # Check if all orders have the same multi_queue value
             multi_queue_values = {order.get('multi_queue', False) for order in group_orders}
+            trigger_sell_queue_values = {order.get('trigger_sell_queue', False) for order in group_orders}
 
             if len(multi_queue_values) > 1:
                 # Inconsistent multi_queue values
@@ -386,6 +420,13 @@ class OrderStore:
                 raise ValueError(
                     f"Orders in queue {queue_id} have inconsistent multi_queue values: {', '.join(order_ids)}\n"
                     f"All orders with the same queue_id must have the same multi_queue setting."
+                )
+
+            if len(trigger_sell_queue_values) > 1:
+                order_ids = [order.get('id', 'unknown') for order in group_orders]
+                raise ValueError(
+                    f"Orders in queue {queue_id} have inconsistent trigger_sell_queue values: {', '.join(order_ids)}\n"
+                    f"All orders with the same queue_id must have the same trigger_sell_queue setting."
                 )
 
             # If multi_queue is true, validate requirements
@@ -397,6 +438,12 @@ class OrderStore:
                         f"Order '{order_id}' has multi_queue=true but is alone in queue {queue_id}. "
                         f"Multi-queue requires at least 2 orders."
                     )
+
+            if True in trigger_sell_queue_values and True in multi_queue_values:
+                order_ids = [order.get('id', 'unknown') for order in group_orders]
+                raise ValueError(
+                    f"Orders in queue {queue_id} cannot mix multi_queue and trigger_sell_queue: {', '.join(order_ids)}"
+                )
 
     def mark_success(self, order_id: str):
         """

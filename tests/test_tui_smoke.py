@@ -89,7 +89,7 @@ def test_global_shortcut_ctrl_a_opens_portfolio_atrad():
     asyncio.run(run())
 
 
-def test_order_editor_uses_main_buy_sell_tabs():
+def test_order_editor_uses_main_buy_users_sell_tabs():
     async def run() -> None:
         app = TMSAutomationTUI()
         async with app.run_test() as pilot:
@@ -103,6 +103,7 @@ def test_order_editor_uses_main_buy_sell_tabs():
             assert tabs.active == "tab-main"
             assert screen.query_one("#tab-main") is not None
             assert screen.query_one("#tab-buy") is not None
+            assert screen.query_one("#tab-users") is not None
             assert screen.query_one("#tab-sell") is not None
 
             assert screen.query_one("#order-execute", Checkbox) is not None
@@ -199,8 +200,7 @@ def test_order_book_auto_refresh_only_targets_active_panel():
     screen._update_refresh_button = lambda: None  # type: ignore[method-assign]
     screen._set_status = lambda message, panel="active": messages.append((message, panel))  # type: ignore[method-assign]
     screen._trigger_refresh = lambda *, source: refresh_requests.append(f"{source}:{screen._active_panel()}")  # type: ignore[method-assign]
-    original_localtime = time.localtime
-    time.localtime = lambda: type("FakeNow", (), {"tm_hour": 12})()
+    screen._is_market_hours = lambda: True  # type: ignore[method-assign]
 
     try:
         assert screen._auto_refresh_enabled is False
@@ -223,7 +223,7 @@ def test_order_book_auto_refresh_only_targets_active_panel():
         assert timer.pause_calls == 1
         assert messages[-1] == ("Auto-refresh disabled for active panel every 30s", "completed")
     finally:
-        time.localtime = original_localtime
+        pass
 
 
 def test_order_book_top_tab_defaults_and_toggle_behavior():
@@ -403,3 +403,17 @@ def test_orders_screen_can_reload_store_from_disk():
     assert service.refresh_calls == 1
     assert reload_calls == ["reload"]
     assert statuses == ["Reloaded order store from disk."]
+
+
+def test_order_editor_normalizes_just_buy_users():
+    payload = [
+        {"user": "users/atrad_user1.json", "quantity": 337},
+        "users/atrad_user6.json",
+        {"user": "users/atrad_user2.json", "quantity": None},
+    ]
+
+    assert OrderEditorScreen._normalize_just_buy_user_entries(payload) == [
+        ("users/atrad_user1.json", 337),
+        ("users/atrad_user6.json", None),
+        ("users/atrad_user2.json", None),
+    ]

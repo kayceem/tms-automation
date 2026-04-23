@@ -34,15 +34,15 @@
       "queue_id": 2,
       "ticker": "PCIL",
       "mode": "ipo-trigger",
-      "quantity": 577,
+      "quantity": 467,
       "base_quantity": 10,
-      "price": 734.6,
-      "limit": 734.6,
+      "price": 844.7,
+      "limit": 844.7,
       "no_ladder": true,
-      "just_buy": false,
-      "just_buy_pre_wait_ms": 0,
-      "just_buy_interval_ms": 100,
-      "just_buy_max_requests": null,
+      "just_buy": true,
+      "just_buy_pre_wait_ms": 3000,
+      "just_buy_interval_ms": 5,
+      "just_buy_max_requests": 8000,
       "just_buy_fade_interval_ms": null,
       "just_buy_fade_timeout": null,
       "time": null,
@@ -57,7 +57,22 @@
       "sell_quantity": null,
       "sell_pre_wait_ms": 5000,
       "just_buy_timeout": 5,
-      "user_id": "atrad_user6"
+      "user_id": "atrad_user6",
+      "just_buy_users": [
+        {
+          "user": "users/atrad_user1.json",
+          "quantity": 577
+        },
+        {
+          "user": "users/atrad_user6.json",
+          "quantity": 467
+        },
+        {
+          "user": "users/atrad_user2.json",
+          "quantity": 297
+        }
+      ],
+      "trigger_sell_queue": false
     },
     {
       "id": "sipd_ipo",
@@ -66,10 +81,10 @@
       "queue_id": 2,
       "ticker": "SIPD",
       "mode": "ipo-trigger",
-      "quantity": 607,
+      "quantity": 497,
       "base_quantity": 10,
-      "price": 695.8,
-      "limit": 695.8,
+      "price": 800.1,
+      "limit": 800.1,
       "no_ladder": true,
       "just_buy": false,
       "just_buy_pre_wait_ms": 0,
@@ -89,39 +104,47 @@
       "sell_quantity": null,
       "sell_pre_wait_ms": 5000,
       "just_buy_timeout": 5,
-      "user_id": "atrad_user6"
+      "user_id": "atrad_user6",
+      "just_buy_users": [],
+      "trigger_sell_queue": false
     },
     {
       "id": "test_order",
       "ticker": "NHPC",
-      "user_id": "atrad_user1",
+      "user_id": "atrad_user6",
       "mode": "ipo-trigger",
       "queue_id": 8,
       "time": null,
-      "price": 310.0,
+      "price": 307.0,
       "quantity": 1,
       "base_quantity": 10,
-      "limit": 310.0,
+      "limit": 307.0,
       "sell": false,
       "skip_first": false,
       "skip_second_last": false,
       "no_ladder": true,
       "double_buy": false,
       "double_buy_quantity": null,
-      "just_buy": false,
-      "just_buy_interval_ms": 100,
+      "just_buy": true,
+      "just_buy_interval_ms": 5,
       "just_buy_timeout": 5,
-      "just_buy_pre_wait_ms": 0,
-      "just_buy_max_requests": null,
+      "just_buy_pre_wait_ms": 3000,
+      "just_buy_max_requests": 5000,
       "just_buy_fade_interval_ms": null,
       "just_buy_fade_timeout": null,
-      "multi_queue": false,
+      "multi_queue": true,
       "seller_config": null,
       "buyer_config": null,
       "sell_quantity": null,
       "sell_pre_wait_ms": 5000,
       "execute": false,
-      "success": true
+      "success": true,
+      "just_buy_users": [
+        "users/atrad_user1.json",
+        "users/atrad_user6.json",
+        "users/atrad_user3.json"
+      ],
+      "trigger_sell_queue": false
     }
   ]
 }

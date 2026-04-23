@@ -36,6 +36,7 @@ ORDER_TEMPLATE = {
     "mode": "normal",
     "execute": False,
     "success": False,
+    "just_buy_users": None,
 }
 
 MODE_OPTIONS = [
@@ -162,6 +163,35 @@ TEXT_FIELD_DEFAULTS = {
 }
 
 
+class JustBuyUserRow(Horizontal):
+    """Structured editor row for one just-buy user spec."""
+
+    def __init__(self, row_key: int, user: str = "", quantity: int | None = None) -> None:
+        super().__init__(classes="just-buy-user-row")
+        self.row_key = row_key
+        self.user = user
+        self.quantity = quantity
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="just-buy-user-main"):
+            yield Input(
+                self.user,
+                placeholder="users/atrad_user1.json",
+                id=f"order-jb-user-{self.row_key}",
+                classes="just-buy-user-path",
+            )
+            yield Static("—", id=f"order-jb-ref-{self.row_key}", classes="just-buy-user-ref")
+        with Vertical(classes="just-buy-user-side"):
+            yield Input(
+                "" if self.quantity is None else str(self.quantity),
+                placeholder="Qty",
+                id=f"order-jb-quantity-{self.row_key}",
+                type="integer",
+                classes="just-buy-user-quantity",
+            )
+            yield Button("Remove", id=f"order-jb-remove-{self.row_key}", classes="action-button compact-action")
+
+
 class OrderEditorScreen(Screen[tuple[str, dict] | None]):
     """Full-screen keyboard-first editor for all OrderStore-supported fields."""
 
@@ -170,7 +200,8 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
         ("down", "focus_next_control", "Next"),
         ("ctrl+1", "show_main", "Main"),
         ("ctrl+2", "show_buy", "Buy"),
-        ("ctrl+3", "show_sell", "Sell"),
+        ("ctrl+3", "show_users", "Users"),
+        ("ctrl+4", "show_sell", "Sell"),
         ("ctrl+s", "submit", "Save"),
         ("escape", "cancel", "Cancel"),
     ]
@@ -179,6 +210,10 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
         super().__init__()
         self.editor_title = title
         self.order_payload = order_payload
+        self._just_buy_row_counter = 0
+        self._initial_just_buy_rows = self._normalize_just_buy_user_entries(
+            self.order_payload.get("just_buy_users")
+        ) or [("", None)]
 
     def action_focus_next_control(self) -> None:
         self.focus_next("Button, Input, Select, Checkbox")
@@ -192,11 +227,35 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
     def action_show_buy(self) -> None:
         self.query_one(TabbedContent).active = "tab-buy"
 
+    def action_show_users(self) -> None:
+        self.query_one(TabbedContent).active = "tab-users"
+
     def action_show_sell(self) -> None:
         self.query_one(TabbedContent).active = "tab-sell"
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    @staticmethod
+    def _normalize_just_buy_user_entries(value) -> list[tuple[str, int | None]]:
+        entries: list[tuple[str, int | None]] = []
+        if not value:
+            return entries
+        for entry in value:
+            if isinstance(entry, dict):
+                user = str(entry.get("user") or "").strip()
+                if user:
+                    quantity = entry.get("quantity")
+                    entries.append((user, None if quantity in (None, "") else int(quantity)))
+            else:
+                user = str(entry).strip()
+                if user:
+                    entries.append((user, None))
+        return entries
+
+    def _next_just_buy_row(self, user: str = "", quantity: int | None = None) -> JustBuyUserRow:
+        self._just_buy_row_counter += 1
+        return JustBuyUserRow(self._just_buy_row_counter, user=user, quantity=quantity)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -288,6 +347,22 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
                         yield from self._compose_field("just_buy_fade_interval_ms")
                         yield from self._compose_field("just_buy_fade_timeout")
 
+            with TabPane("Users", id="tab-users"):
+                with VerticalScroll(id="order-users-scroll"):
+                    with Vertical(id="order-users-pane"):
+                        yield Static(" JUST BUY USERS", classes="form-section")
+                        yield Static("Set a user and optional quantity override for each worker.", classes="form-help")
+                        with Vertical(id="order-just_buy_users-list"):
+                            for user, quantity in self._initial_just_buy_rows:
+                                yield self._next_just_buy_row(user=user, quantity=quantity)
+                        with Horizontal(classes="just-buy-user-toolbar"):
+                            yield Button("+ Add User", id="order-jb-add", classes="action-button compact-action")
+                            yield Static(
+                                "Reference uses qty × price × 1.15. Blank qty falls back to the order quantity.",
+                                id="order-jb-summary",
+                                classes="form-help",
+                            )
+
             with TabPane("Sell", id="tab-sell"):
                 with VerticalScroll(id="order-sell-scroll"):
                     with Vertical(id="order-sell-pane"):
@@ -313,7 +388,8 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
             yield Button("[Ctrl+S] Save", id="save", classes="action-button")
             yield Button("[Ctrl+1] Main", id="goto-main", classes="action-button")
             yield Button("[Ctrl+2] Buy", id="goto-buy", classes="action-button")
-            yield Button("[Ctrl+3] Sell", id="goto-sell", classes="action-button")
+            yield Button("[Ctrl+3] Users", id="goto-users", classes="action-button")
+            yield Button("[Ctrl+4] Sell", id="goto-sell", classes="action-button")
             yield Button("[Esc] Cancel", id="cancel", classes="action-button")
         yield Footer()
 
@@ -351,6 +427,7 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
         for checkbox in self.query(Checkbox):
             checkbox.set_class(bool(checkbox.value), "-on")
         self._update_cost_estimate()
+        self._refresh_just_buy_user_references()
         self.query_one("#order-id", Input).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -363,8 +440,19 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
         if event.button.id == "goto-buy":
             self.action_show_buy()
             return
+        if event.button.id == "goto-users":
+            self.action_show_users()
+            return
         if event.button.id == "goto-sell":
             self.action_show_sell()
+            return
+        if event.button.id == "order-jb-add":
+            self._mount_just_buy_user_row()
+            self._refresh_just_buy_user_references()
+            return
+        if event.button.id.startswith("order-jb-remove-"):
+            self._remove_just_buy_user_row(event.button.id.removeprefix("order-jb-remove-"))
+            self._refresh_just_buy_user_references()
             return
         self.action_submit()
 
@@ -406,6 +494,9 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
                 return
         if event.input.id in {"order-input-price", "order-input-limit", "order-input-quantity"}:
             self._update_cost_estimate()
+            self._refresh_just_buy_user_references()
+        elif event.input.id.startswith("order-jb-user-") or event.input.id.startswith("order-jb-quantity-"):
+            self._refresh_just_buy_user_references()
 
     def on_input_submitted(self, _event: Input.Submitted) -> None:
         self.focus_next("Button, Input, Select, Checkbox")
@@ -442,6 +533,55 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
         source = "limit" if limit is not None else "price"
         estimate.update(f"[bold #3ddc84]{total:,.2f}[/] [#6b6b6b]({source})[/]")
 
+    def _mount_just_buy_user_row(self, *, user: str = "", quantity: int | None = None) -> None:
+        row = self._next_just_buy_row(user=user, quantity=quantity)
+        self.query_one("#order-just_buy_users-list", Vertical).mount(row)
+
+    def _remove_just_buy_user_row(self, row_key: str) -> None:
+        row = self.query_one(f"#order-jb-user-{row_key}").parent
+        if row is not None:
+            row.remove()
+        remaining = list(self.query(JustBuyUserRow))
+        if not remaining:
+            self._mount_just_buy_user_row()
+
+    def _read_price_reference(self) -> float | None:
+        try:
+            raw = self.query_one("#order-input-price", Input).value.strip()
+            return float(raw) if raw else None
+        except ValueError:
+            return None
+
+    def _read_order_quantity_fallback(self) -> int | None:
+        try:
+            raw = self.query_one("#order-input-quantity", Input).value.strip()
+            return int(raw) if raw else None
+        except ValueError:
+            return None
+
+    def _refresh_just_buy_user_references(self) -> None:
+        price = self._read_price_reference()
+        fallback_quantity = self._read_order_quantity_fallback()
+        for row in self.query(JustBuyUserRow):
+            row_key = row.row_key
+            quantity_input = self.query_one(f"#order-jb-quantity-{row_key}", Input)
+            reference = self.query_one(f"#order-jb-ref-{row_key}", Static)
+            raw_quantity = quantity_input.value.strip()
+            try:
+                quantity_value = int(raw_quantity) if raw_quantity else fallback_quantity
+            except ValueError:
+                quantity_value = None
+
+            if quantity_value is None or price is None:
+                reference.update("[#6b6b6b]—[/]")
+                continue
+
+            total = quantity_value * price * 1.15
+            label = "own qty" if raw_quantity else "order qty"
+            reference.update(
+                f"[#6b6b6b]{label}:[/] [bold #3ddc84]{total:,.2f}[/] [#6b6b6b]({quantity_value} × {price:,.1f} × 1.15)[/]"
+            )
+
     def _set_checkbox_state(self, field_name: str, *, disabled: bool, value: bool | None = None) -> None:
         checkbox = self.query_one(f"#order-{field_name}", Checkbox)
         checkbox.disabled = disabled
@@ -460,6 +600,31 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
         input_widget.disabled = not enabled
         if not enabled:
             input_widget.value = ""
+
+    def _set_just_buy_user_rows_state(self, *, enabled: bool) -> None:
+        self.query_one("#order-jb-add", Button).disabled = not enabled
+        for row in self.query(JustBuyUserRow):
+            self.query_one(f"#order-jb-user-{row.row_key}", Input).disabled = not enabled
+            self.query_one(f"#order-jb-quantity-{row.row_key}", Input).disabled = not enabled
+            self.query_one(f"#order-jb-remove-{row.row_key}", Button).disabled = not enabled
+
+    def _collect_just_buy_users(self):
+        entries: list = []
+        for row in self.query(JustBuyUserRow):
+            user = self.query_one(f"#order-jb-user-{row.row_key}", Input).value.strip()
+            quantity_text = self.query_one(f"#order-jb-quantity-{row.row_key}", Input).value.strip()
+            if not user and not quantity_text:
+                continue
+            if not user:
+                raise ValueError("Each Just Buy row requires a user config path")
+            if not quantity_text:
+                entries.append(user)
+                continue
+            try:
+                entries.append({"user": user, "quantity": int(quantity_text)})
+            except ValueError as exc:
+                raise ValueError(f"Invalid Just Buy quantity '{quantity_text}' for {user}") from exc
+        return entries or None
 
     def _apply_dependency_state(self) -> None:
         mode = str(self.query_one("#order-mode", Select).value)
@@ -486,6 +651,7 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
         )
         for field_name in just_buy_fields:
             self._set_input_group_state(field_name, enabled=just_buy)
+        self._set_just_buy_user_rows_state(enabled=just_buy)
 
         sell_buy_trigger = mode == "ipo-sell-buy-trigger"
         self._set_text_input_state("seller_config", enabled=sell_buy_trigger)
@@ -527,6 +693,7 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
 
     def action_submit(self) -> None:
         try:
+            just_buy_enabled = self.query_one("#order-just_buy", Checkbox).value
             payload = {
                 "id": self._read_required_input("order-id", "Order ID"),
                 "ticker": self._read_required_input("order-ticker", "Ticker").upper(),
@@ -544,13 +711,14 @@ class OrderEditorScreen(Screen[tuple[str, dict] | None]):
                 "no_ladder": self.query_one("#order-no_ladder", Checkbox).value,
                 "double_buy": self.query_one("#order-double_buy", Checkbox).value,
                 "double_buy_quantity": self._read_quick_value("double_buy_quantity"),
-                "just_buy": self.query_one("#order-just_buy", Checkbox).value,
+                "just_buy": just_buy_enabled,
                 "just_buy_interval_ms": self._read_quick_value("just_buy_interval_ms"),
                 "just_buy_timeout": self._read_quick_value("just_buy_timeout"),
                 "just_buy_pre_wait_ms": self._read_quick_value("just_buy_pre_wait_ms"),
                 "just_buy_max_requests": self._read_quick_value("just_buy_max_requests"),
                 "just_buy_fade_interval_ms": self._read_quick_value("just_buy_fade_interval_ms"),
                 "just_buy_fade_timeout": self._read_quick_value("just_buy_fade_timeout"),
+                "just_buy_users": self._collect_just_buy_users() if just_buy_enabled else None,
                 "multi_queue": self.query_one("#order-multi_queue", Checkbox).value,
                 "seller_config": self._read_optional_input("order-seller_config"),
                 "buyer_config": self._read_optional_input("order-buyer_config"),

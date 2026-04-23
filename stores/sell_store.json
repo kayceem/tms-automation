@@ -14,14 +14,15 @@
   },
   "orders": [
     {
-      "id": "_sell",
-      "execute": false,
-      "success": true,
+      "id": "hfin_sell",
+      "execute": true,
+      "success": false,
       "queue_id": 1,
-      "ticker": "",
+      "ticker": "HFIN",
       "mode": "trigger-sell",
-      "quantity": 0,
-      "price": 0,
+      "quantity": 100,
+      "price": 1310.0,
+      "trigger_sell_queue": true,
       "sell": true
     }
   ]

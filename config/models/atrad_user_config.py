@@ -54,6 +54,7 @@ class ATRADUserConfig:
     atrad_order_endpoint: str = '/atsweb/order'
     atrad_watch_endpoint: str = '/atsweb/watch?action=getWatchForSecurity&format=json&exchange=NEPSE&bookDefId=1'
     atrad_market_details_endpoint: str = '/atsweb/marketdetails?action=getOrderBook&format=json&board=1'
+    atrad_sector_data_endpoint: str = '/atsweb/sector?action=getSectorDataAll&format=json&exchange=NEPSE&sectorId=NEPSE'
     atrad_order_book_endpoint: str = '/atsweb/order?action=getUCCActiveBlotterData&format=json&clientAcc=ALL&securityId=all&exchange=all&ordStatus=all&ordType=all&assetClass=all'
     atrad_completed_order_book_endpoint: str = '/atsweb/order?action=getUCCInactiveBlotterData&format=json&clientAcc=ALL&securityId=all&exchange=all&ordStatus=all&ordType=all&assetClass=all'
     atrad_cancel_order_endpoint: str = '/atsweb/order?action=cancelOrder&format=json'

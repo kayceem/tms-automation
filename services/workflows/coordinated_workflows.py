@@ -175,6 +175,7 @@ def execute_single_ipo_order(
             just_buy_max_requests=order.get("just_buy_max_requests"),
             just_buy_fade_interval_ms=order.get("just_buy_fade_interval_ms"),
             just_buy_fade_timeout=order.get("just_buy_fade_timeout"),
+            just_buy_services=order.get("just_buy_services"),
             already_triggered=already_triggered,
             **platform_params,
         )

@@ -1,6 +1,7 @@
 """Configuration loading helpers for the application entrypoint."""
 
 import logging
+from typing import Any
 from config.loaders import load_config_by_system, load_configs_for_platform
 from app.pool_users import UserPool, load_user_pool
 
@@ -26,6 +27,39 @@ def load_user_configs_by_paths(config_paths, role_label: str):
 
     logger.info(f"Total {role_label} users loaded: {len(loaded_configs)}")
     return loaded_configs
+
+
+def load_just_buy_user_specs(spec_entries: list[Any], role_label: str):
+    """Load just-buy user specs from strings or {user, quantity} mappings."""
+    loaded_specs = []
+    if not spec_entries:
+        return loaded_specs
+
+    logger.info(f"Loading {len(spec_entries)} {role_label} configurations")
+    for idx, entry in enumerate(spec_entries, 1):
+        if isinstance(entry, dict):
+            config_path = entry.get("user")
+            quantity_override = entry.get("quantity")
+        else:
+            config_path = entry
+            quantity_override = None
+
+        try:
+            user_config = load_config_by_system(config_path, f"{role_label} {idx}")
+            loaded_specs.append(
+                {
+                    "user_config": user_config,
+                    "quantity_override": quantity_override,
+                }
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to load {role_label} from {config_path}: {exc}")
+
+    if not loaded_specs:
+        raise ValueError(f"No valid {role_label} configurations loaded")
+
+    logger.info(f"Total {role_label} users loaded: {len(loaded_specs)}")
+    return loaded_specs
 
 
 def load_user_config(args):

@@ -94,7 +94,7 @@ def test_order_service_dispatches_ipo_trigger_to_internal_workflow(monkeypatch):
     assert captured["ticker"] == "NABIL"
 
 
-def test_order_service_trigger_sell_uses_first_fetch_client(monkeypatch):
+def test_order_service_trigger_sell_passes_all_fetch_clients(monkeypatch):
     service = OrderService(DummyTMSClient())
     captured = {}
 
@@ -111,7 +111,7 @@ def test_order_service_trigger_sell_uses_first_fetch_client(monkeypatch):
     )
 
     assert result == {"status": "sell"}
-    assert captured["fetch_client"] == "first"
+    assert captured["fetch_clients"] == ["first", "second"]
     assert captured["fetch_security_id"] == 101
 
 
@@ -177,6 +177,6 @@ def test_atrad_order_service_dispatches_trigger_sell(monkeypatch):
     )
 
     assert result == {"status": "sell"}
-    assert captured["fetch_client"] == "first"
+    assert captured["fetch_clients"] == ["first", "second"]
     assert captured["fetch_security_id"] == 999
     assert captured["side"] == "BUY"

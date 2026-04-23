@@ -290,7 +290,10 @@ def test_execute_from_order_store_prefers_order_level_just_buy_users(monkeypatch
                     "double_buy": False,
                     "double_buy_quantity": None,
                     "just_buy": True,
-                    "just_buy_users": ["users/order-jb1.json", "users/order-jb2.json"],
+                    "just_buy_users": [
+                        {"user": "users/order-jb1.json", "quantity": 337},
+                        {"user": "users/order-jb2.json"},
+                    ],
                     "just_buy_interval_ms": 100,
                     "just_buy_timeout": 5,
                     "just_buy_pre_wait_ms": 0,
@@ -346,8 +349,14 @@ def test_execute_from_order_store_prefers_order_level_just_buy_users(monkeypatch
     monkeypatch.setattr(execution, "execute_order_for_user", fake_execute_order_for_user)
     monkeypatch.setattr(
         execution,
-        "load_user_configs_by_paths",
-        lambda paths, _role_label: [DummyConfig(f"loaded:{path}") for path in paths],
+        "load_just_buy_user_specs",
+        lambda paths, _role_label: [
+            {
+                "user_config": DummyConfig(f"loaded:{entry['user']}"),
+                "quantity_override": entry.get("quantity"),
+            }
+            for entry in paths
+        ],
     )
 
     result = main.execute_from_order_store(
@@ -360,9 +369,12 @@ def test_execute_from_order_store_prefers_order_level_just_buy_users(monkeypatch
 
     assert result == {"status": "ok"}
     assert holder["store"].marked_success == ["order-1"]
-    assert [config.user_id for config in execution_calls["call"]["just_buy_user_configs"]] == [
-        "loaded:users/order-jb1.json",
-        "loaded:users/order-jb2.json",
+    assert [
+        (entry["user_config"].user_id, entry["quantity_override"])
+        for entry in execution_calls["call"]["just_buy_user_configs"]
+    ] == [
+        ("loaded:users/order-jb1.json", 337),
+        ("loaded:users/order-jb2.json", None),
     ]
 
 
@@ -487,13 +499,14 @@ def test_execute_from_order_store_uses_multi_queue_executor(monkeypatch):
 
     calls = {}
 
-    def fake_execute_multi_queue_group(user_config, orders, order_store, fetch_user_configs=None, is_atrad_fetch=False):
+    def fake_execute_multi_queue_group(user_config, orders, order_store, fetch_user_configs=None, is_atrad_fetch=False, just_buy_user_configs=None):
         calls["multi_queue"] = {
             "user_config": user_config,
             "orders": orders,
             "order_store": order_store,
             "fetch_user_configs": fetch_user_configs,
             "is_atrad_fetch": is_atrad_fetch,
+            "just_buy_user_configs": just_buy_user_configs,
         }
         return {"responses": [], "successful_orders": ["mq-1", "mq-2"], "failed_orders": []}
 
@@ -509,6 +522,72 @@ def test_execute_from_order_store_uses_multi_queue_executor(monkeypatch):
 
     assert result["successful_orders"] == ["mq-1", "mq-2"]
     assert [order["id"] for order in calls["multi_queue"]["orders"]] == ["mq-1", "mq-2"]
+
+
+def test_execute_from_order_store_uses_trigger_sell_queue_executor(monkeypatch):
+    holder = {}
+
+    class FakeOrderStore:
+        def __init__(self, _path):
+            self.orders = [
+                {
+                    "id": "ts-1",
+                    "ticker": "aaa",
+                    "price": 100.0,
+                    "quantity": 10,
+                    "mode": "trigger-sell",
+                    "queue_id": 1,
+                    "trigger_sell_queue": True,
+                    "time": None,
+                },
+                {
+                    "id": "ts-2",
+                    "ticker": "bbb",
+                    "price": 110.0,
+                    "quantity": 11,
+                    "mode": "trigger-sell",
+                    "queue_id": 1,
+                    "trigger_sell_queue": True,
+                    "time": None,
+                },
+            ]
+            holder["store"] = self
+
+        def get_order_summary(self):
+            return "summary"
+
+        def get_executable_orders(self):
+            return list(self.orders)
+
+        def validate_order(self, order):
+            normalized = {"trigger_sell_queue": True, "multi_queue": False}
+            normalized.update(order)
+            return normalized
+
+    calls = {}
+
+    def fake_execute_trigger_sell_queue_group(user_config, orders, order_store, fetch_user_configs=None, is_atrad_fetch=False):
+        calls["trigger_sell_queue"] = {
+            "user_config": user_config,
+            "orders": orders,
+            "order_store": order_store,
+            "fetch_user_configs": fetch_user_configs,
+            "is_atrad_fetch": is_atrad_fetch,
+        }
+        return {"responses": [], "successful_orders": ["ts-1", "ts-2"], "failed_orders": []}
+
+    monkeypatch.setattr(execution, "OrderStore", FakeOrderStore)
+    monkeypatch.setattr(execution, "execute_trigger_sell_queue_group", fake_execute_trigger_sell_queue_group)
+
+    result = main.execute_from_order_store(
+        user_config=DummyConfig("main-user"),
+        order_store_path="stores/order_store.json",
+        fetch_user_configs=[DummyConfig("fetch-user")],
+        is_atrad_fetch=False,
+    )
+
+    assert result["successful_orders"] == ["ts-1", "ts-2"]
+    assert [order["id"] for order in calls["trigger_sell_queue"]["orders"]] == ["ts-1", "ts-2"]
 
 
 def test_execute_multi_queue_group_updates_store_after_each_completed_order(monkeypatch):
@@ -567,6 +646,101 @@ def test_execute_multi_queue_group_updates_store_after_each_completed_order(monk
         "after-first",
         "failed:mq-2",
         "after-second",
+    ]
+
+
+def test_execute_multi_queue_group_resolves_order_level_just_buy_users(monkeypatch):
+    captured = {}
+
+    class FakeWorkerService:
+        def __init__(self, user_id):
+            self.user_id = user_id
+
+    class FakeBundle:
+        def __init__(self, user_id, quantity_override):
+            self.client = DummyConfig(user_id)
+            self.service = FakeWorkerService(user_id)
+            self.quantity_override = quantity_override
+
+    class FakePlatform:
+        def __init__(self):
+            self.client = object()
+            self.service = self
+
+        def _execute_multi_queue_ipo_trigger(self, orders, fetch_clients, on_order_complete=None):
+            captured["orders"] = orders
+            captured["fetch_clients"] = fetch_clients
+            return {
+                "responses": [],
+                "successful_orders": [order["id"] for order in orders],
+                "failed_orders": [],
+            }
+
+    monkeypatch.setattr(execution, "create_order_client_and_service", lambda _user_config: FakePlatform())
+    monkeypatch.setattr(execution, "create_fetch_clients", lambda _configs, _is_atrad: ["fetch-client"])
+    monkeypatch.setattr(
+        execution,
+        "resolve_ticker",
+        lambda ticker, *_args: ResolvedTicker(
+            ticker=ticker.upper(),
+            security_id=101,
+            exchange_security_id=202,
+            fetch_id=303,
+            symbol=ticker.upper(),
+        ),
+    )
+    monkeypatch.setattr(
+        execution,
+        "load_just_buy_user_specs",
+        lambda paths, _role_label: [
+            {
+                "user_config": DummyConfig(f"loaded:{entry['user']}"),
+                "quantity_override": entry.get("quantity"),
+            }
+            for entry in paths
+        ],
+    )
+    monkeypatch.setattr(
+        execution,
+        "create_order_bundles",
+        lambda specs: [
+            FakeBundle(spec["user_config"].user_id, spec.get("quantity_override"))
+            for spec in specs
+        ],
+    )
+
+    result = execution.execute_multi_queue_group(
+        user_config=DummyConfig("main-user"),
+        orders=[
+            {
+                "id": "mq-1",
+                "ticker": "aaa",
+                "symbol": "AAA",
+                "price": 100.0,
+                "quantity": 10,
+                "queue_id": 1,
+                "multi_queue": True,
+                "no_ladder": True,
+                "just_buy": True,
+                "just_buy_users": [
+                    {"user": "users/jb1.json", "quantity": 337},
+                    {"user": "users/jb2.json"},
+                ],
+            },
+        ],
+        order_store=type("Store", (), {"mark_success": lambda *_args: None, "mark_failed": lambda *_args: None})(),
+        fetch_user_configs=[DummyConfig("fetch-user")],
+        is_atrad_fetch=False,
+    )
+
+    assert result["successful_orders"] == ["mq-1"]
+    just_buy_services = captured["orders"][0]["just_buy_services"]
+    assert [
+        (entry["service"].user_id, entry["quantity_override"])
+        for entry in just_buy_services
+    ] == [
+        ("loaded:users/jb1.json", 337),
+        ("loaded:users/jb2.json", None),
     ]
 
 
@@ -968,7 +1142,7 @@ def test_execute_from_order_store_characterizes_mixed_multi_queue_and_trigger_or
 
     calls = {"multi_queue": [], "single": []}
 
-    def fake_execute_multi_queue_group(user_config, orders, order_store, fetch_user_configs=None, is_atrad_fetch=False):
+    def fake_execute_multi_queue_group(user_config, orders, order_store, fetch_user_configs=None, is_atrad_fetch=False, just_buy_user_configs=None):
         for order in orders:
             order_store.mark_success(order["id"])
         calls["multi_queue"].append(
@@ -979,6 +1153,7 @@ def test_execute_from_order_store_characterizes_mixed_multi_queue_and_trigger_or
                 "order_store": order_store,
                 "fetch_user_configs": fetch_user_configs,
                 "is_atrad_fetch": is_atrad_fetch,
+                "just_buy_user_configs": just_buy_user_configs,
             }
         )
         return {

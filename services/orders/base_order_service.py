@@ -327,7 +327,7 @@ class BaseOrderService(ABC):
         self,
         sell_price: float,
         order_quantity: int,
-        fetch_client: Any,
+        fetch_clients: List[Any],
         fetch_security_id: Optional[int] = None,
         ticker: Optional[str] = None,
         limit_price: Optional[float] = None,
@@ -343,18 +343,18 @@ class BaseOrderService(ABC):
         - Place sell order at limit + 10%
 
         Logic (without limit - legacy):
-        - Calculate trigger_price from sell_price: trigger_price = sell_price / 1.02 (floored to 1 decimal)
+        - Calculate trigger_price from sell_price: trigger_price = sell_price / 1.03 (floored to 1 decimal)
         - Monitor LTP continuously with less aggressive polling (default 500ms)
         - When LTP >= trigger_price, place sell order at sell_price
         - Ensures no duplicate orders are placed
 
         This mode is used to sell stocks when the price rises enough. The trigger is set slightly
-        below the sell price (about 2% lower) so the sell order is placed before the price drops.
+        below the sell price (about 3% lower) so the sell order is placed before the price drops.
 
         Args:
             sell_price: The base/starting price for sell (current price expectation)
             order_quantity: Number of units to sell
-            fetch_client: Client instance for fetching LTP (TMSClient or ATRADClient)
+            fetch_clients: Client instances for fetching LTP (TMSClient or ATRADClient)
             fetch_security_id: Security ID/symbol for fetching LTP (optional, defaults to order security)
             ticker: Ticker symbol for resolving per-user fetch_id (optional)
             limit_price: Optional lower limit price for ladder calculation (like buy IPO mode)
@@ -369,7 +369,7 @@ class BaseOrderService(ABC):
             service=self,
             sell_price=sell_price,
             order_quantity=order_quantity,
-            fetch_client=fetch_client,
+            fetch_clients=fetch_clients,
             fetch_security_id=fetch_security_id,
             ticker=ticker,
             limit_price=limit_price,
@@ -628,7 +628,7 @@ class BaseOrderService(ABC):
                 worker_services = list(just_buy_services)
                 self.logger.info(
                     f"[{self.user_id}] Just Buy parallel user pool enabled: "
-                    f"{', '.join(worker.user_id for worker in worker_services)}"
+                    f"{', '.join((worker['service'].user_id if isinstance(worker, dict) else worker.user_id) for worker in worker_services)}"
                 )
 
                 success_flag = threading.Event()
@@ -638,7 +638,13 @@ class BaseOrderService(ABC):
                 free_worker_indices = list(range(len(worker_services)))
 
                 def place_parallel_just_buy_order(thread_id: int, worker_index: int):
-                    worker_service = worker_services[worker_index]
+                    worker_entry = worker_services[worker_index]
+                    if isinstance(worker_entry, dict):
+                        worker_service = worker_entry["service"]
+                        worker_quantity = worker_entry.get("quantity_override") or order_quantity
+                    else:
+                        worker_service = worker_entry
+                        worker_quantity = order_quantity
                     try:
                         if success_flag.is_set():
                             return
@@ -651,7 +657,7 @@ class BaseOrderService(ABC):
                         order_params = {**platform_params, 'market_price': trigger_price}
                         response = worker_service._place_single_order(
                             price=final_price,
-                            quantity=order_quantity,
+                            quantity=worker_quantity,
                             **order_params
                         )
 

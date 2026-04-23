@@ -11,6 +11,7 @@ class PlatformBundle:
     client: Any
     service: Any
     is_atrad: bool
+    quantity_override: Optional[int] = None
 
 
 @dataclass(frozen=True)

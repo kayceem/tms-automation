@@ -37,6 +37,7 @@ class ATRADClient:
         self.order_endpoint = f"{self.base_url}{user_config.atrad_order_endpoint}"
         self.quote_endpoint = f"{self.base_url}{user_config.atrad_watch_endpoint}"
         self.market_endpoint = f"{self.base_url}{user_config.atrad_market_details_endpoint}"
+        self.sector_endpoint = f"{self.base_url}{user_config.atrad_sector_data_endpoint}"
         self.order_book_endpoint = f"{self.base_url}{user_config.atrad_order_book_endpoint}"
         self.completed_order_book_endpoint = f"{self.base_url}{user_config.atrad_completed_order_book_endpoint}"
         self.cancel_order_endpoint = f"{self.base_url}{user_config.atrad_cancel_order_endpoint}"
@@ -708,6 +709,52 @@ class ATRADClient:
                 logger.error(f"[{self.user_id}] Invalid ATRAD account summary response: {response.text}")
                 return None
 
+    def get_sector_data(self, sector_ind: str = None, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
+        """
+        Fetch sector data for a given sector ID.
+
+        Args:
+            sector_id: Optional sector ID to fetch data for (if None, fetches all sectors)
+            timeout: Request timeout in seconds (default: 5.0)
+        Returns:
+            Parsed ATRAD sector data response as a dictionary, or None if fetching/parsing fails
+        """
+        logger.debug(f"[{self.user_id}] Fetching sector data")
+
+        endpoint = f"{self.sector_endpoint}&dojo.preventCache={self._epoch_time_ms()}"
+
+        if sector_ind:
+            endpoint += f"&sectorIdSL={sector_ind}"
+
+        with self._request_lock:
+            response = self._request_with_reauth("GET", endpoint, timeout=timeout)
+
+            if response is None:
+                return None
+
+            logger.debug(f"[{self.user_id}] Sector data fetch response status: {response.status_code}")
+
+            if response.status_code != 200:
+                logger.warning(
+                    f"[{self.user_id}] Sector data fetch failed: "
+                    f"{response.status_code} {response.reason}"
+                )
+                return None
+
+            try:
+                result = response.text.strip().replace("'", '"')
+                result = json.loads(result)
+                if str(result.get("code")) != "0":
+                    logger.warning(
+                        f"[{self.user_id}] ATRAD sector data request failed: "
+                        f"{result.get('description', 'Unknown error')}"
+                    )
+                    return None
+                return result.get("data", {}).get("sector", [])
+            except ValueError:
+                logger.error(f"[{self.user_id}] Invalid ATRAD sector data response: {response.text}")
+                return None
+
     def get_ohlc_data(self, symbol: str, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
         """
         Fetch OHLC data for a given symbol.
@@ -853,7 +900,6 @@ class ATRADClient:
 
         endpoint = f"{self.watchlist_endpoint}&watchId={watch_id}&lastUpdatedId=0&dojo.preventCache={self._epoch_time_ms()}"
 
-        print(f"Fetching watchlist with URL: {endpoint}")  # Debug print for watchlist URL
         with self._request_lock:
             response = self._request_with_reauth("GET", endpoint, timeout=timeout)
 

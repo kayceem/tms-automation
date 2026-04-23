@@ -14,6 +14,7 @@ from tui.models import (
     MarketDepthLevelRow,
     MarketDepthSnapshot,
     OrderBookRow,
+    SectorSummary,
     WatchlistEntryRow,
 )
 from utils.config.atrad_config_actions import iter_atrad_user_paths
@@ -214,6 +215,34 @@ class PortfolioService:
         if not isinstance(summary, dict):
             raise RuntimeError("Invalid ATRAD account summary payload")
         return summary, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def fetch_sector_summary(self, path: str | Path) -> SectorSummary | None:
+        client = ATRADClient(self.load_user_config(path))
+        payload = client.get_sector_data()
+        if not isinstance(payload, list) or not payload:
+            return None
+        first = payload[0]
+        if not isinstance(first, dict):
+            return None
+
+        index_value = _pick_first(first, "pr1", default="-")
+        points_change = _pick_first(first, "n1", default="-")
+        percent_change = _pick_first(first, "p1", default="-")
+        turnover = _pick_first(first, "to", default="-")
+
+        try:
+            points_float = float(points_change.replace(",", ""))
+        except (AttributeError, TypeError, ValueError):
+            points_float = 0.0
+
+        return SectorSummary(
+            index_value=index_value,
+            points_change=points_change,
+            percent_change=percent_change,
+            turnover=turnover,
+            is_up=points_float > 0,
+            is_down=points_float < 0,
+        )
 
     def build_cancel_url(self, path: str | Path, order: dict) -> str:
         client = ATRADClient(self.load_user_config(path))

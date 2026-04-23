@@ -61,7 +61,7 @@ Examples:
     parser.add_argument('--ipo-trigger', action='store_true', help='IPO trigger mode: monitor LTP and place ladder orders based on price levels. When LTP >= ladder[i], places order at ladder[i+1].')
     parser.add_argument('--ipo-trigger-low', action='store_true', help='IPO trigger low mode: monitor LTP and place order at lower prices. If price>=limit: trigger at -9%% and order at -10%% of price. If price<limit: trigger at -8%% and order at -9%% of limit.')
     parser.add_argument('--timeout-ipo-trigger-low', type=int, default=None, help='Timeout in seconds for IPO trigger low mode. If trigger condition not met within timeout, skip order and move on (default: no timeout)')
-    parser.add_argument('--trigger-sell', action='store_true', help='Trigger sell mode: monitor LTP and place sell order when price drops to trigger level. Trigger price calculated as sell_price / 1.02 (floored to 1 decimal).')
+    parser.add_argument('--trigger-sell', action='store_true', help='Trigger sell mode: monitor LTP and place sell order when price drops to trigger level. Trigger price calculated as sell_price / 1.03 (floored to 1 decimal).')
 
     fetch_user_group = parser.add_mutually_exclusive_group()
     fetch_user_group.add_argument('--fetch-user', type=str, help='Path to single fetch user JSON file (required for --ipo-trigger). This user will be used to fetch LTP.')

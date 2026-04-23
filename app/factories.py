@@ -35,7 +35,7 @@ def log_fetch_client_summary(user_id: str, fetch_user_configs, fetch_clients, is
         logger.info(f"[{user_id}] Multi-user {platform} fetch initialized: {len(fetch_clients)} users ({user_ids})")
 
 
-def create_order_client_and_service(user_config) -> PlatformBundle:
+def create_order_client_and_service(user_config, quantity_override: Optional[int] = None) -> PlatformBundle:
     """Create the main order client and service for a user config."""
     is_atrad = isinstance(user_config, ATRADUserConfig)
     if is_atrad:
@@ -46,14 +46,30 @@ def create_order_client_and_service(user_config) -> PlatformBundle:
         logger.info(f"[{user_config.user_id}] Using TMS system")
         client = TMSClient(user_config)
         service = OrderService(client)
-    return PlatformBundle(client=client, service=service, is_atrad=is_atrad)
+    return PlatformBundle(
+        client=client,
+        service=service,
+        is_atrad=is_atrad,
+        quantity_override=quantity_override,
+    )
 
 
 def create_order_bundles(user_configs=None):
     """Create order client/service bundles for a list of user configs."""
     if not user_configs:
         return []
-    return [create_order_client_and_service(cfg) for cfg in user_configs]
+    bundles = []
+    for entry in user_configs:
+        if isinstance(entry, dict) and "user_config" in entry:
+            bundles.append(
+                create_order_client_and_service(
+                    entry["user_config"],
+                    quantity_override=entry.get("quantity_override"),
+                )
+            )
+        else:
+            bundles.append(create_order_client_and_service(entry))
+    return bundles
 
 
 def lookup_ticker_name(ticker: str) -> Optional[str]:

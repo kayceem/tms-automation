@@ -379,6 +379,73 @@ Checkbox:focus {
     text-style: bold;
 }
 
+.form-help {
+    width: 100%;
+    height: auto;
+    margin: 0;
+    padding: 0 1;
+    color: #6b6b6b;
+    background: #000000;
+}
+
+.just-buy-user-row,
+.just-buy-user-toolbar {
+    width: 100%;
+    height: auto;
+    margin: 0;
+    align: left top;
+    background: #000000;
+}
+
+.just-buy-user-main {
+    width: 1fr;
+    height: auto;
+    margin: 0 1 0 0;
+}
+
+.just-buy-user-side {
+    width: 12;
+    height: auto;
+}
+
+.just-buy-user-path {
+    width: 1fr;
+    height: 1;
+    margin: 0;
+    padding: 0 1;
+    border: none;
+    background: #0a0a0a;
+    color: #e8e8e8;
+    text-overflow: ellipsis;
+}
+
+.just-buy-user-quantity {
+    width: 12;
+    height: 1;
+    margin: 0 0 1 0;
+    padding: 0 1;
+    border: none;
+    background: #0a0a0a;
+    color: #e8e8e8;
+}
+
+.just-buy-user-path:focus,
+.just-buy-user-quantity:focus {
+    background: #1a1000;
+    color: #ffffff;
+    text-style: bold;
+    border: none;
+}
+
+.just-buy-user-ref {
+    width: 1fr;
+    height: 1;
+    margin: 0;
+    padding: 0 1;
+    background: #000000;
+    color: #6b6b6b;
+}
+
 .flags-row {
     width: 100%;
     height: 1;
@@ -416,6 +483,11 @@ Checkbox:focus {
     width: auto;
     min-width: 10;
     margin: 0 1 0 0;
+}
+
+.compact-action {
+    min-width: 8;
+    margin: 0;
 }
 
 .menu-button {
@@ -765,6 +837,16 @@ TabbedContent {
 
 TabbedContent > Tabs {
     background: #000000;
+}
+
+#portfolio-sector-summary {
+    dock: right;
+    width: auto;
+    height: 1;
+    margin: 0 1 0 0;
+    padding: 0 1;
+    content-align: right middle;
+    color: #6b6b6b;
 }
 
 Tab {

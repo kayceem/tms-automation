@@ -90,3 +90,13 @@ class MarketDepthSnapshot:
     asks: list[MarketDepthLevelRow]
     ltp_raw: dict
     market_raw: dict
+
+
+@dataclass(frozen=True)
+class SectorSummary:
+    index_value: str
+    points_change: str
+    percent_change: str
+    turnover: str
+    is_up: bool
+    is_down: bool

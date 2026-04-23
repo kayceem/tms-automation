@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from decimal import Decimal, InvalidOperation
+from datetime import datetime, time as dt_time
 from pathlib import Path
 
 from textual import work
@@ -13,10 +14,10 @@ from textual.binding import Binding
 from textual.timer import Timer
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Button, DataTable, Footer, Header, Input, OptionList, Select, Static, TabbedContent, TabPane
+from textual.widgets import Button, DataTable, Footer, Header, Input, OptionList, Select, Static, TabbedContent, TabPane, Tabs
 from textual.widgets.option_list import Option
 
-from tui.models import CustomWatchlistRow, MarketDepthSnapshot, OrderBookRow, WatchlistEntryRow
+from tui.models import CustomWatchlistRow, MarketDepthSnapshot, OrderBookRow, SectorSummary, WatchlistEntryRow
 from tui.services.portfolio import PortfolioService
 from tui.widgets import ClockWidget
 
@@ -295,6 +296,7 @@ class SymbolPromptScreen(ModalScreen[str | None]):
 class OrderBookScreen(Screen[None]):
     AUTO_REFRESH_INTERVAL_SECONDS = 30.0
     MARKET_DEPTH_INTERVAL_SECONDS = 1.0
+    SECTOR_SUMMARY_INTERVAL_SECONDS = 3.0
 
     BINDINGS = [
         ("ctrl+1", "show_active_panel", "Active"),
@@ -354,6 +356,7 @@ class OrderBookScreen(Screen[None]):
         self._auto_refresh_enabled = False
         self._auto_refresh_timer: Timer | None = None
         self._market_depth_timer: Timer | None = None
+        self._sector_summary_timer: Timer | None = None
         self._refresh_in_flight = False
         self.user_label = self.service.get_user_label(self.user_path)
         self._tickers: list[dict] = self.service.load_tickers()
@@ -361,6 +364,7 @@ class OrderBookScreen(Screen[None]):
         self._market_depth_data: list[MarketDepthSnapshot | None] = [None, None, None, None]
         self._market_depth_refresh_index = 0
         self._market_depth_refresh_in_flight = False
+        self._sector_summary: SectorSummary | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -562,6 +566,12 @@ class OrderBookScreen(Screen[None]):
             self._handle_market_depth_tick,
             pause=False,
         )
+        self._sector_summary_timer = self.set_interval(
+            self.SECTOR_SUMMARY_INTERVAL_SECONDS,
+            self._handle_sector_summary_tick,
+            pause=False,
+        )
+        self.query_one(Tabs).mount(Static("", id="portfolio-sector-summary"))
         active_table = self.query_one("#order-book-table", DataTable)
         active_table.add_columns(
             "  SYMBOL",
@@ -610,6 +620,35 @@ class OrderBookScreen(Screen[None]):
         self._update_action_buttons()
         self._update_refresh_button()
         self._refresh_market_depth_cards()
+        self._refresh_sector_summary()
+
+    def _apply_sector_summary(self, summary: SectorSummary | None) -> None:
+        self._sector_summary = summary
+        summary_widget = self.query_one("#portfolio-sector-summary", Static)
+        if summary is None:
+            summary_widget.update("")
+            return
+
+        if summary.is_up:
+            color = "#3ddc84"
+            indicator = "▲"
+            points_text = f"+{summary.points_change.lstrip('+')}"
+            percent_text = f"+{summary.percent_change.lstrip('+')}%"
+        elif summary.is_down:
+            color = "#f47174"
+            indicator = "▼"
+            points_text = summary.points_change
+            percent_text = f"{summary.percent_change}%"
+        else:
+            color = "#ffd166"
+            indicator = "•"
+            points_text = summary.points_change
+            percent_text = f"{summary.percent_change}%"
+
+        summary_widget.update(
+            f"[bold {color}]{summary.index_value} {indicator} {points_text} {percent_text}[/]   "
+            f"[#6b6b6b]TO {summary.turnover}[/]"
+        )
 
     def on_unmount(self) -> None:
         if self._auto_refresh_timer is not None:
@@ -618,6 +657,9 @@ class OrderBookScreen(Screen[None]):
         if self._market_depth_timer is not None:
             self._market_depth_timer.stop()
             self._market_depth_timer = None
+        if self._sector_summary_timer is not None:
+            self._sector_summary_timer.stop()
+            self._sector_summary_timer = None
 
     def _active_panel(self) -> str:
         return self.query_one("#portfolio-tabs", TabbedContent).active
@@ -701,6 +743,11 @@ class OrderBookScreen(Screen[None]):
         state = "On" if self._auto_refresh_enabled else "Off"
         self.query_one("#refresh", Button).label = f"[R] Refresh  Auto: {state}"
 
+    @staticmethod
+    def _is_market_hours() -> bool:
+        now = datetime.now().time()
+        return dt_time(10, 30) <= now <= dt_time(15, 1)
+
     def _panel_status_key(self, panel: str) -> str:
         return {
             "tab-active": "active",
@@ -746,6 +793,10 @@ class OrderBookScreen(Screen[None]):
         timer = self._auto_refresh_timer
         if timer is None:
             return
+        if not self._auto_refresh_enabled and not self._is_market_hours():
+            panel = self._panel_status_key(self._active_panel())
+            self._set_status("Auto-refresh is available only between 10:30 and 15:01.", panel)
+            return
         self._auto_refresh_enabled = not self._auto_refresh_enabled
         if self._auto_refresh_enabled:
             timer.reset()
@@ -761,15 +812,40 @@ class OrderBookScreen(Screen[None]):
         )
 
     def _handle_auto_refresh_tick(self) -> None:
-        if self._auto_refresh_enabled:
-            if time.localtime().tm_hour < 11 or time.localtime().tm_hour >= 15:
-                self.action_toggle_auto_refresh()
-            self._trigger_refresh(source="auto")
+        if not self._auto_refresh_enabled:
+            return
+        if not self._is_market_hours():
+            self._auto_refresh_enabled = False
+            if self._auto_refresh_timer is not None:
+                self._auto_refresh_timer.pause()
+            self._update_refresh_button()
+            panel = self._panel_status_key(self._active_panel())
+            self._set_status("Auto-refresh disabled outside market hours.", panel)
+            return
+        self._trigger_refresh(source="auto")
 
     def _handle_market_depth_tick(self) -> None:
+        if not self._is_market_hours():
+            return
         if self._active_panel() != "tab-market-depth":
             return
         self._trigger_market_depth_refresh()
+
+    def _handle_sector_summary_tick(self) -> None:
+        if not self._is_market_hours():
+            return
+        self._refresh_sector_summary()
+
+    def _refresh_sector_summary(self) -> None:
+        self._refresh_sector_summary_worker()
+
+    @work(thread=True)
+    def _refresh_sector_summary_worker(self) -> None:
+        try:
+            sector_summary = self.service.fetch_sector_summary(self.user_path)
+        except RuntimeError:
+            sector_summary = None
+        self.app.call_from_thread(self._apply_sector_summary, sector_summary)
 
     @staticmethod
     def _styled_cell(value: str, color: str) -> str:

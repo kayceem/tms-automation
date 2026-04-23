@@ -100,11 +100,54 @@ def test_validate_order_normalizes_just_buy_users(tmp_path):
             "mode": "ipo-trigger",
             "no_ladder": True,
             "just_buy": True,
-            "just_buy_users": [" users/jb1.json ", "users/jb2.json"],
+            "just_buy_users": [
+                {"user": " users/jb1.json ", "quantity": "337"},
+                "users/jb2.json",
+            ],
         }
     )
 
-    assert order["just_buy_users"] == ["users/jb1.json", "users/jb2.json"]
+    assert order["just_buy_users"] == [
+        {"user": "users/jb1.json", "quantity": 337},
+        "users/jb2.json",
+    ]
+
+
+def test_validate_order_accepts_trigger_sell_queue_for_trigger_sell(tmp_path):
+    store_path = tmp_path / "order_store.json"
+    write_store(store_path, [])
+    store = OrderStore(str(store_path))
+
+    order = store.validate_order(
+        {
+            "id": "sell-queue",
+            "ticker": "nabil",
+            "price": "500",
+            "quantity": "10",
+            "mode": "trigger-sell",
+            "trigger_sell_queue": True,
+        }
+    )
+
+    assert order["trigger_sell_queue"] is True
+
+
+def test_validate_order_rejects_trigger_sell_queue_for_non_trigger_sell(tmp_path):
+    store_path = tmp_path / "order_store.json"
+    write_store(store_path, [])
+    store = OrderStore(str(store_path))
+
+    with pytest.raises(ValueError, match="trigger_sell_queue requires mode='trigger-sell'"):
+        store.validate_order(
+            {
+                "id": "bad-sell-queue",
+                "ticker": "AAA",
+                "price": 100,
+                "quantity": 10,
+                "mode": "normal",
+                "trigger_sell_queue": True,
+            }
+        )
 
 
 def test_get_executable_orders_rejects_inconsistent_multi_queue_group(tmp_path):
