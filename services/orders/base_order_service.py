@@ -582,6 +582,7 @@ class BaseOrderService(ABC):
         just_buy_pre_wait_ms: int,
         price_fetcher: Any,
         platform_params: Dict[str, Any],
+        just_buy_services: Optional[List[Any]] = None,
         just_buy_max_requests: Optional[int] = None,
         just_buy_fade_interval_ms: Optional[int] = None,
         just_buy_fade_timeout: Optional[int] = None
@@ -615,15 +616,183 @@ class BaseOrderService(ABC):
             f"at Rs. {final_price} ({config_str})"
         )
 
-        # Start market details monitoring if ATRAD
-        if hasattr(price_fetcher, 'start_market_details'):
-            price_fetcher.start_market_details()
+        price_fetcher.pause()
 
         try:
             # Pre-wait if configured
             if just_buy_pre_wait_ms > 0:
                 self.logger.info(f"[{self.user_id}] Just Buy pre-wait: {just_buy_pre_wait_ms}ms")
                 time.sleep(just_buy_pre_wait_ms / 1000.0)
+
+            if just_buy_services:
+                worker_services = list(just_buy_services)
+                self.logger.info(
+                    f"[{self.user_id}] Just Buy parallel user pool enabled: "
+                    f"{', '.join(worker.user_id for worker in worker_services)}"
+                )
+
+                success_flag = threading.Event()
+                success_response = {'response': None}
+                active_threads = []
+                scheduler_lock = threading.Lock()
+                free_worker_indices = list(range(len(worker_services)))
+
+                def place_parallel_just_buy_order(thread_id: int, worker_index: int):
+                    worker_service = worker_services[worker_index]
+                    try:
+                        if success_flag.is_set():
+                            return
+
+                        worker_service.logger.debug(
+                            f"[{worker_service.user_id}] Just Buy Thread #{thread_id}: "
+                            f"Placing order at Rs. {final_price}"
+                        )
+
+                        order_params = {**platform_params, 'market_price': trigger_price}
+                        response = worker_service._place_single_order(
+                            price=final_price,
+                            quantity=order_quantity,
+                            **order_params
+                        )
+
+                        if response and not success_flag.is_set():
+                            success_flag.set()
+                            with scheduler_lock:
+                                success_response['response'] = response
+                            self.logger.info(
+                                f"[{self.user_id}] Just Buy Thread #{thread_id}: "
+                                f"SUCCESS via {worker_service.user_id}"
+                            )
+
+                    except Exception as e:
+                        worker_service.logger.debug(
+                            f"[{worker_service.user_id}] Just Buy Thread #{thread_id} failed: {str(e)}"
+                        )
+                    finally:
+                        with scheduler_lock:
+                            free_worker_indices.append(worker_index)
+
+                def run_parallel_phase(
+                    *,
+                    interval_seconds: float,
+                    timeout_seconds: Optional[float],
+                    max_requests: Optional[int],
+                    thread_counter: int,
+                ) -> int:
+                    phase_start_time = time.time()
+                    next_dispatch_time = phase_start_time
+
+                    while True:
+                        if success_flag.is_set():
+                            self.logger.info(f"[{self.user_id}] Just Buy SUCCESS detected, stopping new threads")
+                            break
+
+                        if max_requests is not None and thread_counter >= max_requests:
+                            break
+                        if timeout_seconds is not None and (time.time() - phase_start_time) >= timeout_seconds:
+                            break
+
+                        now = time.time()
+                        if now < next_dispatch_time:
+                            time.sleep(next_dispatch_time - now)
+                            continue
+
+                        with scheduler_lock:
+                            worker_index = free_worker_indices.pop(0) if free_worker_indices else None
+
+                        if worker_index is None:
+                            time.sleep(0.001)
+                            continue
+
+                        thread_counter += 1
+                        thread = threading.Thread(
+                            target=place_parallel_just_buy_order,
+                            args=(thread_counter, worker_index),
+                            daemon=True
+                        )
+
+                        active_threads.append(thread)
+                        thread.start()
+                        next_dispatch_time = time.time() + interval_seconds
+
+                    return thread_counter
+
+                thread_counter = 0
+                interval_seconds = just_buy_interval_ms / 1000.0
+                thread_counter = run_parallel_phase(
+                    interval_seconds=interval_seconds,
+                    timeout_seconds=None if just_buy_max_requests else just_buy_timeout,
+                    max_requests=just_buy_max_requests,
+                    thread_counter=thread_counter,
+                )
+
+                self.logger.info(
+                    f"[{self.user_id}] Just Buy phase ended. Waiting for {len(active_threads)} threads to complete..."
+                )
+                for thread in active_threads:
+                    thread.join(timeout=1)
+
+                if success_flag.is_set():
+                    self.logger.info(
+                        f"[{self.user_id}] Just Buy SUCCEEDED! "
+                        f"Placed {thread_counter} orders, at least one succeeded"
+                    )
+                    return True, success_response['response']
+
+                if fade_enabled:
+                    if just_buy_max_requests:
+                        self.logger.warning(
+                            f"[{self.user_id}] Just Buy main phase FAILED after {thread_counter} attempts "
+                            f"(max_requests={just_buy_max_requests}). Starting FADE phase..."
+                        )
+                    else:
+                        self.logger.warning(
+                            f"[{self.user_id}] Just Buy main phase FAILED after {just_buy_timeout}s "
+                            f"({thread_counter} attempts). Starting FADE phase..."
+                        )
+
+                    self.logger.info(
+                        f"[{self.user_id}] FADE PHASE: Placing orders at slower interval "
+                        f"({just_buy_fade_interval_ms}ms for {just_buy_fade_timeout}s)"
+                    )
+                    thread_counter = run_parallel_phase(
+                        interval_seconds=just_buy_fade_interval_ms / 1000.0,
+                        timeout_seconds=just_buy_fade_timeout,
+                        max_requests=None,
+                        thread_counter=thread_counter,
+                    )
+
+                    self.logger.info(
+                        f"[{self.user_id}] Fade phase ended. Waiting for remaining threads to complete..."
+                    )
+                    for thread in active_threads:
+                        if thread.is_alive():
+                            thread.join(timeout=1)
+
+                    if success_flag.is_set():
+                        self.logger.info(
+                            f"[{self.user_id}] FADE PHASE SUCCEEDED! "
+                            f"Total {thread_counter} orders placed, at least one succeeded"
+                        )
+                        return True, success_response['response']
+
+                    self.logger.warning(
+                        f"[{self.user_id}] FADE PHASE FAILED after {just_buy_fade_timeout}s. "
+                        f"Total {thread_counter} attempts. Falling back to normal trigger logic."
+                    )
+                    return False, None
+
+                if just_buy_max_requests:
+                    self.logger.warning(
+                        f"[{self.user_id}] Just Buy FAILED after {thread_counter} attempts "
+                        f"(max_requests={just_buy_max_requests}). Falling back to normal trigger logic."
+                    )
+                else:
+                    self.logger.warning(
+                        f"[{self.user_id}] Just Buy FAILED after {just_buy_timeout}s "
+                        f"({thread_counter} attempts). Falling back to normal trigger logic."
+                    )
+                return False, None
 
             # Thread coordination
             success_flag = threading.Event()
@@ -834,9 +1003,7 @@ class BaseOrderService(ABC):
                 return False, None
 
         finally:
-            # Stop market details monitoring if ATRAD
-            if hasattr(price_fetcher, 'stop_market_details'):
-                price_fetcher.stop_market_details()
+            pass
 
     def _wait_for_no_ladder_trigger(
         self,
@@ -988,6 +1155,7 @@ class BaseOrderService(ABC):
         just_buy_fade_interval_ms: Optional[int],
         just_buy_fade_timeout: Optional[int],
         platform_params: Dict[str, Any],
+        just_buy_services: Optional[List[Any]] = None,
         already_triggered: bool = False
     ) -> Optional[Dict[str, Any]]:
         """
@@ -1008,6 +1176,7 @@ class BaseOrderService(ABC):
             just_buy_max_requests=just_buy_max_requests,
             just_buy_fade_interval_ms=just_buy_fade_interval_ms,
             just_buy_fade_timeout=just_buy_fade_timeout,
+            just_buy_services=just_buy_services,
             platform_params=platform_params,
             already_triggered=already_triggered,
         )
@@ -1069,6 +1238,7 @@ class BaseOrderService(ABC):
         just_buy_max_requests: Optional[int] = None,
         just_buy_fade_interval_ms: Optional[int] = None,
         just_buy_fade_timeout: Optional[int] = None,
+        just_buy_services: Optional[List[Any]] = None,
         already_triggered: bool = False,
         **platform_params
     ) -> Dict[str, Any]:
@@ -1164,6 +1334,7 @@ class BaseOrderService(ABC):
                     just_buy_max_requests=just_buy_max_requests,
                     just_buy_fade_interval_ms=just_buy_fade_interval_ms,
                     just_buy_fade_timeout=just_buy_fade_timeout,
+                    just_buy_services=just_buy_services,
                     platform_params=platform_params,
                     already_triggered=already_triggered
                 )

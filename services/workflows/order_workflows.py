@@ -73,6 +73,7 @@ def execute_no_ladder_mode(
     just_buy_max_requests: Optional[int],
     just_buy_fade_interval_ms: Optional[int],
     just_buy_fade_timeout: Optional[int],
+    just_buy_services: Optional[List[Any]],
     platform_params: Dict[str, Any],
     already_triggered: bool = False,
 ) -> Optional[Dict[str, Any]]:
@@ -108,6 +109,7 @@ def execute_no_ladder_mode(
         "max_requests": just_buy_max_requests,
         "fade_interval_ms": just_buy_fade_interval_ms,
         "fade_timeout": just_buy_fade_timeout,
+        "services": just_buy_services,
     }
     order_worker = _PrestartedOrderPlacementWorker(service._place_order_with_retries)
 

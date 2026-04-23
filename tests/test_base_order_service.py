@@ -730,6 +730,53 @@ def test_execute_just_buy_aborts_threads_waiting_behind_client_lock():
     assert len(service.placed_orders) == 1
 
 
+def test_execute_just_buy_uses_parallel_user_pool():
+    service = DummyService()
+    price_fetcher = FakePriceFetcher([])
+    worker1 = DummyService()
+    worker2 = DummyService()
+    worker1.user_id = "jb-user-1"
+    worker1.client.user_id = "jb-user-1"
+    worker2.user_id = "jb-user-2"
+    worker2.client.user_id = "jb-user-2"
+    calls = []
+    calls_lock = threading.Lock()
+
+    def worker1_place(price: float, quantity: int, **params):
+        time.sleep(0.02)
+        with calls_lock:
+            calls.append(("jb-user-1", price, quantity))
+        raise RuntimeError("worker1 fail")
+
+    def worker2_place(price: float, quantity: int, **params):
+        time.sleep(0.01)
+        payload = {"status": "ok", "price": price, "quantity": quantity, "params": params}
+        with calls_lock:
+            calls.append(("jb-user-2", price, quantity))
+        worker2.placed_orders.append(payload)
+        return payload
+
+    worker1._place_single_order = worker1_place
+    worker2._place_single_order = worker2_place
+
+    success, response = service._execute_just_buy(
+        final_price=120.0,
+        trigger_price=110.0,
+        order_quantity=10,
+        just_buy_interval_ms=1,
+        just_buy_timeout=1,
+        just_buy_pre_wait_ms=0,
+        price_fetcher=price_fetcher,
+        platform_params={"security_id": 101},
+        just_buy_services=[worker1, worker2],
+        just_buy_max_requests=2,
+    )
+
+    assert success is True
+    assert response["status"] == "ok"
+    assert {entry[0] for entry in calls} == {"jb-user-1", "jb-user-2"}
+
+
 def test_execute_ipo_trigger_uses_no_ladder_path_and_cleans_up():
     service = DummyService()
     price_fetcher = FakePriceFetcher([100.0])

@@ -255,6 +255,19 @@ class OrderStore:
                 f"Order '{order_id}': just_buy can only be used with no_ladder=true"
             )
 
+        just_buy_users = []
+        if 'just_buy_users' in order and order['just_buy_users'] is not None:
+            if not isinstance(order['just_buy_users'], list):
+                raise ValueError(f"Order '{order_id}' has invalid just_buy_users: must be a list")
+
+            for idx, value in enumerate(order['just_buy_users'], 1):
+                normalized_path = str(value).strip()
+                if not normalized_path:
+                    raise ValueError(
+                        f"Order '{order_id}' has invalid just_buy_users entry at position {idx}"
+                    )
+                just_buy_users.append(normalized_path)
+
         # Validate multi_queue
         multi_queue = bool(order.get('multi_queue', False))
         if multi_queue:
@@ -324,6 +337,7 @@ class OrderStore:
             'double_buy': bool(order.get('double_buy', False)),
             'double_buy_quantity': double_buy_quantity,
             'just_buy': just_buy,
+            'just_buy_users': just_buy_users,
             'just_buy_interval_ms': just_buy_interval_ms,
             'just_buy_timeout': just_buy_timeout,
             'just_buy_pre_wait_ms': just_buy_pre_wait_ms,

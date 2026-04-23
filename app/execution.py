@@ -8,8 +8,9 @@ from config import ATRADUserConfig
 from services.scheduling import OrderScheduler
 from utils import OrderStore
 
-from app.config_loader import load_trader_config
+from app.config_loader import load_trader_config, load_user_configs_by_paths
 from app.factories import (
+    create_order_bundles,
     create_fetch_clients,
     create_order_client_and_service,
     log_fetch_client_summary,
@@ -47,7 +48,15 @@ def _resolve_execution_users(
     return main_user, fetch_users, pool.is_atrad
 
 
-def execute_manual_order(user_config, args, fetch_user_configs=None, is_atrad_fetch: bool = False) -> Dict[str, Any]:
+def _resolve_order_just_buy_user_configs(order: Dict[str, Any], global_just_buy_user_configs=None):
+    """Resolve effective just-buy users for one order, preferring store overrides."""
+    order_just_buy_users = order.get("just_buy_users") or []
+    if order_just_buy_users:
+        return load_user_configs_by_paths(order_just_buy_users, "order just-buy user")
+    return global_just_buy_user_configs
+
+
+def execute_manual_order(user_config, args, fetch_user_configs=None, is_atrad_fetch: bool = False, just_buy_user_configs=None) -> Dict[str, Any]:
     """Execute a manual order from parsed CLI arguments."""
     resolved_ticker = None
     ticker_name = None
@@ -93,16 +102,19 @@ def execute_manual_order(user_config, args, fetch_user_configs=None, is_atrad_fe
     )
     logger.info("=" * 60)
 
-    return execute_order_for_user(
-        user_config=user_config,
-        order_params=order_params,
-        scheduled_time=scheduled_time,
-        fetch_user_configs=fetch_user_configs,
-        is_atrad_fetch=is_atrad_fetch,
-    )
+    kwargs = {
+        "user_config": user_config,
+        "order_params": order_params,
+        "scheduled_time": scheduled_time,
+        "fetch_user_configs": fetch_user_configs,
+        "is_atrad_fetch": is_atrad_fetch,
+    }
+    if just_buy_user_configs:
+        kwargs["just_buy_user_configs"] = just_buy_user_configs
+    return execute_order_for_user(**kwargs)
 
 
-def execute_order_for_user(user_config, order_params: Dict[str, Any], scheduled_time: str = None, fetch_user_configs=None, is_atrad_fetch: bool = False) -> Dict[str, Any]:
+def execute_order_for_user(user_config, order_params: Dict[str, Any], scheduled_time: str = None, fetch_user_configs=None, is_atrad_fetch: bool = False, just_buy_user_configs=None) -> Dict[str, Any]:
     """Execute an order for a single user."""
     user_id = user_config.user_id
 
@@ -110,19 +122,30 @@ def execute_order_for_user(user_config, order_params: Dict[str, Any], scheduled_
         logger.info(f"[{user_id}] Starting order execution")
         fetch_clients = create_fetch_clients(fetch_user_configs, is_atrad_fetch)
         log_fetch_client_summary(user_id, fetch_user_configs, fetch_clients, is_atrad_fetch)
+        just_buy_bundles = create_order_bundles(just_buy_user_configs)
+        just_buy_clients = [bundle.client for bundle in just_buy_bundles] or None
+        just_buy_services = [bundle.service for bundle in just_buy_bundles] or None
 
         platform = create_order_client_and_service(user_config)
         if scheduled_time:
-            result = OrderScheduler.schedule_order(
-                time_str=scheduled_time,
-                order_func=platform.service.execute_order,
-                main_client=platform.client,
-                fetch_clients=fetch_clients,
-                user_id=user_id,
+            schedule_kwargs = {
+                "time_str": scheduled_time,
+                "order_func": platform.service.execute_order,
+                "main_client": platform.client,
+                "fetch_clients": fetch_clients,
+                "user_id": user_id,
                 **order_params,
-            )
+            }
+            if just_buy_clients:
+                schedule_kwargs["just_buy_clients"] = just_buy_clients
+            if just_buy_services:
+                schedule_kwargs["just_buy_services"] = just_buy_services
+            result = OrderScheduler.schedule_order(**schedule_kwargs)
         else:
-            result = platform.service.execute_order(fetch_clients=fetch_clients, **order_params)
+            execute_kwargs = {"fetch_clients": fetch_clients, **order_params}
+            if just_buy_services:
+                execute_kwargs["just_buy_services"] = just_buy_services
+            result = platform.service.execute_order(**execute_kwargs)
 
         logger.info(f"[{user_id}] Order execution completed successfully")
         return result
@@ -270,6 +293,7 @@ def execute_from_order_store(
     user_config,
     order_store_path: str,
     fetch_user_configs=None,
+    just_buy_user_configs=None,
     is_atrad_fetch: bool = False,
     start_time: Optional[str] = None,
     user_pool: Optional[UserPool] = None,
@@ -428,13 +452,20 @@ def execute_from_order_store(
                 logger.info("=" * 70)
 
                 try:
-                    result = execute_order_for_user(
-                        user_config=active_user_config,
-                        order_params=order_params,
-                        scheduled_time=order['time'],
-                        fetch_user_configs=active_fetch_user_configs,
-                        is_atrad_fetch=active_is_atrad_fetch,
+                    execute_kwargs = {
+                        "user_config": active_user_config,
+                        "order_params": order_params,
+                        "scheduled_time": order['time'],
+                        "fetch_user_configs": active_fetch_user_configs,
+                        "is_atrad_fetch": active_is_atrad_fetch,
+                    }
+                    effective_just_buy_user_configs = _resolve_order_just_buy_user_configs(
+                        order,
+                        global_just_buy_user_configs=just_buy_user_configs,
                     )
+                    if effective_just_buy_user_configs:
+                        execute_kwargs["just_buy_user_configs"] = effective_just_buy_user_configs
+                    result = execute_order_for_user(**execute_kwargs)
                     order_store.mark_success(order_id)
                     logger.info(f"Order '{order_id}' marked as successful in store")
                     last_result = result

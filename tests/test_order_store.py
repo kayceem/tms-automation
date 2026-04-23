@@ -86,6 +86,27 @@ def test_validate_order_normalizes_ipo_sell_buy_trigger_fields(tmp_path):
     assert order["queue_id"] == 999
 
 
+def test_validate_order_normalizes_just_buy_users(tmp_path):
+    store_path = tmp_path / "order_store.json"
+    write_store(store_path, [])
+    store = OrderStore(str(store_path))
+
+    order = store.validate_order(
+        {
+            "id": "just-buy-users",
+            "ticker": "nabil",
+            "price": "500",
+            "quantity": "10",
+            "mode": "ipo-trigger",
+            "no_ladder": True,
+            "just_buy": True,
+            "just_buy_users": [" users/jb1.json ", "users/jb2.json"],
+        }
+    )
+
+    assert order["just_buy_users"] == ["users/jb1.json", "users/jb2.json"]
+
+
 def test_get_executable_orders_rejects_inconsistent_multi_queue_group(tmp_path):
     store_path = tmp_path / "order_store.json"
     write_store(

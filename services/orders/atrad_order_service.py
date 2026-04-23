@@ -57,6 +57,7 @@ class ATRADOrderService(BaseOrderService):
         just_buy_max_requests: Optional[int] = None,
         just_buy_fade_interval_ms: Optional[int] = None,
         just_buy_fade_timeout: Optional[int] = None,
+        just_buy_services: Optional[List[Any]] = None,
         timeout_ipo_trigger_low: Optional[int] = None,
         **kwargs
     ) -> Dict[str, Any]:
@@ -119,6 +120,7 @@ class ATRADOrderService(BaseOrderService):
                 just_buy_max_requests=just_buy_max_requests,
                 just_buy_fade_interval_ms=just_buy_fade_interval_ms,
                 just_buy_fade_timeout=just_buy_fade_timeout,
+                just_buy_services=just_buy_services,
                 timeout_ipo_trigger_low=timeout_ipo_trigger_low,
                 **kwargs,
             )
@@ -152,6 +154,7 @@ class ATRADOrderService(BaseOrderService):
         just_buy_max_requests,
         just_buy_fade_interval_ms,
         just_buy_fade_timeout,
+        just_buy_services,
         timeout_ipo_trigger_low,
         **kwargs,
     ) -> Dict[str, Any]:
@@ -181,6 +184,7 @@ class ATRADOrderService(BaseOrderService):
                 just_buy_max_requests=just_buy_max_requests,
                 just_buy_fade_interval_ms=just_buy_fade_interval_ms,
                 just_buy_fade_timeout=just_buy_fade_timeout,
+                just_buy_services=just_buy_services,
                 **kwargs
             )
 

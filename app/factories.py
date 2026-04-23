@@ -49,6 +49,13 @@ def create_order_client_and_service(user_config) -> PlatformBundle:
     return PlatformBundle(client=client, service=service, is_atrad=is_atrad)
 
 
+def create_order_bundles(user_configs=None):
+    """Create order client/service bundles for a list of user configs."""
+    if not user_configs:
+        return []
+    return [create_order_client_and_service(cfg) for cfg in user_configs]
+
+
 def lookup_ticker_name(ticker: str) -> Optional[str]:
     """Look up the display name for a ticker."""
     return get_ticker_store().get_name(ticker)

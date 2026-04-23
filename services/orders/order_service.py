@@ -66,6 +66,7 @@ class OrderService(BaseOrderService):
         just_buy_max_requests: Optional[int] = None,
         just_buy_fade_interval_ms: Optional[int] = None,
         just_buy_fade_timeout: Optional[int] = None,
+        just_buy_services: Optional[List[Any]] = None,
         timeout_ipo_trigger_low: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
@@ -128,6 +129,7 @@ class OrderService(BaseOrderService):
                 just_buy_max_requests=just_buy_max_requests,
                 just_buy_fade_interval_ms=just_buy_fade_interval_ms,
                 just_buy_fade_timeout=just_buy_fade_timeout,
+                just_buy_services=just_buy_services,
             )
 
         # IPO Trigger Low Mode: Monitor LTP and place order at -9% when LTP <= -8%

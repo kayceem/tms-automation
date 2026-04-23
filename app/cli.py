@@ -66,6 +66,7 @@ Examples:
     fetch_user_group = parser.add_mutually_exclusive_group()
     fetch_user_group.add_argument('--fetch-user', type=str, help='Path to single fetch user JSON file (required for --ipo-trigger). This user will be used to fetch LTP.')
     fetch_user_group.add_argument('--fetch-users', type=str, nargs='+', help='Paths to multiple fetch user JSON files for multi-user rotation. Reduces rate limiting during LTP monitoring.')
+    parser.add_argument('--just-buy-users', type=str, nargs='+', help='Paths to order-user JSON files used for parallel just-buy submissions.')
 
     parser.add_argument('--atrad-fetch', action='store_true', help='Use ATRAD fetch users instead of TMS fetch users. Fetch users will use ATRAD client for LTP monitoring.')
     parser.add_argument('--skip-first', action='store_true', help='Skip the first ladder level in IPO trigger mode. Places first order when LTP reaches ladder[0], starting from ladder[1].')
@@ -175,6 +176,8 @@ def validate_args(args: argparse.Namespace):
 
     if hasattr(args, 'just_buy') and args.just_buy and not args.ipo_trigger:
         raise ValueError("--just-buy can only be used with --ipo-trigger mode")
+    if getattr(args, "just_buy_users", None) and not getattr(args, "just_buy", False):
+        raise ValueError("--just-buy-users can only be used together with --just-buy")
     if hasattr(args, 'just_buy_interval') and args.just_buy_interval:
         validate_positive_integer(args.just_buy_interval, 'just-buy-interval')
     if hasattr(args, 'just_buy_timeout') and args.just_buy_timeout:

@@ -40,6 +40,7 @@ def make_args(**overrides):
         "double_buy": False,
         "double_buy_quantity": None,
         "just_buy": False,
+        "just_buy_users": None,
         "just_buy_interval": 100,
         "just_buy_timeout": 5,
         "atrad_fetch": False,
@@ -97,12 +98,13 @@ def test_execute_order_for_user_uses_scheduler_for_scheduled_tms(monkeypatch):
             self.execute_order = lambda **kwargs: {"status": "immediate", "kwargs": kwargs}
             calls["service_client"] = client
 
-    def fake_schedule_order(time_str, order_func, main_client=None, fetch_clients=None, user_id="unknown", **order_params):
+    def fake_schedule_order(time_str, order_func, main_client=None, fetch_clients=None, just_buy_clients=None, user_id="unknown", **order_params):
         calls["scheduled"] = {
             "time_str": time_str,
             "order_func": order_func,
             "main_client": main_client,
             "fetch_clients": fetch_clients,
+            "just_buy_clients": just_buy_clients,
             "user_id": user_id,
             "order_params": order_params,
         }
@@ -263,6 +265,105 @@ def test_execute_from_order_store_overrides_first_start_time_and_marks_success(m
     assert execution_calls["call"]["scheduled_time"] == "10:45"
     assert execution_calls["call"]["order_params"]["fetch_id"] == 303
     assert execution_calls["call"]["order_params"]["symbol"] == "NABIL"
+
+
+def test_execute_from_order_store_prefers_order_level_just_buy_users(monkeypatch):
+    holder = {}
+
+    class FakeOrderStore:
+        def __init__(self, _path):
+            self.orders = [
+                {
+                    "id": "order-1",
+                    "ticker": "nabil",
+                    "price": 500.0,
+                    "quantity": 10,
+                    "mode": "ipo-trigger",
+                    "queue_id": 1,
+                    "time": None,
+                    "sell": False,
+                    "skip_first": False,
+                    "skip_second_last": False,
+                    "no_ladder": True,
+                    "limit": None,
+                    "base_quantity": 10,
+                    "double_buy": False,
+                    "double_buy_quantity": None,
+                    "just_buy": True,
+                    "just_buy_users": ["users/order-jb1.json", "users/order-jb2.json"],
+                    "just_buy_interval_ms": 100,
+                    "just_buy_timeout": 5,
+                    "just_buy_pre_wait_ms": 0,
+                    "just_buy_max_requests": None,
+                    "just_buy_fade_interval_ms": None,
+                    "just_buy_fade_timeout": None,
+                    "multi_queue": False,
+                }
+            ]
+            self.marked_success = []
+            holder["store"] = self
+
+        def get_order_summary(self):
+            return "summary"
+
+        def get_executable_orders(self):
+            return list(self.orders)
+
+        def validate_order(self, order):
+            return dict(order)
+
+        def mark_success(self, order_id):
+            self.marked_success.append(order_id)
+
+        def mark_failed(self, order_id):
+            raise AssertionError("order should not fail")
+
+    class FakeTickerStore:
+        def lookup(self, ticker):
+            assert ticker == "nabil"
+            return 101, 202
+
+        def get_fetch_id(self, ticker, host=None):
+            assert ticker == "nabil"
+            assert host == "example.test"
+            return 303
+
+    execution_calls = {}
+
+    def fake_execute_order_for_user(user_config, order_params, scheduled_time=None, fetch_user_configs=None, is_atrad_fetch=False, just_buy_user_configs=None):
+        execution_calls["call"] = {
+            "user_config": user_config,
+            "order_params": order_params,
+            "scheduled_time": scheduled_time,
+            "fetch_user_configs": fetch_user_configs,
+            "is_atrad_fetch": is_atrad_fetch,
+            "just_buy_user_configs": just_buy_user_configs,
+        }
+        return {"status": "ok"}
+
+    monkeypatch.setattr(execution, "OrderStore", FakeOrderStore)
+    monkeypatch.setattr(factories, "get_ticker_store", lambda: FakeTickerStore())
+    monkeypatch.setattr(execution, "execute_order_for_user", fake_execute_order_for_user)
+    monkeypatch.setattr(
+        execution,
+        "load_user_configs_by_paths",
+        lambda paths, _role_label: [DummyConfig(f"loaded:{path}") for path in paths],
+    )
+
+    result = main.execute_from_order_store(
+        user_config=DummyConfig("main-user"),
+        order_store_path="stores/order_store.json",
+        fetch_user_configs=[DummyConfig("fetch-user")],
+        just_buy_user_configs=[DummyConfig("global-jb")],
+        is_atrad_fetch=False,
+    )
+
+    assert result == {"status": "ok"}
+    assert holder["store"].marked_success == ["order-1"]
+    assert [config.user_id for config in execution_calls["call"]["just_buy_user_configs"]] == [
+        "loaded:users/order-jb1.json",
+        "loaded:users/order-jb2.json",
+    ]
 
 
 def test_execute_manual_order_builds_shared_order_params(monkeypatch):

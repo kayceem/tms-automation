@@ -41,6 +41,17 @@ class OrderScheduler:
             fetch_user_id = getattr(fetch_client, "user_id", f"FetchUser{idx}")
             cls._refresh_client(fetch_client, user_id, f"Fetch user {fetch_user_id}")
 
+    @classmethod
+    def _refresh_order_clients(cls, order_clients: Optional[List], user_id: str, role_prefix: str) -> None:
+        """Refresh tokens for additional order clients when supported."""
+        if not order_clients:
+            return
+
+        logger.info(f"[{user_id}] Refreshing tokens for {len(order_clients)} {role_prefix}(s)")
+        for idx, order_client in enumerate(order_clients, 1):
+            client_user_id = getattr(order_client, "user_id", f"{role_prefix}{idx}")
+            cls._refresh_client(order_client, user_id, f"{role_prefix} {client_user_id}")
+
     @staticmethod
     def _sleep_until_countdown(wait_seconds: float, user_id: str) -> float:
         """Sleep until the final countdown window and return remaining seconds."""
@@ -152,7 +163,7 @@ class OrderScheduler:
             ) from e
 
     @staticmethod
-    def wait_until(target_time: datetime, main_client=None, fetch_clients: Optional[List] = None, user_id: str = "unknown"):
+    def wait_until(target_time: datetime, main_client=None, fetch_clients: Optional[List] = None, just_buy_clients: Optional[List] = None, user_id: str = "unknown"):
         """
         Wait until the specified time, refreshing tokens 10 seconds before.
 
@@ -166,6 +177,7 @@ class OrderScheduler:
             cls = OrderScheduler
             cls._refresh_client(main_client, user_id, "Main user")
             cls._refresh_fetch_clients(fetch_clients, user_id)
+            cls._refresh_order_clients(just_buy_clients, user_id, "Just-buy user")
 
         OrderScheduler._wait_for_execution_window(
             target_time=target_time,
@@ -180,6 +192,7 @@ class OrderScheduler:
         order_func: Callable,
         main_client=None,
         fetch_clients: Optional[List] = None,
+        just_buy_clients: Optional[List] = None,
         user_id: str = "unknown",
         **order_params
     ) -> Dict[str, Any]:
@@ -201,7 +214,15 @@ class OrderScheduler:
         target_time = cls.parse_time(time_str)
         logger.info(f"[{user_id}] Order scheduled for {target_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-        cls.wait_until(target_time, main_client=main_client, fetch_clients=fetch_clients, user_id=user_id)
+        wait_kwargs = {
+            "target_time": target_time,
+            "main_client": main_client,
+            "fetch_clients": fetch_clients,
+            "user_id": user_id,
+        }
+        if just_buy_clients is not None:
+            wait_kwargs["just_buy_clients"] = just_buy_clients
+        cls.wait_until(**wait_kwargs)
 
         # Add fetch_clients back to order_params if it exists
         if fetch_clients is not None:

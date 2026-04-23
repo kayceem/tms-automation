@@ -8,6 +8,26 @@ from app.pool_users import UserPool, load_user_pool
 logger = logging.getLogger("main")
 
 
+def load_user_configs_by_paths(config_paths, role_label: str):
+    """Load a list of user configs from explicit JSON paths."""
+    loaded_configs = []
+    if not config_paths:
+        return loaded_configs
+
+    logger.info(f"Loading {len(config_paths)} {role_label} configurations")
+    for idx, config_path in enumerate(config_paths, 1):
+        try:
+            loaded_configs.append(load_config_by_system(config_path, f"{role_label} {idx}"))
+        except Exception as exc:
+            logger.warning(f"Failed to load {role_label} from {config_path}: {exc}")
+
+    if not loaded_configs:
+        raise ValueError(f"No valid {role_label} configurations loaded")
+
+    logger.info(f"Total {role_label} users loaded: {len(loaded_configs)}")
+    return loaded_configs
+
+
 def load_user_config(args):
     """Load the main user configuration from JSON."""
     if not getattr(args, "user_config", None):
@@ -47,6 +67,12 @@ def load_fetch_user_configs(args):
         logger.info(f"Total {'ATRAD' if is_atrad_fetch else 'TMS'} fetch users loaded: {len(fetch_user_configs)}")
 
     return fetch_user_configs, is_atrad_fetch
+
+
+def load_just_buy_user_configs(args):
+    """Load optional just-buy order-user configurations."""
+    just_buy_users = getattr(args, "just_buy_users", None) or []
+    return load_user_configs_by_paths(just_buy_users, "just-buy user")
 
 
 def load_trader_config(config_path: str, role: str):

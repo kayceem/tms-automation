@@ -6,6 +6,7 @@ import sys
 from app.cli import create_parser, validate_args
 from app.config_loader import (
     load_fetch_user_configs,
+    load_just_buy_user_configs,
     load_pool_user_config,
     load_trader_config,
     load_user_config,
@@ -56,12 +57,14 @@ def main():
         user_config = load_user_config(args)
         user_pool = load_pool_user_config(args)
         fetch_user_configs, is_atrad_fetch = load_fetch_user_configs(args)
+        just_buy_user_configs = load_just_buy_user_configs(args)
 
         if args.order_store:
             execute_from_order_store(
                 user_config,
                 args.order_store,
                 fetch_user_configs,
+                just_buy_user_configs,
                 is_atrad_fetch,
                 args.time,
                 user_pool=user_pool,
@@ -93,6 +96,7 @@ def main():
                     args=args,
                     fetch_user_configs=fetch_user_configs,
                     is_atrad_fetch=is_atrad_fetch,
+                    just_buy_user_configs=just_buy_user_configs,
                 )
 
         logger.info("=" * 60)
