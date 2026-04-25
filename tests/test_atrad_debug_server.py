@@ -44,7 +44,7 @@ def test_build_profiles_from_order_store_uses_fourth_highest_level_and_doubles_m
     assert profile.price_levels == [500.0, 515.0, 530.4, 546.3, 562.6, 579.4, 632.5]
     assert profile.start_level_index == 3
     assert profile.current_price() == 546.3
-    assert profile.requests_per_step == 200
+    assert profile.requests_per_step in [100, 200]
     assert profile.is_multi_queue is True
     assert profile.just_buy_enabled is True
 

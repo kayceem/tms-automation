@@ -499,7 +499,15 @@ def test_execute_from_order_store_uses_multi_queue_executor(monkeypatch):
 
     calls = {}
 
-    def fake_execute_multi_queue_group(user_config, orders, order_store, fetch_user_configs=None, is_atrad_fetch=False, just_buy_user_configs=None):
+    def fake_execute_multi_queue_group(
+        user_config,
+        orders,
+        order_store,
+        fetch_user_configs=None,
+        is_atrad_fetch=False,
+        just_buy_user_configs=None,
+        user_pool=None,
+    ):
         calls["multi_queue"] = {
             "user_config": user_config,
             "orders": orders,
@@ -507,6 +515,7 @@ def test_execute_from_order_store_uses_multi_queue_executor(monkeypatch):
             "fetch_user_configs": fetch_user_configs,
             "is_atrad_fetch": is_atrad_fetch,
             "just_buy_user_configs": just_buy_user_configs,
+            "user_pool": user_pool,
         }
         return {"responses": [], "successful_orders": ["mq-1", "mq-2"], "failed_orders": []}
 
@@ -566,13 +575,21 @@ def test_execute_from_order_store_uses_trigger_sell_queue_executor(monkeypatch):
 
     calls = {}
 
-    def fake_execute_trigger_sell_queue_group(user_config, orders, order_store, fetch_user_configs=None, is_atrad_fetch=False):
+    def fake_execute_trigger_sell_queue_group(
+        user_config,
+        orders,
+        order_store,
+        fetch_user_configs=None,
+        is_atrad_fetch=False,
+        user_pool=None,
+    ):
         calls["trigger_sell_queue"] = {
             "user_config": user_config,
             "orders": orders,
             "order_store": order_store,
             "fetch_user_configs": fetch_user_configs,
             "is_atrad_fetch": is_atrad_fetch,
+            "user_pool": user_pool,
         }
         return {"responses": [], "successful_orders": ["ts-1", "ts-2"], "failed_orders": []}
 
@@ -605,7 +622,7 @@ def test_execute_multi_queue_group_updates_store_after_each_completed_order(monk
             self.client = object()
             self.service = self
 
-        def _execute_multi_queue_ipo_trigger(self, orders, fetch_clients, on_order_complete=None):
+        def _execute_multi_queue_ipo_trigger(self, orders, fetch_clients, on_order_complete=None, order_executor=None):
             events.append("start")
             if on_order_complete is not None:
                 on_order_complete(orders[0]["id"], True, None)
@@ -667,9 +684,10 @@ def test_execute_multi_queue_group_resolves_order_level_just_buy_users(monkeypat
             self.client = object()
             self.service = self
 
-        def _execute_multi_queue_ipo_trigger(self, orders, fetch_clients, on_order_complete=None):
+        def _execute_multi_queue_ipo_trigger(self, orders, fetch_clients, on_order_complete=None, order_executor=None):
             captured["orders"] = orders
             captured["fetch_clients"] = fetch_clients
+            captured["order_executor"] = order_executor
             return {
                 "responses": [],
                 "successful_orders": [order["id"] for order in orders],
@@ -742,6 +760,286 @@ def test_execute_multi_queue_group_resolves_order_level_just_buy_users(monkeypat
         ("loaded:users/jb1.json", 337),
         ("loaded:users/jb2.json", None),
     ]
+
+
+def test_execute_multi_queue_group_resolves_pooled_users_per_order(monkeypatch):
+    captured = {"executed": []}
+
+    class FakeOrderService:
+        def __init__(self, user_id):
+            self.user_id = user_id
+
+        def _execute_single_ipo_order(self, order, fetch_clients, already_triggered):
+            captured["executed"].append(
+                {
+                    "order_id": order["id"],
+                    "service_user_id": self.user_id,
+                    "fetch_client_ids": list(fetch_clients),
+                    "already_triggered": already_triggered,
+                }
+            )
+            return {"status": "ok", "order_id": order["id"], "user_id": self.user_id}
+
+    class FakePlatform:
+        def __init__(self, user_id):
+            self.client = type("Client", (), {"user_id": user_id})()
+            self.service = FakeOrderService(user_id)
+
+    class MonitoringPlatform:
+        def __init__(self):
+            self.client = object()
+            self.service = self
+            self._delegate = FakeOrderService("main-a")
+
+        def _execute_multi_queue_ipo_trigger(self, orders, fetch_clients, on_order_complete=None, order_executor=None):
+            captured["monitor_fetch_clients"] = list(fetch_clients)
+            priority_response = order_executor(orders[1], True)
+            if on_order_complete is not None:
+                on_order_complete(orders[1]["id"], True, None)
+            remaining_response = order_executor(orders[0], False)
+            if on_order_complete is not None:
+                on_order_complete(orders[0]["id"], True, None)
+            return {
+                "responses": [priority_response, remaining_response],
+                "successful_orders": [orders[1]["id"], orders[0]["id"]],
+                "failed_orders": [],
+            }
+
+        def _execute_single_ipo_order(self, order, fetch_clients, already_triggered):
+            return self._delegate._execute_single_ipo_order(order, fetch_clients, already_triggered)
+
+    user_a = DummyConfig("main-a")
+    user_b = DummyConfig("main-b")
+    user_c = DummyConfig("main-c")
+    pool = execution.UserPool(
+        users_by_id={cfg.user_id: cfg for cfg in [user_a, user_b, user_c]},
+        ordered_users=[user_a, user_b, user_c],
+        is_atrad=False,
+    )
+
+    monkeypatch.setattr(
+        execution,
+        "create_order_client_and_service",
+        lambda user_config: MonitoringPlatform() if user_config.user_id == "main-a" else FakePlatform(user_config.user_id),
+    )
+    monkeypatch.setattr(
+        execution,
+        "create_fetch_clients",
+        lambda configs, _is_atrad: [cfg.user_id for cfg in configs],
+    )
+    monkeypatch.setattr(
+        execution,
+        "resolve_ticker",
+        lambda ticker, *_args: ResolvedTicker(
+            ticker=ticker.upper(),
+            security_id=101,
+            exchange_security_id=202,
+            fetch_id=303,
+            symbol=ticker.upper(),
+        ),
+    )
+
+    store_events = []
+    order_store = type(
+        "Store",
+        (),
+        {
+            "mark_success": lambda _self, order_id: store_events.append(("success", order_id)),
+            "mark_failed": lambda _self, order_id: store_events.append(("failed", order_id)),
+        },
+    )()
+
+    result = execution.execute_multi_queue_group(
+        user_config=user_a,
+        orders=[
+            {
+                "id": "mq-1",
+                "ticker": "aaa",
+                "symbol": "AAA",
+                "user_id": "main-a",
+                "price": 100.0,
+                "quantity": 10,
+                "queue_id": 1,
+                "multi_queue": True,
+                "no_ladder": True,
+            },
+            {
+                "id": "mq-2",
+                "ticker": "bbb",
+                "symbol": "BBB",
+                "user_id": "main-b",
+                "price": 110.0,
+                "quantity": 11,
+                "queue_id": 1,
+                "multi_queue": True,
+                "no_ladder": True,
+            },
+        ],
+        order_store=order_store,
+        fetch_user_configs=[user_b, user_c],
+        is_atrad_fetch=False,
+        user_pool=pool,
+    )
+
+    assert result["successful_orders"] == ["mq-2", "mq-1"]
+    assert captured["monitor_fetch_clients"] == ["main-a", "main-b", "main-c"]
+    assert captured["executed"] == [
+        {
+            "order_id": "mq-2",
+            "service_user_id": "main-b",
+            "fetch_client_ids": ["main-a", "main-c"],
+            "already_triggered": True,
+        },
+        {
+            "order_id": "mq-1",
+            "service_user_id": "main-a",
+            "fetch_client_ids": ["main-b", "main-c"],
+            "already_triggered": False,
+        },
+    ]
+    assert store_events == [("success", "mq-2"), ("success", "mq-1")]
+
+
+def test_execute_trigger_sell_queue_group_resolves_pooled_users_per_order(monkeypatch):
+    captured = {"placed": []}
+
+    class FakeSellService:
+        def __init__(self, user_id):
+            self.user_id = user_id
+
+        def _place_single_order(self, **kwargs):
+            captured["placed"].append({"user_id": self.user_id, **kwargs})
+            return {"status": "ok", "user_id": self.user_id}
+
+    class FakePlatform:
+        def __init__(self, user_id):
+            self.client = type("Client", (), {"user_id": user_id})()
+            self.service = FakeSellService(user_id)
+
+    user_a = DummyConfig("main-a")
+    user_b = DummyConfig("main-b")
+    user_c = DummyConfig("main-c")
+    user_a.trigger_sell_poll_interval_ms = 100
+    user_b.trigger_sell_poll_interval_ms = 100
+    user_c.trigger_sell_poll_interval_ms = 100
+    pool = execution.UserPool(
+        users_by_id={cfg.user_id: cfg for cfg in [user_a, user_b, user_c]},
+        ordered_users=[user_a, user_b, user_c],
+        is_atrad=False,
+    )
+
+    class FakeFetcher:
+        priority_calls = 0
+
+        def __init__(self, symbols_config, fetch_clients, poll_interval_ms, user_id, is_atrad):
+            self._symbols_config = symbols_config
+            captured["monitor_fetch_clients"] = list(fetch_clients)
+            captured["monitor_user_id"] = user_id
+            captured["is_atrad"] = is_atrad
+
+        def start(self):
+            return None
+
+        def stop(self):
+            return None
+
+        def get_priority_symbol(self):
+            if len(self._symbols_config) == 1:
+                return self._symbols_config[0].symbol
+            symbol = self._symbols_config[1].symbol if FakeFetcher.priority_calls == 0 else self._symbols_config[0].symbol
+            FakeFetcher.priority_calls += 1
+            return symbol
+
+        def get_all_ltps(self):
+            return {cfg.symbol: cfg.switch_threshold for cfg in self._symbols_config}
+
+    monkeypatch.setattr(execution, "create_order_client_and_service", lambda user_config: FakePlatform(user_config.user_id))
+    monkeypatch.setattr(execution, "create_fetch_clients", lambda configs, _is_atrad: [cfg.user_id for cfg in configs])
+    monkeypatch.setattr(
+        execution,
+        "resolve_ticker",
+        lambda ticker, *_args: ResolvedTicker(
+            ticker=ticker.upper(),
+            security_id=101,
+            exchange_security_id=202,
+            fetch_id=303,
+            symbol=ticker.upper(),
+        ),
+    )
+    monkeypatch.setattr(execution, "MultiSymbolSequentialPriceFetcher", FakeFetcher)
+
+    store_events = []
+    order_store = type(
+        "Store",
+        (),
+        {
+            "mark_success": lambda _self, order_id: store_events.append(("success", order_id)),
+            "mark_failed": lambda _self, order_id: store_events.append(("failed", order_id)),
+        },
+    )()
+
+    result = execution.execute_trigger_sell_queue_group(
+        user_config=user_a,
+        orders=[
+            {
+                "id": "ts-1",
+                "ticker": "aaa",
+                "symbol": "AAA",
+                "user_id": "main-a",
+                "price": 100.0,
+                "quantity": 10,
+                "queue_id": 1,
+                "mode": "trigger-sell",
+                "trigger_sell_queue": True,
+                "time": None,
+                "limit": None,
+            },
+            {
+                "id": "ts-2",
+                "ticker": "bbb",
+                "symbol": "BBB",
+                "user_id": "main-b",
+                "price": 110.0,
+                "quantity": 11,
+                "queue_id": 1,
+                "mode": "trigger-sell",
+                "trigger_sell_queue": True,
+                "time": None,
+                "limit": None,
+            },
+        ],
+        order_store=order_store,
+        fetch_user_configs=[user_b, user_c],
+        is_atrad_fetch=False,
+        user_pool=pool,
+    )
+
+    assert set(result["successful_orders"]) == {"ts-1", "ts-2"}
+    assert captured["monitor_fetch_clients"] == ["main-a", "main-b", "main-c"]
+    placed_by_user = {entry["user_id"]: entry for entry in captured["placed"]}
+    assert placed_by_user["main-a"] == {
+        "user_id": "main-a",
+        "price": 100.0,
+        "quantity": 10,
+        "security_id": 101,
+        "exchange_security_id": 202,
+        "buy_or_sell": 2,
+        "order_type": "LMT",
+        "order_validity": "DAY",
+        "market_price": pytest.approx(97.1),
+    }
+    assert placed_by_user["main-b"] == {
+        "user_id": "main-b",
+        "price": 110.0,
+        "quantity": 11,
+        "security_id": 101,
+        "exchange_security_id": 202,
+        "buy_or_sell": 2,
+        "order_type": "LMT",
+        "order_validity": "DAY",
+        "market_price": pytest.approx(106.8),
+    }
+    assert set(store_events) == {("success", "ts-1"), ("success", "ts-2")}
 
 
 def test_execute_from_order_store_resolves_pooled_users_per_order(monkeypatch):
@@ -848,7 +1146,7 @@ def test_execute_from_order_store_resolves_pooled_users_per_order(monkeypatch):
     assert calls["execute"]["is_atrad_fetch"] is False
 
 
-def test_execute_from_order_store_rejects_mixed_pool_users_in_multi_queue(monkeypatch):
+def test_execute_from_order_store_supports_mixed_pool_users_in_multi_queue(monkeypatch):
     class FakeOrderStore:
         def __init__(self, _path):
             self.orders = [
@@ -911,14 +1209,137 @@ def test_execute_from_order_store_rejects_mixed_pool_users_in_multi_queue(monkey
         is_atrad=False,
     )
 
-    monkeypatch.setattr(execution, "OrderStore", FakeOrderStore)
+    calls = {}
 
-    with pytest.raises(ValueError, match="must all use the same user_id"):
-        main.execute_from_order_store(
-            user_config=None,
-            order_store_path="stores/order_store.json",
-            user_pool=pool,
-        )
+    def fake_execute_multi_queue_group(
+        user_config,
+        orders,
+        order_store,
+        fetch_user_configs=None,
+        is_atrad_fetch=False,
+        just_buy_user_configs=None,
+        user_pool=None,
+    ):
+        calls["multi_queue"] = {
+            "user_config": user_config,
+            "orders": orders,
+            "fetch_user_configs": fetch_user_configs,
+            "is_atrad_fetch": is_atrad_fetch,
+            "user_pool": user_pool,
+        }
+        return {"responses": [], "successful_orders": ["mq-1", "mq-2"], "failed_orders": []}
+
+    monkeypatch.setattr(execution, "OrderStore", FakeOrderStore)
+    monkeypatch.setattr(execution, "execute_multi_queue_group", fake_execute_multi_queue_group)
+
+    result = main.execute_from_order_store(
+        user_config=None,
+        order_store_path="stores/order_store.json",
+        user_pool=pool,
+    )
+
+    assert result["successful_orders"] == ["mq-1", "mq-2"]
+    assert [order["id"] for order in calls["multi_queue"]["orders"]] == ["mq-1", "mq-2"]
+    assert calls["multi_queue"]["user_pool"] is pool
+    assert calls["multi_queue"]["fetch_user_configs"] == [user_b]
+    assert calls["multi_queue"]["user_config"] is user_a
+
+
+def test_execute_from_order_store_supports_mixed_pool_users_in_trigger_sell_queue(monkeypatch):
+    class FakeOrderStore:
+        def __init__(self, _path):
+            self.orders = [
+                {
+                    "id": "ts-1",
+                    "ticker": "aaa",
+                    "user_id": "main-a",
+                    "price": 100.0,
+                    "quantity": 10,
+                    "mode": "trigger-sell",
+                    "queue_id": 1,
+                    "trigger_sell_queue": True,
+                },
+                {
+                    "id": "ts-2",
+                    "ticker": "bbb",
+                    "user_id": "main-b",
+                    "price": 110.0,
+                    "quantity": 10,
+                    "mode": "trigger-sell",
+                    "queue_id": 1,
+                    "trigger_sell_queue": True,
+                },
+            ]
+
+        def get_order_summary(self):
+            return "summary"
+
+        def get_executable_orders(self):
+            return list(self.orders)
+
+        def validate_order(self, order):
+            normalized = {
+                "time": None,
+                "sell": False,
+                "skip_first": False,
+                "skip_second_last": False,
+                "limit": None,
+                "base_quantity": 10,
+                "double_buy": False,
+                "double_buy_quantity": None,
+                "just_buy": False,
+                "just_buy_interval_ms": 100,
+                "just_buy_timeout": 5,
+                "just_buy_pre_wait_ms": 0,
+                "just_buy_max_requests": None,
+                "just_buy_fade_interval_ms": None,
+                "just_buy_fade_timeout": None,
+                "multi_queue": False,
+            }
+            normalized.update(order)
+            return normalized
+
+    user_a = DummyConfig("main-a")
+    user_b = DummyConfig("main-b")
+    pool = execution.UserPool(
+        users_by_id={cfg.user_id: cfg for cfg in [user_a, user_b]},
+        ordered_users=[user_a, user_b],
+        is_atrad=False,
+    )
+
+    calls = {}
+
+    def fake_execute_trigger_sell_queue_group(
+        user_config,
+        orders,
+        order_store,
+        fetch_user_configs=None,
+        is_atrad_fetch=False,
+        user_pool=None,
+    ):
+        calls["trigger_sell_queue"] = {
+            "user_config": user_config,
+            "orders": orders,
+            "fetch_user_configs": fetch_user_configs,
+            "is_atrad_fetch": is_atrad_fetch,
+            "user_pool": user_pool,
+        }
+        return {"responses": [], "successful_orders": ["ts-1", "ts-2"], "failed_orders": []}
+
+    monkeypatch.setattr(execution, "OrderStore", FakeOrderStore)
+    monkeypatch.setattr(execution, "execute_trigger_sell_queue_group", fake_execute_trigger_sell_queue_group)
+
+    result = main.execute_from_order_store(
+        user_config=None,
+        order_store_path="stores/order_store.json",
+        user_pool=pool,
+    )
+
+    assert result["successful_orders"] == ["ts-1", "ts-2"]
+    assert [order["id"] for order in calls["trigger_sell_queue"]["orders"]] == ["ts-1", "ts-2"]
+    assert calls["trigger_sell_queue"]["user_pool"] is pool
+    assert calls["trigger_sell_queue"]["fetch_user_configs"] == [user_b]
+    assert calls["trigger_sell_queue"]["user_config"] is user_a
 
 
 def test_execute_from_order_store_marks_failed_when_trigger_mode_has_no_fetch_users(monkeypatch):
@@ -1142,7 +1563,15 @@ def test_execute_from_order_store_characterizes_mixed_multi_queue_and_trigger_or
 
     calls = {"multi_queue": [], "single": []}
 
-    def fake_execute_multi_queue_group(user_config, orders, order_store, fetch_user_configs=None, is_atrad_fetch=False, just_buy_user_configs=None):
+    def fake_execute_multi_queue_group(
+        user_config,
+        orders,
+        order_store,
+        fetch_user_configs=None,
+        is_atrad_fetch=False,
+        just_buy_user_configs=None,
+        user_pool=None,
+    ):
         for order in orders:
             order_store.mark_success(order["id"])
         calls["multi_queue"].append(
@@ -1154,6 +1583,7 @@ def test_execute_from_order_store_characterizes_mixed_multi_queue_and_trigger_or
                 "fetch_user_configs": fetch_user_configs,
                 "is_atrad_fetch": is_atrad_fetch,
                 "just_buy_user_configs": just_buy_user_configs,
+                "user_pool": user_pool,
             }
         )
         return {

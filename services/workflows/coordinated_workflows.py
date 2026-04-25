@@ -12,6 +12,7 @@ def execute_multi_queue_ipo_trigger(
     orders: List[Dict[str, Any]],
     fetch_clients: List[Any],
     on_order_complete: Optional[Any] = None,
+    order_executor: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Execute multi-queue IPO trigger mode for multiple orders."""
     from services.fetchers.multi_symbol_price_fetcher import MultiSymbolSequentialPriceFetcher, SymbolConfig
@@ -93,7 +94,10 @@ def execute_multi_queue_ipo_trigger(
 
     try:
         service.logger.info(f"[{service.user_id}] Executing priority order: {priority_order['id']}")
-        response = service._execute_single_ipo_order(priority_order, fetch_clients, True)
+        if order_executor is not None:
+            response = order_executor(priority_order, True)
+        else:
+            response = service._execute_single_ipo_order(priority_order, fetch_clients, True)
         responses.append(response)
         successful_orders.append(priority_order["id"])
         if on_order_complete is not None:
@@ -110,7 +114,10 @@ def execute_multi_queue_ipo_trigger(
             f"[{service.user_id}] Executing remaining order: {remaining_order['id']} ({remaining_symbol})"
         )
         try:
-            response = service._execute_single_ipo_order(remaining_order, fetch_clients, False)
+            if order_executor is not None:
+                response = order_executor(remaining_order, False)
+            else:
+                response = service._execute_single_ipo_order(remaining_order, fetch_clients, False)
             responses.append(response)
             successful_orders.append(remaining_order["id"])
             if on_order_complete is not None:

@@ -791,6 +791,7 @@ class OrdersScreen(Screen[None]):
         super().__init__()
         self.service = service or OrderStoreService()
         self.price_refresh_service = price_refresh_service or OrderPriceRefreshService()
+        self._row_key_to_order_id: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -842,7 +843,42 @@ class OrdersScreen(Screen[None]):
     def reload_table(self) -> None:
         table = self.query_one("#orders-table", DataTable)
         table.clear()
+        self._row_key_to_order_id.clear()
         for row in self.service.list_rows():
+            self._row_key_to_order_id[row.display_key] = row.parent_order_id
+            if row.row_kind == "just_buy_user":
+                ticker_cell = "[#6b6b6b]↳ JB[/]"
+                user_cell = f"[#8ecae6]{(row.user_id or '-'):>8}[/]"
+                mode_cell = f"[#6b6b6b]{'worker':>6}[/]"
+                queue_cell = "[#6b6b6b]  [/]"
+                exec_cell = "[#6b6b6b]   [/]"
+                mq_cell = "[#6b6b6b]  [/]"
+                jb_cell = "[#ffd166] ●[/]"
+                nl_cell = "[#6b6b6b]  [/]"
+                time_cell = "[#6b6b6b]-       [/]"
+                price_cell = f"[#8a8a8a]{row.price:>10,.2f}[/]"
+                limit_cell = f"[#6b6b6b]{'-'.rjust(10)}[/]"
+                qty_cell = f"[#8ecae6]{row.quantity:>8,}[/]"
+                cost_cell = f"[#8a8a8a]{int(row.total_cost):>12,}[/]"
+                cum_cell = f"[#6b6b6b]{''.rjust(12)}[/]"
+                table.add_row(
+                    ticker_cell,
+                    user_cell,
+                    mode_cell,
+                    queue_cell,
+                    exec_cell,
+                    mq_cell,
+                    nl_cell,
+                    jb_cell,
+                    time_cell,
+                    price_cell,
+                    limit_cell,
+                    qty_cell,
+                    cost_cell,
+                    cum_cell,
+                    key=row.display_key,
+                )
+                continue
             armed = bool(row.execute)
             mq = bool(row.multi_queue)
             jb = bool(row.just_buy)
@@ -883,7 +919,7 @@ class OrdersScreen(Screen[None]):
                 qty_cell,
                 cost_cell,
                 cum_cell,
-                key=row.id,
+                key=row.display_key,
             )
 
     def _selected_order_id(self) -> str | None:
@@ -891,7 +927,9 @@ class OrdersScreen(Screen[None]):
         if table.row_count == 0 or table.cursor_row < 0:
             return None
         row_key = table.coordinate_to_cell_key((table.cursor_row, 0)).row_key
-        return None if row_key is None else str(row_key.value)
+        if row_key is None:
+            return None
+        return self._row_key_to_order_id.get(str(row_key.value), str(row_key.value))
 
     def _set_status(self, message: str) -> None:
         self.query_one("#orders-status", Static).update(message)

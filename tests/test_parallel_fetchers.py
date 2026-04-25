@@ -210,6 +210,51 @@ def test_atrad_multi_user_parallel_market_details_blocks_ltp_updates(monkeypatch
     assert len(market_log) > 0
 
 
+def test_atrad_multi_user_market_details_filter_uses_only_allowed_users(monkeypatch):
+    monkeypatch.setattr("services.fetchers.atrad_price_fetcher.ATRADClient", FakeATRADClient)
+    fetcher = ATRADMultiUserPriceFetcher(
+        fetch_users=[
+            ATRADFetchUser("AFU-1", FakeATRADClient("a1", [], []), "NABIL"),
+            ATRADFetchUser("AFU-2", FakeATRADClient("a2", [], []), "NABIL"),
+            ATRADFetchUser("AFU-3", FakeATRADClient("a3", [], []), "NABIL"),
+        ],
+        poll_interval_ms=5,
+        requests_per_user=2,
+        enable_cooldown=False,
+    )
+
+    fetcher.set_market_details_users(["a2", "a3"])
+
+    selected_ids = [
+        fetcher._get_next_market_details_user().client.user_id
+        for _ in range(4)
+    ]
+
+    assert selected_ids == ["a2", "a3", "a2", "a3"]
+
+
+def test_atrad_multi_user_market_details_filter_falls_back_to_all_users_when_empty(monkeypatch):
+    monkeypatch.setattr("services.fetchers.atrad_price_fetcher.ATRADClient", FakeATRADClient)
+    fetcher = ATRADMultiUserPriceFetcher(
+        fetch_users=[
+            ATRADFetchUser("AFU-1", FakeATRADClient("a1", [], []), "NABIL"),
+            ATRADFetchUser("AFU-2", FakeATRADClient("a2", [], []), "NABIL"),
+        ],
+        poll_interval_ms=5,
+        requests_per_user=2,
+        enable_cooldown=False,
+    )
+
+    fetcher.set_market_details_users(["missing-user"])
+
+    selected_ids = [
+        fetcher._get_next_market_details_user().client.user_id
+        for _ in range(4)
+    ]
+
+    assert selected_ids == ["a1", "a1", "a2", "a2"]
+
+
 def test_atrad_multi_user_parallel_pause_and_resume(monkeypatch):
     monkeypatch.setattr("services.fetchers.atrad_price_fetcher.ATRADClient", FakeATRADClient)
     ltp_log = []

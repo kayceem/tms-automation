@@ -142,11 +142,12 @@ def build_profiles_from_order_store(order_store_path: str, base_requests_per_ste
         orders_by_ticker[order["ticker"]].append(order)
 
     profiles: dict[str, TickerProfile] = {}
+    multi_queue_ids = set()
     for ticker, orders in orders_by_ticker.items():
         representative = _select_representative_order(orders)
         if order.get("mode") in {"trigger-sell"}:
             price = float(representative["price"])
-            price_levels = [price * 0.94, price * 0.98, price]
+            price_levels = [price * 0.5, price * 0.98, price]
         else:
             price_levels, _ = calculate_price_levels(
                 base_price=float(representative["price"]),
@@ -158,10 +159,12 @@ def build_profiles_from_order_store(order_store_path: str, base_requests_per_ste
 
         start_level_index = max(len(price_levels) - 4, 0)
         requests_per_step = max(1, base_requests_per_step)
-        is_multi_queue = any(order.get("multi_queue", False) for order in orders)
+        is_multi_queue = order.get("multi_queue", False) or order.get("trigger_sell_queue", False)
         just_buy_enabled = any(order.get("just_buy", False) for order in orders)
-        if is_multi_queue:
+        if is_multi_queue and order.get("queue_id") in multi_queue_ids:
             requests_per_step = requests_per_step * 2
+        if is_multi_queue:
+            multi_queue_ids.add(representative.get("queue_id"))
 
 
         profiles[ticker] = TickerProfile(

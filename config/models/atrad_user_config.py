@@ -41,6 +41,7 @@ class ATRADUserConfig:
     multi_fetch_poll_interval_ms: int = 100
     trigger_mode_refresh_interval_seconds: int = 60
     trigger_sell_poll_interval_ms: int = 500
+    trigger_sell_slow_poll_interval_ms: int = 500
     trigger_mode_slow_poll_interval_ms: int = 500
     trigger_mode_requests_per_fetch_user: int = 5
     trigger_mode_parallel_fetch_enabled: bool = True
@@ -116,6 +117,7 @@ class ATRADUserConfig:
             'multi_fetch_poll_interval_ms': self.multi_fetch_poll_interval_ms,
             'trigger_mode_refresh_interval_seconds': self.trigger_mode_refresh_interval_seconds,
             'trigger_sell_poll_interval_ms': self.trigger_sell_poll_interval_ms,
+            'trigger_sell_slow_poll_interval_ms': self.trigger_sell_slow_poll_interval_ms,
             'trigger_mode_slow_poll_interval_ms': self.trigger_mode_slow_poll_interval_ms,
             'trigger_mode_requests_per_fetch_user': self.trigger_mode_requests_per_fetch_user,
             'trigger_mode_parallel_fetch_enabled': self.trigger_mode_parallel_fetch_enabled,

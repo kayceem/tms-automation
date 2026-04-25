@@ -59,6 +59,7 @@ class ATRADPriceFetcher:
 
         # Market details monitoring
         self._market_details_running = False
+        self._market_details_allowed_user_ids: Optional[set[str]] = None
 
         logger.info(
             f"[{self.fetch_client.user_id}] ATRADPriceFetcher initialized for "
@@ -190,6 +191,13 @@ class ATRADPriceFetcher:
         self._wakeup_event.set()
         logger.info(f"[{self.fetch_client.user_id}] Market details monitoring stopped")
 
+    def set_market_details_users(self, user_ids: list[str] | None) -> None:
+        """Set the allowed user ids for market-details fetching."""
+        normalized = {str(user_id).strip() for user_id in (user_ids or []) if str(user_id).strip()}
+        with self._lock:
+            self._market_details_allowed_user_ids = normalized or None
+        self._wakeup_event.set()
+
     def _fetch_loop(self):
         """Main loop for fetching LTP at regular intervals."""
         logger.info(
@@ -313,6 +321,8 @@ class ATRADMultiUserPriceFetcher:
         # Market details monitoring
         self._market_details_running = False
         self._market_details: Optional[List[dict]] = []
+        self._market_details_allowed_user_ids: Optional[set[str]] = None
+        self._market_details_user_index = 0
 
         user_info = ', '.join(f"{u.name}(sid={u.symbol})" for u in self.fetch_users)
         logger.info(
@@ -343,6 +353,28 @@ class ATRADMultiUserPriceFetcher:
     def _should_add_cooldown_delay(self) -> bool:
         """Check if we should add cooldown delay after every 5 rotation cycles."""
         return self._rotation_cycles_completed > (self._len_fetch_users * 4)
+
+    def set_market_details_users(self, user_ids: list[str] | None) -> None:
+        """Restrict market-details rotation to specific fetch users when possible."""
+        normalized = {str(user_id).strip() for user_id in (user_ids or []) if str(user_id).strip()}
+        with self._lock:
+            self._market_details_allowed_user_ids = normalized or None
+            self._market_details_user_index = 0
+        self._wakeup_event.set()
+
+    def _get_next_market_details_user(self) -> ATRADFetchUser:
+        """Get the next user for market-details fetching, honoring any active filter."""
+        allowed_user_ids = self._market_details_allowed_user_ids
+        if not allowed_user_ids:
+            return self._get_next_user()
+
+        eligible_users = [user for user in self.fetch_users if user.client.user_id in allowed_user_ids]
+        if not eligible_users:
+            return self._get_next_user()
+
+        user = eligible_users[self._market_details_user_index % len(eligible_users)]
+        self._market_details_user_index = (self._market_details_user_index + 1) % len(eligible_users)
+        return user
 
     def start(self):
         """Start the price fetching thread."""
@@ -744,7 +776,7 @@ class ATRADMultiUserPriceFetcher:
                     logger.info(f"ATRADMultiUserPriceFetcher scheduler mode switched to {current_mode}")
 
                 if not is_paused and market_details_running:
-                    current_user = self._get_next_user()
+                    current_user = self._get_next_market_details_user()
                     current_user_name = current_user.name
                     bid = current_user.client.get_market_details(current_user.symbol, timeout=timeout)
 

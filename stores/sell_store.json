@@ -15,13 +15,27 @@
   "orders": [
     {
       "id": "hfin_sell",
+      "user_id": "atrad_user1",
       "execute": true,
       "success": false,
       "queue_id": 1,
       "ticker": "HFIN",
       "mode": "trigger-sell",
       "quantity": 100,
-      "price": 1310.0,
+      "price": 1320.0,
+      "trigger_sell_queue": true,
+      "sell": true
+    },
+    {
+      "id": "skhel_sell",
+      "user_id": "atrad_user6",
+      "execute": true,
+      "success": false,
+      "queue_id": 1,
+      "ticker": "SKHEL",
+      "mode": "trigger-sell",
+      "quantity": 100,
+      "price": 1750,
       "trigger_sell_queue": true,
       "sell": true
     }

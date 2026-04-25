@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
@@ -56,7 +55,6 @@ def load_user_pool(config_paths: list[str]) -> UserPool:
 
 def validate_pool_orders(orders: list[dict[str, Any]], pool: UserPool) -> None:
     """Validate that executable orders are compatible with pooled-user execution."""
-    queue_user_ids: dict[int, set[str]] = defaultdict(set)
     for order in orders:
         order_id = str(order.get("id", "unknown"))
         mode = str(order.get("mode", ""))
@@ -71,16 +69,6 @@ def validate_pool_orders(orders: list[dict[str, Any]], pool: UserPool) -> None:
             )
         if mode == "ipo-sell-buy-trigger":
             raise ValueError("Orders with mode 'ipo-sell-buy-trigger' are incompatible with --pool-users")
-
-        if bool(order.get("multi_queue", False)):
-            queue_user_ids[int(order.get("queue_id", 999))].add(user_id)
-
-    for queue_id, user_ids in queue_user_ids.items():
-        if len(user_ids) > 1:
-            ordered = ", ".join(sorted(user_ids))
-            raise ValueError(
-                f"Multi-queue orders in queue {queue_id} must all use the same user_id under --pool-users. Found: {ordered}"
-            )
 
 
 def resolve_pool_order_users(pool: UserPool, user_id: str) -> tuple[Any, list[Any]]:

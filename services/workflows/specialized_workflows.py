@@ -60,13 +60,20 @@ def execute_trigger_sell(
             f"[{service.user_id}] Will place sell order at Rs. {final_sell_price} when LTP >= Rs. {trigger_price}"
         )
 
-    poll_interval_ms = getattr(service.client.user_config, "trigger_sell_poll_interval_ms", 500)
+    fast_poll_interval_ms = getattr(service.client.user_config, "trigger_sell_poll_interval_ms", 500)
+    slow_poll_interval_ms = getattr(
+        service.client.user_config,
+        "trigger_sell_slow_poll_interval_ms",
+        500,
+    )
+    near_trigger_threshold = math.floor((sell_price * 0.94) * 10) / 10
+    current_poll_interval_ms = slow_poll_interval_ms
     price_fetcher = service._setup_price_fetcher(
         fetch_clients=fetch_clients,
         fetch_security_id=fetch_security_id,
         symbol=platform_params.get("symbol"),
         ticker=ticker,
-        poll_interval_ms=poll_interval_ms,
+        poll_interval_ms=current_poll_interval_ms,
     )
 
     token_manager = service._setup_token_manager()
@@ -81,7 +88,8 @@ def execute_trigger_sell(
 
     try:
         service.logger.info(
-            f"[{service.user_id}] Starting LTP monitoring (poll interval: {poll_interval_ms}ms)"
+            f"[{service.user_id}] Starting LTP monitoring "
+            f"(slow={slow_poll_interval_ms}ms, fast={fast_poll_interval_ms}ms, near-threshold=Rs. {near_trigger_threshold})"
         )
 
         while not order_placed:
@@ -89,8 +97,21 @@ def execute_trigger_sell(
 
             if ltp is None:
                 service.logger.debug(f"[{service.user_id}] Waiting for first LTP...")
-                time.sleep(poll_interval_ms / 1000)
+                time.sleep(current_poll_interval_ms / 1000)
                 continue
+
+            target_poll_interval_ms = (
+                fast_poll_interval_ms if ltp >= near_trigger_threshold else slow_poll_interval_ms
+            )
+            if target_poll_interval_ms != current_poll_interval_ms:
+                current_poll_interval_ms = target_poll_interval_ms
+                if hasattr(price_fetcher, "update_poll_settings"):
+                    price_fetcher.update_poll_settings(current_poll_interval_ms, enable_cooldown=False)
+                mode_label = "FAST" if current_poll_interval_ms == fast_poll_interval_ms else "SLOW"
+                service.logger.info(
+                    f"[{service.user_id}] Trigger-sell switched to {mode_label} polling "
+                    f"({current_poll_interval_ms}ms) at LTP Rs. {ltp}"
+                )
 
             if ltp >= trigger_price:
                 service.logger.info(
@@ -130,7 +151,7 @@ def execute_trigger_sell(
                     f"[{service.user_id}] LTP Rs. {ltp} < Trigger Rs. {trigger_price} - waiting..."
                 )
 
-            time.sleep(poll_interval_ms / 1000)
+            time.sleep(current_poll_interval_ms / 1000)
 
     finally:
         price_fetcher.stop()

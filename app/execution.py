@@ -182,21 +182,30 @@ def execute_multi_queue_group(
     fetch_user_configs=None,
     is_atrad_fetch: bool = False,
     just_buy_user_configs=None,
+    user_pool: Optional[UserPool] = None,
 ) -> Dict[str, Any]:
     """Execute a multi-queue order group."""
     logger.info(f"Preparing multi-queue execution for {len(orders)} orders:")
     for order in orders:
         logger.info(f"  - {order['id']} ({order['ticker']})")
 
-    platform = create_order_client_and_service(user_config)
-    if not fetch_user_configs:
+    monitoring_user_config = user_config
+    monitoring_fetch_user_configs = fetch_user_configs
+    monitoring_is_atrad_fetch = is_atrad_fetch
+    if user_pool is not None:
+        monitoring_user_config = user_pool.ordered_users[0]
+        monitoring_fetch_user_configs = user_pool.ordered_users
+        monitoring_is_atrad_fetch = user_pool.is_atrad
+
+    platform = create_order_client_and_service(monitoring_user_config)
+    if not monitoring_fetch_user_configs:
         raise ValueError("Fetch user configs required for multi-queue mode")
-    fetch_clients = create_fetch_clients(fetch_user_configs, is_atrad_fetch)
+    fetch_clients = create_fetch_clients(monitoring_fetch_user_configs, monitoring_is_atrad_fetch)
     prepared_orders = []
     for order in orders:
         order = dict(order)
         try:
-            resolved = resolve_ticker(order['ticker'], fetch_user_configs, is_atrad_fetch)
+            resolved = resolve_ticker(order['ticker'], monitoring_fetch_user_configs, monitoring_is_atrad_fetch)
             order['security_id'] = resolved.security_id
             order['exchange_security_id'] = resolved.exchange_security_id
             order['fetch_id'] = resolved.fetch_id
@@ -232,6 +241,24 @@ def execute_multi_queue_group(
         logger.info(f"All orders in this group will execute at: {scheduled_time}")
 
     try:
+        def execute_order_with_resolved_user(order: Dict[str, Any], already_triggered: bool) -> Dict[str, Any]:
+            if user_pool is None:
+                return platform.service._execute_single_ipo_order(order, fetch_clients, already_triggered)
+
+            pooled_user_id = str(order.get("user_id") or "").strip()
+            if not pooled_user_id:
+                raise ValueError(f"Order '{order.get('id', 'unknown')}' is missing required field 'user_id' for --pool-users mode")
+            order_user_config, order_fetch_user_configs, order_is_atrad_fetch = _resolve_execution_users(
+                pool=user_pool,
+                pooled_user_id=pooled_user_id,
+                default_user_config=monitoring_user_config,
+                default_fetch_user_configs=monitoring_fetch_user_configs,
+                default_is_atrad_fetch=monitoring_is_atrad_fetch,
+            )
+            order_platform = create_order_client_and_service(order_user_config)
+            order_fetch_clients = create_fetch_clients(order_fetch_user_configs, order_is_atrad_fetch)
+            return order_platform.service._execute_single_ipo_order(order, order_fetch_clients, already_triggered)
+
         def handle_order_complete(order_id: str, success: bool, _error: Exception | None = None) -> None:
             if success:
                 order_store.mark_success(order_id)
@@ -247,6 +274,7 @@ def execute_multi_queue_group(
                     orders=orders,
                     fetch_clients=active_fetch_clients,
                     on_order_complete=handle_order_complete,
+                    order_executor=execute_order_with_resolved_user,
                 )
 
             result = OrderScheduler.schedule_order(
@@ -254,13 +282,14 @@ def execute_multi_queue_group(
                 order_func=execute_multi_queue,
                 main_client=platform.client,
                 fetch_clients=fetch_clients,
-                user_id=user_config.user_id,
+                user_id=monitoring_user_config.user_id,
             )
         else:
             result = platform.service._execute_multi_queue_ipo_trigger(
                 orders=orders,
                 fetch_clients=fetch_clients,
                 on_order_complete=handle_order_complete,
+                order_executor=execute_order_with_resolved_user,
             )
 
         if len(result['failed_orders']) > 0:
@@ -283,24 +312,33 @@ def execute_trigger_sell_queue_group(
     order_store,
     fetch_user_configs=None,
     is_atrad_fetch: bool = False,
+    user_pool: Optional[UserPool] = None,
 ) -> Dict[str, Any]:
     """Execute a trigger-sell queue group with rotating trigger checks."""
     logger.info(f"Preparing trigger-sell queue execution for {len(orders)} orders:")
     for order in orders:
         logger.info(f"  - {order['id']} ({order['ticker']})")
 
-    if not fetch_user_configs:
+    monitoring_user_config = user_config
+    monitoring_fetch_user_configs = fetch_user_configs
+    monitoring_is_atrad_fetch = is_atrad_fetch
+    if user_pool is not None:
+        monitoring_user_config = user_pool.ordered_users[0]
+        monitoring_fetch_user_configs = user_pool.ordered_users
+        monitoring_is_atrad_fetch = user_pool.is_atrad
+
+    if not monitoring_fetch_user_configs:
         raise ValueError("Fetch user configs required for trigger-sell queue mode")
 
-    platform = create_order_client_and_service(user_config)
-    fetch_clients = create_fetch_clients(fetch_user_configs, is_atrad_fetch)
+    platform = create_order_client_and_service(monitoring_user_config)
+    fetch_clients = create_fetch_clients(monitoring_fetch_user_configs, monitoring_is_atrad_fetch)
     if not fetch_clients:
         raise ValueError("At least one fetch client is required for trigger-sell queue mode")
 
     prepared_orders = []
     for order in orders:
         try:
-            resolved = resolve_ticker(order["ticker"], fetch_user_configs, is_atrad_fetch)
+            resolved = resolve_ticker(order["ticker"], monitoring_fetch_user_configs, monitoring_is_atrad_fetch)
             enriched_order = dict(order)
             enriched_order["security_id"] = resolved.security_id
             enriched_order["exchange_security_id"] = resolved.exchange_security_id
@@ -310,7 +348,7 @@ def execute_trigger_sell_queue_group(
         except Exception as exc:
             raise ValueError(f"Ticker lookup failed for '{order['ticker']}': {exc}")
 
-    poll_interval_ms = user_config.trigger_sell_poll_interval_ms
+    poll_interval_ms = monitoring_user_config.trigger_sell_poll_interval_ms
     sleep_duration = max(poll_interval_ms / 10000.0, 0.001)
 
     def calculate_trigger_sell_targets(order: Dict[str, Any]) -> tuple[float, float]:
@@ -327,14 +365,30 @@ def execute_trigger_sell_queue_group(
 
     def place_triggered_sell(order: Dict[str, Any], market_price: float) -> Dict[str, Any]:
         trigger_price, final_sell_price = calculate_trigger_sell_targets(order)
+        order_user_config = monitoring_user_config
+        order_is_atrad_fetch = monitoring_is_atrad_fetch
+        if user_pool is not None:
+            pooled_user_id = str(order.get("user_id") or "").strip()
+            if not pooled_user_id:
+                raise ValueError(
+                    f"Order '{order.get('id', 'unknown')}' is missing required field 'user_id' for --pool-users mode"
+                )
+            order_user_config, _order_fetch_user_configs, order_is_atrad_fetch = _resolve_execution_users(
+                pool=user_pool,
+                pooled_user_id=pooled_user_id,
+                default_user_config=monitoring_user_config,
+                default_fetch_user_configs=monitoring_fetch_user_configs,
+                default_is_atrad_fetch=monitoring_is_atrad_fetch,
+            )
+        order_platform = create_order_client_and_service(order_user_config)
         logger.info(
-            f"[{user_config.user_id}] Trigger-sell queue order triggered: {order['id']} "
+            f"[{order_user_config.user_id}] Trigger-sell queue order triggered: {order['id']} "
             f"({order['ticker']}) LTP={market_price} >= Trigger={trigger_price}. "
             f"Placing SELL at Rs. {final_sell_price}"
         )
 
-        if isinstance(user_config, ATRADUserConfig):
-            return platform.service._place_single_order(
+        if isinstance(order_user_config, ATRADUserConfig) or order_is_atrad_fetch:
+            return order_platform.service._place_single_order(
                 price=final_sell_price,
                 quantity=order["quantity"],
                 symbol=order["symbol"],
@@ -342,7 +396,7 @@ def execute_trigger_sell_queue_group(
                 market_price=market_price,
             )
 
-        return platform.service._place_single_order(
+        return order_platform.service._place_single_order(
             price=final_sell_price,
             quantity=order["quantity"],
             security_id=order["security_id"],
@@ -372,7 +426,7 @@ def execute_trigger_sell_queue_group(
                 )
                 symbols_config.append(symbol_config)
                 logger.info(
-                    f"[{user_config.user_id}] Trigger-sell queue order: {order['id']} "
+                    f"[{monitoring_user_config.user_id}] Trigger-sell queue order: {order['id']} "
                     f"({symbol_config.symbol}) trigger_price=Rs. {trigger_price}"
                 )
 
@@ -380,13 +434,13 @@ def execute_trigger_sell_queue_group(
                 symbols_config=symbols_config,
                 fetch_clients=fetch_clients,
                 poll_interval_ms=poll_interval_ms,
-                user_id=user_config.user_id,
-                is_atrad=is_atrad_fetch,
+                user_id=monitoring_user_config.user_id,
+                is_atrad=monitoring_is_atrad_fetch,
             )
 
             multi_fetcher.start()
             try:
-                logger.info(f"[{user_config.user_id}] Waiting for next trigger-sell queue order to trigger...")
+                logger.info(f"[{monitoring_user_config.user_id}] Waiting for next trigger-sell queue order to trigger...")
                 while multi_fetcher.get_priority_symbol() is None:
                     time.sleep(sleep_duration)
                 priority_symbol = multi_fetcher.get_priority_symbol()
@@ -395,7 +449,7 @@ def execute_trigger_sell_queue_group(
                 multi_fetcher.stop()
 
             ltps_str = ", ".join([f"{sym}={ltp if ltp else 'N/A'}" for sym, ltp in all_ltps.items()])
-            logger.info(f"[{user_config.user_id}] Trigger-sell queue LTPs: {ltps_str}")
+            logger.info(f"[{monitoring_user_config.user_id}] Trigger-sell queue LTPs: {ltps_str}")
 
             triggered_order = None
             remaining_after_trigger = []
@@ -441,7 +495,7 @@ def execute_trigger_sell_queue_group(
             order_func=lambda **_kwargs: execute_group(),
             main_client=platform.client,
             fetch_clients=fetch_clients,
-            user_id=user_config.user_id,
+            user_id=monitoring_user_config.user_id,
         )
 
     return execute_group()
@@ -558,6 +612,7 @@ def execute_from_order_store(
                     fetch_user_configs=active_fetch_user_configs,
                     is_atrad_fetch=active_is_atrad_fetch,
                     just_buy_user_configs=just_buy_user_configs,
+                    user_pool=user_pool,
                 )
                 total_executed += len(group_orders)
             except Exception as exc:
@@ -582,6 +637,7 @@ def execute_from_order_store(
                     order_store=order_store,
                     fetch_user_configs=active_fetch_user_configs,
                     is_atrad_fetch=active_is_atrad_fetch,
+                    user_pool=user_pool,
                 )
                 total_executed += len(group_orders)
             except Exception as exc:

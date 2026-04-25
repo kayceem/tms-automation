@@ -7,7 +7,9 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class OrderRow:
+    display_key: str
     id: str
+    parent_order_id: str
     ticker: str
     user_id: str
     mode: str
@@ -23,6 +25,7 @@ class OrderRow:
     multi_queue: bool = False
     no_ladder: bool = False
     just_buy: bool = False
+    row_kind: str = "order"
 
 
 @dataclass(frozen=True)

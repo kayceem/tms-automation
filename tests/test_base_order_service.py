@@ -15,6 +15,7 @@ class DummyClient:
                 "multi_fetch_poll_interval_ms": 100,
                 "trigger_mode_slow_poll_interval_ms": 500,
                 "trigger_sell_poll_interval_ms": 500,
+                "trigger_sell_slow_poll_interval_ms": 500,
                 "trigger_mode_refresh_interval_seconds": 60,
                 "trigger_mode_requests_per_fetch_user": 5,
                 "trigger_mode_parallel_fetch_enabled": False,
@@ -54,6 +55,7 @@ class FakePriceFetcher:
         self.index = 0
         self.market_started = 0
         self.market_stopped = 0
+        self.market_details_user_sets = []
         self.settings = []
         self.started = 0
         self.stopped = 0
@@ -87,6 +89,9 @@ class FakePriceFetcher:
 
     def stop_market_details(self):
         self.market_stopped += 1
+
+    def set_market_details_users(self, user_ids):
+        self.market_details_user_sets.append(user_ids)
 
     def update_poll_settings(self, poll_interval_ms, enable_cooldown=False):
         self.settings.append((poll_interval_ms, enable_cooldown))
@@ -609,8 +614,8 @@ def test_execute_just_buy_uses_fade_phase_after_main_phase_failure(monkeypatch):
     assert success is True
     assert response["price"] == 120.0
     assert attempts["count"] == 3
-    assert price_fetcher.market_started == 0
-    assert price_fetcher.market_stopped == 0
+    assert price_fetcher.market_started == 1
+    assert price_fetcher.market_stopped == 1
     assert sleep_calls[:3] == [0.1, 0.1, 0.25]
 
 
@@ -645,8 +650,8 @@ def test_execute_just_buy_returns_failure_when_fade_phase_also_fails(monkeypatch
 
     assert success is False
     assert response is None
-    assert price_fetcher.market_started == 0
-    assert price_fetcher.market_stopped == 0
+    assert price_fetcher.market_started == 1
+    assert price_fetcher.market_stopped == 1
     assert sleep_calls[:3] == [0.1, 0.1, 0.25]
 
 
@@ -780,6 +785,73 @@ def test_execute_just_buy_uses_parallel_user_pool():
     assert {entry[0] for entry in calls} == {"jb-user-1", "jb-user-2"}
     assert ("jb-user-1", 120.0, 337) in calls
     assert ("jb-user-2", 120.0, 10) in calls
+
+
+def test_execute_just_buy_excludes_overlapping_users_from_market_details():
+    service = DummyService()
+    price_fetcher = FakePriceFetcher([])
+    price_fetcher.fetch_users = [
+        SimpleNamespace(client=SimpleNamespace(user_id="fetch-1")),
+        SimpleNamespace(client=SimpleNamespace(user_id="fetch-2")),
+        SimpleNamespace(client=SimpleNamespace(user_id="fetch-3")),
+    ]
+    worker1 = DummyService()
+    worker2 = DummyService()
+    worker1.user_id = "fetch-1"
+    worker1.client.user_id = "fetch-1"
+    worker2.user_id = "jb-user-2"
+    worker2.client.user_id = "jb-user-2"
+
+    service._execute_just_buy(
+        final_price=120.0,
+        trigger_price=110.0,
+        order_quantity=10,
+        just_buy_interval_ms=1,
+        just_buy_timeout=1,
+        just_buy_pre_wait_ms=0,
+        price_fetcher=price_fetcher,
+        platform_params={"security_id": 101},
+        just_buy_services=[
+            {"service": worker1, "quantity_override": None},
+            {"service": worker2, "quantity_override": None},
+        ],
+        just_buy_max_requests=0,
+    )
+
+    assert price_fetcher.market_details_user_sets[0] == ["fetch-2", "fetch-3"]
+
+
+def test_execute_just_buy_market_details_filter_falls_back_when_all_fetch_users_overlap():
+    service = DummyService()
+    price_fetcher = FakePriceFetcher([])
+    price_fetcher.fetch_users = [
+        SimpleNamespace(client=SimpleNamespace(user_id="fetch-1")),
+        SimpleNamespace(client=SimpleNamespace(user_id="fetch-2")),
+    ]
+    worker1 = DummyService()
+    worker2 = DummyService()
+    worker1.user_id = "fetch-1"
+    worker1.client.user_id = "fetch-1"
+    worker2.user_id = "fetch-2"
+    worker2.client.user_id = "fetch-2"
+
+    service._execute_just_buy(
+        final_price=120.0,
+        trigger_price=110.0,
+        order_quantity=10,
+        just_buy_interval_ms=1,
+        just_buy_timeout=1,
+        just_buy_pre_wait_ms=0,
+        price_fetcher=price_fetcher,
+        platform_params={"security_id": 101},
+        just_buy_services=[
+            {"service": worker1, "quantity_override": None},
+            {"service": worker2, "quantity_override": None},
+        ],
+        just_buy_max_requests=0,
+    )
+
+    assert price_fetcher.market_details_user_sets[0] is None
 
 
 def test_execute_ipo_trigger_uses_no_ladder_path_and_cleans_up():
@@ -956,6 +1028,36 @@ def test_execute_trigger_sell_places_sell_order_when_trigger_price_reached(monke
     assert fake_fetcher.paused == 1
     assert fake_fetcher.resumed == 1
     assert fake_fetcher.stopped == 1
+
+
+def test_execute_trigger_sell_switches_from_slow_to_fast_polling(monkeypatch):
+    service = DummyService()
+    service.client.user_config.trigger_sell_poll_interval_ms = 100
+    service.client.user_config.trigger_sell_slow_poll_interval_ms = 500
+    fake_fetcher = FakePriceFetcher([460.0, 470.0, 490.0])
+    captured = {}
+
+    def fake_setup_price_fetcher(**kwargs):
+        captured.update(kwargs)
+        fake_fetcher.start()
+        return fake_fetcher
+
+    monkeypatch.setattr(service, "_setup_price_fetcher", fake_setup_price_fetcher)
+    monkeypatch.setattr("services.workflows.specialized_workflows.time.sleep", lambda _seconds: None)
+
+    response = service._execute_trigger_sell(
+        sell_price=500.0,
+        order_quantity=10,
+        fetch_clients=[object()],
+        fetch_security_id=123,
+        security_id=101,
+        exchange_security_id=202,
+        buy_or_sell=1,
+    )
+
+    assert response["price"] == 500.0
+    assert captured["poll_interval_ms"] == 500
+    assert fake_fetcher.settings == [(100, False)]
 
 
 def test_execute_single_ipo_order_maps_tms_order_fields(monkeypatch):

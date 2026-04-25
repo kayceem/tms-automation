@@ -600,6 +600,29 @@ class BaseOrderService(ABC):
         """
         import threading
 
+        def configure_market_details_users() -> None:
+            if not hasattr(price_fetcher, "set_market_details_users"):
+                return
+            if not just_buy_services or not hasattr(price_fetcher, "fetch_users"):
+                price_fetcher.set_market_details_users(None)
+                return
+
+            fetch_user_ids = {
+                getattr(fetch_user.client, "user_id", "").strip()
+                for fetch_user in getattr(price_fetcher, "fetch_users", [])
+                if getattr(fetch_user.client, "user_id", "").strip()
+            }
+            overlapped_user_ids = {
+                getattr(
+                    worker_entry["service"] if isinstance(worker_entry, dict) else worker_entry,
+                    "user_id",
+                    "",
+                ).strip()
+                for worker_entry in just_buy_services
+            }
+            allowed_market_details_user_ids = sorted(fetch_user_ids - overlapped_user_ids)
+            price_fetcher.set_market_details_users(allowed_market_details_user_ids or None)
+
         # Log configuration
         fade_enabled = just_buy_fade_interval_ms and just_buy_fade_timeout
 
@@ -616,7 +639,9 @@ class BaseOrderService(ABC):
             f"at Rs. {final_price} ({config_str})"
         )
 
-        price_fetcher.pause()
+        configure_market_details_users()
+        if hasattr(price_fetcher, 'start_market_details'):
+            price_fetcher.start_market_details()
 
         try:
             # Pre-wait if configured
@@ -1009,7 +1034,8 @@ class BaseOrderService(ABC):
                 return False, None
 
         finally:
-            pass
+            if hasattr(price_fetcher, 'stop_market_details'):
+                price_fetcher.stop_market_details()
 
     def _wait_for_no_ladder_trigger(
         self,
@@ -1425,6 +1451,7 @@ class BaseOrderService(ABC):
         orders: List[Dict[str, Any]],
         fetch_clients: List[Any],
         on_order_complete: Any = None,
+        order_executor: Any = None,
     ) -> List[Dict[str, Any]]:
         """
         Execute multi-queue IPO trigger mode for multiple orders.
@@ -1444,6 +1471,7 @@ class BaseOrderService(ABC):
             orders=orders,
             fetch_clients=fetch_clients,
             on_order_complete=on_order_complete,
+            order_executor=order_executor,
         )
 
     def _execute_single_ipo_order(
