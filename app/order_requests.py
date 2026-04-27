@@ -11,7 +11,7 @@ logger = logging.getLogger("main")
 FETCH_USER_ERROR_BY_MODE = {
     "ipo-trigger": "Fetch user configuration is required for 'ipo-trigger' mode. Use --fetch-user or --fetch-users argument to specify fetch user JSON file(s).",
     "ipo-trigger-low": "Fetch user configuration is required for 'ipo-trigger-low' mode. Use --fetch-user or --fetch-users argument to specify fetch user JSON file(s).",
-    "trigger-sell": "Fetch user configuration is required for 'trigger-sell' mode. Use --fetch-user argument to specify fetch user JSON file.",
+    "trigger-sell": "Fetch user configuration is required for 'trigger-sell' mode. Use --fetch-user or --fetch-users argument to specify fetch user JSON file(s).",
     "ipo-sell-buy-trigger": "Fetch user configuration is required for 'ipo-sell-buy-trigger' mode. Use --fetch-user or --fetch-users argument to specify fetch user JSON file(s).",
 }
 

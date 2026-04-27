@@ -6,25 +6,34 @@ import asyncio
 import random
 from collections import defaultdict
 from dataclasses import dataclass, field
+import math
 import time
 from typing import Any
 from urllib.parse import parse_qs
+import sys 
+from pathlib import Path
 
-from services.workflows.order_ladders import calculate_price_levels
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from services.workflows.order_ladders import calculate_price_levels, calculate_lower_price_levels
 from utils.order_store import OrderStore
 
 
 @dataclass
 class TickerProfile:
     symbol: str
+    mode: str
     price_levels: list[float]
     start_level_index: int
     requests_per_step: int
     request_count: int = 0
+    market_detail_request_count: int = 0
     order_request_count: int = 0
     source_order_ids: list[str] = field(default_factory=list)
     is_multi_queue: bool = False
     just_buy_enabled: bool = False
+    trigger_price: float | None = None
+    final_order_price: float | None = None
 
     def current_level_index(self) -> int:
         step = max(1, self.requests_per_step)
@@ -42,8 +51,33 @@ class TickerProfile:
         self.request_count += 1
         return price
 
+    def record_market_details_and_get_price(self) -> float:
+        price = self.current_price()
+        self.market_detail_request_count += 1
+        return price
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "symbol": self.symbol,
+            "mode": self.mode,
+            "price_levels": self.price_levels,
+            "start_level_index": self.start_level_index,
+            "current_level_index": self.current_level_index(),
+            "current_price": self.current_price(),
+            "requests_per_step": self.requests_per_step,
+            "request_count": self.request_count,
+            "market_detail_request_count": self.market_detail_request_count,
+            "order_request_count": self.order_request_count,
+            "source_order_ids": list(self.source_order_ids),
+            "is_multi_queue": self.is_multi_queue,
+            "just_buy_enabled": self.just_buy_enabled,
+            "trigger_price": self.trigger_price,
+            "final_order_price": self.final_order_price,
+        }
+
     def reset(self) -> None:
         self.request_count = 0
+        self.market_detail_request_count = 0
         self.order_request_count = 0
 
 
@@ -58,6 +92,10 @@ class DebugServerState:
     order_accept_after_requests: int = 10
     inactivity_reset_seconds: float = 5.0
     last_request_monotonic: float = field(default_factory=time.monotonic)
+    event_history_limit: int = 1000
+    quote_events: list[dict[str, Any]] = field(default_factory=list)
+    market_detail_events: list[dict[str, Any]] = field(default_factory=list)
+    order_events: list[dict[str, Any]] = field(default_factory=list)
 
     def get_profile(self, symbol: str | None) -> TickerProfile:
         normalized_symbol = (symbol or "").upper()
@@ -73,6 +111,9 @@ class DebugServerState:
         self.fallback_profile.reset()
         for profile in self.ticker_profiles.values():
             profile.reset()
+        self.quote_events.clear()
+        self.market_detail_events.clear()
+        self.order_events.clear()
 
     def note_request(self, now: float | None = None) -> None:
         current = time.monotonic() if now is None else now
@@ -85,6 +126,49 @@ class DebugServerState:
         if short_delay:
             delay_ms *= 0.1
         await asyncio.sleep(delay_ms / 1000.0)
+
+    def _append_event(self, target: list[dict[str, Any]], payload: dict[str, Any]) -> None:
+        target.append(payload)
+        if len(target) > self.event_history_limit:
+            del target[: len(target) - self.event_history_limit]
+
+    def record_quote(self, symbol: str, price: float) -> None:
+        self._append_event(
+            self.quote_events,
+            {"ts_ms": int(time.time() * 1000), "symbol": symbol, "price": price},
+        )
+
+    def record_market_details(self, symbol: str, price: float) -> None:
+        self._append_event(
+            self.market_detail_events,
+            {"ts_ms": int(time.time() * 1000), "symbol": symbol, "price": price},
+        )
+
+    def record_order(self, *, symbol: str, accepted: bool, payload: dict[str, Any]) -> None:
+        self._append_event(
+            self.order_events,
+            {
+                "ts_ms": int(time.time() * 1000),
+                "symbol": symbol,
+                "accepted": accepted,
+                "payload": payload,
+            },
+        )
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "delay_ms": {"min": self.min_delay_ms, "max": self.max_delay_ms},
+            "order_accept_after_requests": self.order_accept_after_requests,
+            "inactivity_reset_seconds": self.inactivity_reset_seconds,
+            "profiles": {
+                symbol: profile.snapshot()
+                for symbol, profile in sorted(self.ticker_profiles.items())
+            },
+            "fallback_profile": self.fallback_profile.snapshot(),
+            "quote_events": list(self.quote_events),
+            "market_detail_events": list(self.market_detail_events),
+            "order_events": list(self.order_events),
+        }
 
 
 def _build_market_depth(price: float) -> list[dict[str, Any]]:
@@ -115,6 +199,7 @@ def _build_fallback_profile(start_price: float, price_step: float, requests_per_
     levels = [round(start_price + (price_step * idx), 1) for idx in range(6)]
     return TickerProfile(
         symbol="DEFAULT",
+        mode="fallback",
         price_levels=levels,
         start_level_index=0,
         requests_per_step=max(1, requests_per_step),
@@ -142,39 +227,74 @@ def build_profiles_from_order_store(order_store_path: str, base_requests_per_ste
         orders_by_ticker[order["ticker"]].append(order)
 
     profiles: dict[str, TickerProfile] = {}
-    multi_queue_ids = set()
     for ticker, orders in orders_by_ticker.items():
         representative = _select_representative_order(orders)
-        if order.get("mode") in {"trigger-sell"}:
-            price = float(representative["price"])
-            price_levels = [price * 0.5, price * 0.98, price]
+        mode = str(representative["mode"])
+        trigger_price = None
+        final_order_price = None
+
+        if mode == "trigger-sell":
+            sell_price = float(representative["price"])
+            if representative.get("limit") is not None:
+                price_levels, _ = calculate_price_levels(
+                    base_price=sell_price,
+                    limit_price=float(representative["limit"]),
+                    no_ladder=False,
+                )
+                trigger_price = price_levels[-2] if len(price_levels) >= 2 else price_levels[0]
+                final_order_price = price_levels[-1]
+                start_level_index = max(len(price_levels) - 3, 0)
+            else:
+                trigger_price = math.ceil((sell_price / 1.03) * 10) / 10
+                warmup_price = max(round(trigger_price - 0.1, 1), 0.1)
+                price_levels = [warmup_price, trigger_price, sell_price]
+                final_order_price = sell_price
+                start_level_index = 0
+        elif mode == "ipo-trigger-low":
+            low_levels, _ = calculate_lower_price_levels(
+                base_price=float(representative["price"]),
+                limit_price=representative.get("limit"),
+            )
+            if not low_levels:
+                continue
+            warmup_price = max(float(representative["price"]), float(representative.get("limit") or representative["price"]))
+            trigger_price = low_levels[0]
+            final_order_price = low_levels[-1]
+            price_levels = [round(warmup_price, 1)] + [round(level, 1) for level in low_levels]
+            start_level_index = 0
         else:
             price_levels, _ = calculate_price_levels(
                 base_price=float(representative["price"]),
                 limit_price=representative.get("limit"),
                 no_ladder=False,
             )
+            trigger_price = price_levels[-3] if len(price_levels) >= 3 else price_levels[0]
+            final_order_price = price_levels[-1]
+            start_level_index = max(len(price_levels) - 4, 0)
         if not price_levels:
             continue
 
-        start_level_index = max(len(price_levels) - 4, 0)
         requests_per_step = max(1, base_requests_per_step)
-        is_multi_queue = order.get("multi_queue", False) or order.get("trigger_sell_queue", False)
+        is_multi_queue = any(
+            order.get("multi_queue", False) or order.get("trigger_sell_queue", False)
+            for order in orders
+        )
         just_buy_enabled = any(order.get("just_buy", False) for order in orders)
-        if is_multi_queue and order.get("queue_id") in multi_queue_ids:
+        if is_multi_queue and len(orders) > 1:
             requests_per_step = requests_per_step * 2
-        if is_multi_queue:
-            multi_queue_ids.add(representative.get("queue_id"))
 
 
         profiles[ticker] = TickerProfile(
             symbol=ticker,
+            mode=mode,
             price_levels=price_levels,
             start_level_index=start_level_index,
             requests_per_step=requests_per_step,
             source_order_ids=[str(order["id"]) for order in orders],
             is_multi_queue=is_multi_queue,
             just_buy_enabled=just_buy_enabled,
+            trigger_price=trigger_price,
+            final_order_price=final_order_price,
         )
 
     return profiles
@@ -229,6 +349,7 @@ def build_app(state: DebugServerState):
         await state.apply_delay()
         profile = state.get_profile(securityid)
         price = profile.record_quote_and_get_price()
+        state.record_quote(securityid, price)
         return JSONResponse(
             {
                 "code": "0",
@@ -246,7 +367,8 @@ def build_app(state: DebugServerState):
     async def market_details(action: str, format: str, board: int, security: str, dojo: str | None = None) -> JSONResponse:  # noqa: N803
         await state.apply_delay()
         profile = state.get_profile(security)
-        price = profile.current_price()
+        price = profile.record_market_details_and_get_price()
+        state.record_market_details(security, price)
         return JSONResponse(
             {
                 "code": "0",
@@ -267,8 +389,10 @@ def build_app(state: DebugServerState):
             profile = state.get_profile(form.get("txtSecurity"))
             if profile.just_buy_enabled and profile.order_request_count < state.order_accept_after_requests:
                 profile.order_request_count += 1
+                state.record_order(symbol=form.get("txtSecurity", ""), accepted=False, payload=form)
                 return JSONResponse({"code": "3907", "description": "not-accepted"})
             state.reset_count_for_symbol(form.get("txtSecurity"))
+            state.record_order(symbol=form.get("txtSecurity", ""), accepted=True, payload=form)
             return JSONResponse(
                 {
                     "code": "0",
@@ -301,6 +425,16 @@ def build_app(state: DebugServerState):
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/__debug/state")
+    async def debug_state() -> JSONResponse:
+        return JSONResponse(state.snapshot())
+
+    @app.post("/__debug/reset")
+    async def debug_reset() -> JSONResponse:
+        state.reset_all_state()
+        state.last_request_monotonic = time.monotonic()
+        return JSONResponse({"status": "reset"})
 
     return app
 

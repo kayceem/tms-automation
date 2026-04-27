@@ -29,14 +29,14 @@
   "orders": [
     {
       "id": "pcil_ipo",
-      "execute": true,
+      "execute": false,
       "success": false,
       "queue_id": 2,
       "ticker": "PCIL",
       "mode": "ipo-trigger",
       "quantity": 467,
       "base_quantity": 10,
-      "price": 971.4,
+      "price": 1019.9,
       "limit": 971.4,
       "no_ladder": true,
       "just_buy": true,
@@ -83,7 +83,7 @@
       "mode": "ipo-trigger",
       "quantity": 487,
       "base_quantity": 10,
-      "price": 920.1,
+      "price": 966.1,
       "limit": 920.1,
       "no_ladder": true,
       "just_buy": true,
@@ -112,11 +112,11 @@
         },
         {
           "user": "users/atrad_user6.json",
-          "quantity": 367
+          "quantity": 427
         },
         {
-          "user": "users/atrad_user3.json",
-          "quantity": 177
+          "user": "users/atrad_user2.json",
+          "quantity": 277
         }
       ],
       "trigger_sell_queue": false

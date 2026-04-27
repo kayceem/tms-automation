@@ -1,4 +1,4 @@
-.PHONY: update run runm runaf prepare tui
+.PHONY: update run runm runaf prepare tui debug-harness debug-harness-sell
 
 Arguments := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 
@@ -56,6 +56,30 @@ prepare:
 
 tui:
 	python -m tui
+
+debug-harness:
+	python utils/atrad_debug_harness.py \
+		--order-store $(if $(STORE),$(STORE),stores/order_store.json) \
+		--pool-users users/atrad_user1.json users/atrad_user2.json users/atrad_user3.json users/atrad_user4.json users/atrad_user5.json users/atrad_user6.json users/atrad_user7.json \
+		$(if $(FULL),--include-full-store) \
+		$(if $(SCENARIO),--scenario $(SCENARIO)) \
+		$(if $(OUTPUT),--output-dir $(OUTPUT)) \
+		$(if $(REQS),--requests-per-step $(REQS)) \
+		$(if $(ACCEPT),--order-accept-after-requests $(ACCEPT)) \
+		$(if $(MIN_DELAY),--min-delay-ms $(MIN_DELAY)) \
+		$(if $(MAX_DELAY),--max-delay-ms $(MAX_DELAY))
+
+debug-harness-sell:
+	python utils/atrad_debug_harness.py \
+		--order-store $(if $(STORE),$(STORE),stores/sell_store.json) \
+		--pool-users users/atrad_user1.json users/atrad_user2.json users/atrad_user3.json users/atrad_user4.json users/atrad_user5.json users/atrad_user6.json users/atrad_user7.json \
+		$(if $(FULL),--include-full-store) \
+		$(if $(SCENARIO),--scenario $(SCENARIO)) \
+		$(if $(OUTPUT),--output-dir $(OUTPUT)) \
+		$(if $(REQS),--requests-per-step $(REQS)) \
+		$(if $(ACCEPT),--order-accept-after-requests $(ACCEPT)) \
+		$(if $(MIN_DELAY),--min-delay-ms $(MIN_DELAY)) \
+		$(if $(MAX_DELAY),--max-delay-ms $(MAX_DELAY))
 
 %:
 	@:

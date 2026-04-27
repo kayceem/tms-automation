@@ -47,6 +47,9 @@ def test_build_profiles_from_order_store_uses_fourth_highest_level_and_doubles_m
     assert profile.requests_per_step in [100, 200]
     assert profile.is_multi_queue is True
     assert profile.just_buy_enabled is True
+    assert profile.mode == "ipo-trigger"
+    assert profile.trigger_price == 562.6
+    assert profile.final_order_price == 632.5
 
 
 def test_build_profiles_from_order_store_marks_non_just_buy_tickers(tmp_path):
@@ -80,6 +83,7 @@ def test_build_profiles_from_order_store_marks_non_just_buy_tickers(tmp_path):
 def test_debug_server_state_resets_all_profiles_after_inactivity():
     fallback = TickerProfile(
         symbol="DEFAULT",
+        mode="fallback",
         price_levels=[100.0, 101.0],
         start_level_index=0,
         requests_per_step=10,
@@ -88,6 +92,7 @@ def test_debug_server_state_resets_all_profiles_after_inactivity():
     )
     profile = TickerProfile(
         symbol="NABIL",
+        mode="ipo-trigger",
         price_levels=[500.0, 515.0],
         start_level_index=0,
         requests_per_step=100,
@@ -114,3 +119,41 @@ def test_debug_server_state_resets_all_profiles_after_inactivity():
     assert fallback.order_request_count == 0
     assert profile.request_count == 0
     assert profile.order_request_count == 0
+
+
+def test_build_profiles_from_order_store_models_trigger_sell_and_low_modes(tmp_path):
+    store_path = tmp_path / "order_store.json"
+    store_path.write_text(
+        json.dumps(
+            {
+                "orders": [
+                    {
+                        "id": "sell-1",
+                        "ticker": "HFIN",
+                        "price": 1320,
+                        "quantity": 10,
+                        "mode": "trigger-sell",
+                        "execute": True,
+                    },
+                    {
+                        "id": "low-1",
+                        "ticker": "NHPC",
+                        "price": 300,
+                        "limit": 330,
+                        "quantity": 5,
+                        "mode": "ipo-trigger-low",
+                        "execute": True,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    profiles = build_profiles_from_order_store(str(store_path), base_requests_per_step=100)
+
+    assert profiles["HFIN"].mode == "trigger-sell"
+    assert profiles["HFIN"].trigger_price == 1281.6
+    assert profiles["HFIN"].final_order_price == 1320.0
+    assert profiles["NHPC"].mode == "ipo-trigger-low"
+    assert profiles["NHPC"].start_level_index == 0

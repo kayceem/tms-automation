@@ -144,7 +144,7 @@ def validate_args(args: argparse.Namespace):
     if args.ipo_trigger_low and not has_fetch_user:
         raise ValueError("--fetch-user or --fetch-users is required when using --ipo-trigger-low mode")
     if args.trigger_sell and not has_fetch_user:
-        raise ValueError("--fetch-user is required when using --trigger-sell mode (only single fetch user supported)")
+        raise ValueError("--fetch-user or --fetch-users is required when using --trigger-sell mode")
 
     if args.ipo_sell_buy_trigger:
         if not args.seller:
