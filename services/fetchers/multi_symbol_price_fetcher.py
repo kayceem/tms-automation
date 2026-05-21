@@ -31,6 +31,45 @@ class SymbolConfig:
         self.fetch_security_id = fetch_security_id
 
 
+def determine_multi_symbol_poll_interval_ms(
+    *,
+    latest_ltps: Dict[str, Optional[float]],
+    symbols_config: List[SymbolConfig],
+    slow_poll_interval_ms: int,
+    fast_poll_interval_ms: int,
+    near_trigger_ratio: float = 0.94,
+) -> int:
+    """Choose slow or fast poll based on whether any symbol is near its own trigger."""
+    for config in symbols_config:
+        ltp = latest_ltps.get(config.symbol)
+        if ltp is None:
+            continue
+        if ltp >= (config.switch_threshold * near_trigger_ratio):
+            return fast_poll_interval_ms
+    return slow_poll_interval_ms
+
+
+def sync_multi_symbol_poll_interval_ms(
+    *,
+    fetcher: Any,
+    latest_ltps: Dict[str, Optional[float]],
+    symbols_config: List[SymbolConfig],
+    current_poll_interval_ms: int,
+    slow_poll_interval_ms: int,
+    fast_poll_interval_ms: int,
+) -> int:
+    """Update a fetcher to the correct slow/fast interval and return the active interval."""
+    target_poll_interval_ms = determine_multi_symbol_poll_interval_ms(
+        latest_ltps=latest_ltps,
+        symbols_config=symbols_config,
+        slow_poll_interval_ms=slow_poll_interval_ms,
+        fast_poll_interval_ms=fast_poll_interval_ms,
+    )
+    if target_poll_interval_ms != current_poll_interval_ms:
+        fetcher.update_poll_interval_ms(target_poll_interval_ms)
+    return target_poll_interval_ms
+
+
 class MultiSymbolSequentialPriceFetcher:
     """
     Price fetcher that monitors multiple symbols sequentially.
@@ -85,6 +124,11 @@ class MultiSymbolSequentialPriceFetcher:
             f"[{self.user_id}] Multi-symbol fetcher initialized: "
             f"{len(symbols_config)} symbols, interval={poll_interval_ms}ms, {client_info} (rotation enabled)"
         )
+
+    def update_poll_interval_ms(self, poll_interval_ms: int) -> None:
+        """Update the polling interval dynamically."""
+        with self._lock:
+            self.poll_interval_ms = poll_interval_ms
 
     def start(self):
         """Start monitoring all symbols sequentially."""
@@ -144,10 +188,10 @@ class MultiSymbolSequentialPriceFetcher:
 
     def _monitoring_loop(self):
         """Background thread that monitors all symbols sequentially."""
-        interval_seconds = self.poll_interval_ms / 1000.0
-
         while self._running:
             try:
+                with self._lock:
+                    interval_seconds = self.poll_interval_ms / 1000.0
                 # Monitor each symbol sequentially
                 for config in self.symbols_config:
                     if not self._running:

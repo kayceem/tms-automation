@@ -28,63 +28,16 @@
   },
   "orders": [
     {
-      "id": "pcil_ipo",
-      "execute": false,
-      "success": false,
-      "queue_id": 2,
-      "ticker": "PCIL",
-      "mode": "ipo-trigger",
-      "quantity": 467,
-      "base_quantity": 10,
-      "price": 1019.9,
-      "limit": 971.4,
-      "no_ladder": true,
-      "just_buy": true,
-      "just_buy_pre_wait_ms": 2500,
-      "just_buy_interval_ms": 5,
-      "just_buy_max_requests": 8000,
-      "just_buy_fade_interval_ms": null,
-      "just_buy_fade_timeout": null,
-      "time": null,
-      "sell": false,
-      "skip_first": false,
-      "skip_second_last": false,
-      "double_buy": false,
-      "double_buy_quantity": null,
-      "multi_queue": true,
-      "seller_config": null,
-      "buyer_config": null,
-      "sell_quantity": null,
-      "sell_pre_wait_ms": 5000,
-      "just_buy_timeout": 5,
-      "user_id": "atrad_user6",
-      "just_buy_users": [
-        {
-          "user": "users/atrad_user1.json",
-          "quantity": 577
-        },
-        {
-          "user": "users/atrad_user6.json",
-          "quantity": 347
-        },
-        {
-          "user": "users/atrad_user3.json",
-          "quantity": 167
-        }
-      ],
-      "trigger_sell_queue": false
-    },
-    {
-      "id": "sipd_ipo",
+      "id": "apollo_ipo",
       "execute": true,
       "success": false,
       "queue_id": 2,
-      "ticker": "SIPD",
+      "ticker": "APOLLO",
       "mode": "ipo-trigger",
-      "quantity": 487,
+      "quantity": 10,
       "base_quantity": 10,
-      "price": 966.1,
-      "limit": 920.1,
+      "price": 100.0,
+      "limit": 100.0,
       "no_ladder": true,
       "just_buy": true,
       "just_buy_pre_wait_ms": 2500,
@@ -108,15 +61,15 @@
       "just_buy_users": [
         {
           "user": "users/atrad_user1.json",
-          "quantity": 888
+          "quantity": 10
         },
         {
           "user": "users/atrad_user6.json",
-          "quantity": 427
+          "quantity": 10
         },
         {
-          "user": "users/atrad_user2.json",
-          "quantity": 277
+          "user": "users/atrad_user3.json",
+          "quantity": 10
         }
       ],
       "trigger_sell_queue": false

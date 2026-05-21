@@ -922,6 +922,12 @@ def test_execute_trigger_sell_queue_group_resolves_pooled_users_per_order(monkey
     user_a.trigger_sell_poll_interval_ms = 100
     user_b.trigger_sell_poll_interval_ms = 100
     user_c.trigger_sell_poll_interval_ms = 100
+    user_a.multi_fetch_poll_interval_ms = 100
+    user_b.multi_fetch_poll_interval_ms = 100
+    user_c.multi_fetch_poll_interval_ms = 100
+    user_a.multi_fetch_slow_poll_interval_ms = 500
+    user_b.multi_fetch_slow_poll_interval_ms = 500
+    user_c.multi_fetch_slow_poll_interval_ms = 500
     pool = execution.UserPool(
         users_by_id={cfg.user_id: cfg for cfg in [user_a, user_b, user_c]},
         ordered_users=[user_a, user_b, user_c],
@@ -933,6 +939,7 @@ def test_execute_trigger_sell_queue_group_resolves_pooled_users_per_order(monkey
 
         def __init__(self, symbols_config, fetch_clients, poll_interval_ms, user_id, is_atrad):
             self._symbols_config = symbols_config
+            self.poll_interval_ms = poll_interval_ms
             captured["monitor_fetch_clients"] = list(fetch_clients)
             captured["monitor_user_id"] = user_id
             captured["is_atrad"] = is_atrad
@@ -942,6 +949,9 @@ def test_execute_trigger_sell_queue_group_resolves_pooled_users_per_order(monkey
 
         def stop(self):
             return None
+
+        def update_poll_interval_ms(self, poll_interval_ms):
+            self.poll_interval_ms = poll_interval_ms
 
         def get_priority_symbol(self):
             if len(self._symbols_config) == 1:
@@ -1040,6 +1050,122 @@ def test_execute_trigger_sell_queue_group_resolves_pooled_users_per_order(monkey
         "market_price": pytest.approx(106.8),
     }
     assert set(store_events) == {("success", "ts-1"), ("success", "ts-2")}
+
+
+def test_execute_trigger_sell_queue_group_switches_from_slow_to_fast_polling(monkeypatch):
+    captured = {}
+
+    class FakeSellService:
+        def __init__(self, user_id):
+            self.user_id = user_id
+
+        def _place_single_order(self, **kwargs):
+            return {"status": "ok", "user_id": self.user_id, **kwargs}
+
+    class FakePlatform:
+        def __init__(self, user_id):
+            self.client = type("Client", (), {"user_id": user_id})()
+            self.service = FakeSellService(user_id)
+
+    user_a = DummyConfig("main-a")
+    user_a.multi_fetch_poll_interval_ms = 100
+    user_a.multi_fetch_slow_poll_interval_ms = 500
+
+    class FakeFetcher:
+        def __init__(self, symbols_config, fetch_clients, poll_interval_ms, user_id, is_atrad):
+            self._symbols_config = symbols_config
+            self.poll_interval_ms = poll_interval_ms
+            self.update_calls = []
+            self.priority_calls = 0
+            captured["fetcher"] = self
+
+        def start(self):
+            return None
+
+        def stop(self):
+            return None
+
+        def update_poll_interval_ms(self, poll_interval_ms):
+            self.update_calls.append(poll_interval_ms)
+            self.poll_interval_ms = poll_interval_ms
+
+        def get_priority_symbol(self):
+            self.priority_calls += 1
+            if len(self._symbols_config) == 1:
+                return self._symbols_config[0].symbol
+            return self._symbols_config[1].symbol if self.priority_calls >= 2 else None
+
+        def get_all_ltps(self):
+            if len(self._symbols_config) == 1:
+                return {self._symbols_config[0].symbol: 97.1}
+            if self.priority_calls == 0:
+                return {cfg.symbol: 90.0 for cfg in self._symbols_config}
+            return {
+                self._symbols_config[0].symbol: 95.0,
+                self._symbols_config[1].symbol: 106.8,
+            }
+
+    monkeypatch.setattr(execution, "create_order_client_and_service", lambda user_config: FakePlatform(user_config.user_id))
+    monkeypatch.setattr(execution, "create_fetch_clients", lambda configs, _is_atrad: [cfg.user_id for cfg in configs])
+    monkeypatch.setattr(
+        execution,
+        "resolve_ticker",
+        lambda ticker, *_args: ResolvedTicker(
+            ticker=ticker.upper(),
+            security_id=101,
+            exchange_security_id=202,
+            fetch_id=303,
+            symbol=ticker.upper(),
+        ),
+    )
+    monkeypatch.setattr(execution, "MultiSymbolSequentialPriceFetcher", FakeFetcher)
+    monkeypatch.setattr(execution.time, "sleep", lambda _seconds: None)
+
+    order_store = type(
+        "Store",
+        (),
+        {
+            "mark_success": lambda *_args: None,
+            "mark_failed": lambda *_args: None,
+        },
+    )()
+
+    result = execution.execute_trigger_sell_queue_group(
+        user_config=user_a,
+        orders=[
+            {
+                "id": "ts-1",
+                "ticker": "aaa",
+                "symbol": "AAA",
+                "price": 100.0,
+                "quantity": 10,
+                "queue_id": 1,
+                "mode": "trigger-sell",
+                "trigger_sell_queue": True,
+                "time": None,
+                "limit": None,
+            },
+            {
+                "id": "ts-2",
+                "ticker": "bbb",
+                "symbol": "BBB",
+                "price": 110.0,
+                "quantity": 11,
+                "queue_id": 1,
+                "mode": "trigger-sell",
+                "trigger_sell_queue": True,
+                "time": None,
+                "limit": None,
+            },
+        ],
+        order_store=order_store,
+        fetch_user_configs=[DummyConfig("fetch-a"), DummyConfig("fetch-b")],
+        is_atrad_fetch=False,
+    )
+
+    assert set(result["successful_orders"]) == {"ts-1", "ts-2"}
+    assert captured["fetcher"].poll_interval_ms == 100
+    assert captured["fetcher"].update_calls == [100]
 
 
 def test_execute_from_order_store_resolves_pooled_users_per_order(monkeypatch):

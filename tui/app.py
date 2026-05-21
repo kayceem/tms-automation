@@ -512,9 +512,13 @@ Checkbox:focus {
     text-style: bold;
 }
 
-#config-status, #orders-status, #order-book-status, #completed-order-book-status, #watchlist-status, #atrad-users-status, #order-editor-status, #portfolio-status {
+#config-status, #orders-status, #order-book-status, #completed-order-book-status, #watchlist-status, #atrad-users-status, #order-editor-status, #portfolio-status, #meroshare-status {
     background: #0a0a0a;
     color: #ffd166;
+}
+
+#meroshare-status {
+    margin: 0 0 1 0;
 }
 
 #order-book-total, #completed-order-book-total, #portfolio-total {
@@ -839,7 +843,7 @@ TabbedContent > Tabs {
     background: #000000;
 }
 
-#portfolio-sector-summary {
+#portfolio-sector-summary, #meroshare-edis-status {
     dock: right;
     width: auto;
     height: 1;
@@ -889,7 +893,7 @@ if App is not None:
     from tui.screens.main_menu import MainMenuScreen
     from tui.screens.order_logs import OrderLogsScreen
     from tui.screens.orders import OrdersScreen
-    from tui.screens.portfolio import ATRADUserSelectScreen, PortfolioScreen
+    from tui.screens.portfolio import ATRADUserSelectScreen, MeroShareUserSelectScreen, PortfolioScreen
 
     class TMSAutomationTUI(App[None]):
         CSS = CSS
@@ -899,6 +903,7 @@ if App is not None:
             ("ctrl+o", "go_config_orders", "Config Orders"),
             ("ctrl+l", "go_order_logs", "Order Logs"),
             ("ctrl+a", "go_portfolio_atrad", "Portfolio ATRAD"),
+            ("ctrl+w", "go_portfolio_meroshare", "Portfolio MeroShare"),
         ]
         SCREENS = {
             "main": MainMenuScreen,
@@ -907,6 +912,7 @@ if App is not None:
             "orders": OrdersScreen,
             "portfolio": PortfolioScreen,
             "atrad-users": ATRADUserSelectScreen,
+            "meroshare-users": MeroShareUserSelectScreen,
             "order-logs": OrderLogsScreen,
         }
 
@@ -956,6 +962,11 @@ if App is not None:
             self._reset_to_main()
             self.push_screen("portfolio")
             self.push_screen("atrad-users")
+
+        def action_go_portfolio_meroshare(self) -> None:
+            self._reset_to_main()
+            self.push_screen("portfolio")
+            self.push_screen("meroshare-users")
 
 
 def main() -> None:

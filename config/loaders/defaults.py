@@ -10,6 +10,7 @@ DEFAULT_CONFIG_FILENAME = "default.json"
 INHERITED_TRIGGER_SETTING_KEYS = (
     "trigger_mode_poll_interval_ms",
     "multi_fetch_poll_interval_ms",
+    "multi_fetch_slow_poll_interval_ms",
     "trigger_mode_refresh_interval_seconds",
     "trigger_sell_poll_interval_ms",
     "trigger_sell_slow_poll_interval_ms",

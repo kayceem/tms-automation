@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from datetime import datetime, time as dt_time
 from pathlib import Path
 
-from textual import work
+from textual import events, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.timer import Timer
@@ -17,7 +17,19 @@ from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, OptionList, Select, Static, TabbedContent, TabPane, Tabs
 from textual.widgets.option_list import Option
 
-from tui.models import CustomWatchlistRow, MarketDepthSnapshot, OrderBookRow, SectorSummary, WatchlistEntryRow
+from tui.models import (
+    CustomWatchlistRow,
+    MarketDepthSnapshot,
+    MeroShareApplicationReportRow,
+    MeroShareIssueRow,
+    MeroSharePortfolioRow,
+    MeroShareWaccRow,
+    OrderBookRow,
+    PortfolioHoldingRow,
+    SectorSummary,
+    WatchlistEntryRow,
+)
+from tui.services.meroshare import MeroShareService
 from tui.services.portfolio import PortfolioService
 from tui.widgets import ClockWidget
 
@@ -45,6 +57,12 @@ class PortfolioScreen(Screen[None]):
                     )
                     yield Static("─" * 64, classes="menu-divider")
                     yield Button(
+                        "[bold #ff9e1b]M[/]  MEROSHARE  [#6b6b6b]DP portfolio and WACC[/]",
+                        id="meroshare",
+                        classes="menu-item",
+                    )
+                    yield Static("─" * 64, classes="menu-divider")
+                    yield Button(
                         "   TMS    [#6b6b6b]Not wired yet[/]",
                         id="tms",
                         disabled=True,
@@ -55,12 +73,17 @@ class PortfolioScreen(Screen[None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "atrad":
             self.action_open_atrad()
+        elif event.button.id == "meroshare":
+            self.action_open_meroshare()
 
     def on_mount(self) -> None:
         self.query_one("#atrad", Button).focus()
 
     def action_open_atrad(self) -> None:
         self.app.push_screen("atrad-users")
+
+    def action_open_meroshare(self) -> None:
+        self.app.push_screen("meroshare-users")
 
     def action_focus_next_control(self) -> None:
         self.focus_next(Button)
@@ -132,6 +155,538 @@ class ATRADUserSelectScreen(Screen[None]):
         if isinstance(focused, Button) and focused.id and focused.id in self._user_paths_by_button_id:
             path = self._user_paths_by_button_id[focused.id]
             self.app.push_screen(OrderBookScreen(path, self.service))
+
+
+class MeroShareUserSelectScreen(Screen[None]):
+    BINDINGS = [
+        ("j", "focus_next", "Next"),
+        ("down", "focus_next", "Next"),
+        ("k", "focus_previous", "Previous"),
+        ("up", "focus_previous", "Previous"),
+        ("enter", "activate_focused_user", "Open"),
+        ("escape", "app.pop_screen", "Back"),
+    ]
+
+    def __init__(self, service: MeroShareService | None = None) -> None:
+        super().__init__()
+        self.service = service or MeroShareService()
+        self._user_paths_by_button_id: dict[str, Path] = {}
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with Vertical(classes="menu-shell"):
+            yield Static(" PORTFOLIO ▸ MEROSHARE ▸ SELECT ACCOUNT ", classes="screen-title")
+            yield Static("Open a MeroShare account and inspect DP portfolio/WACC.", classes="menu-subtitle")
+            yield Static("", id="meroshare-users-status")
+            yield ClockWidget(classes="panel-clock")
+            yield Vertical(classes="menu-section", id="meroshare-users-list")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        users = self.service.list_users()
+        if not users:
+            self.query_one("#meroshare-users-status", Static).update("No MeroShare user files found.")
+            return
+        users_list = self.query_one("#meroshare-users-list", Vertical)
+        self._user_paths_by_button_id.clear()
+        for index, path in enumerate(users, start=1):
+            button_id = f"meroshare_user_{index}"
+            self._user_paths_by_button_id[button_id] = path
+            user_label = self.service.get_user_label(path)
+            users_list.mount(
+                Button(
+                    f"[bold #ff9e1b]{index:02d}[/]  {user_label}  [#6b6b6b]{path.name}[/]",
+                    id=button_id,
+                    classes="menu-item",
+                )
+            )
+            if index != len(users):
+                users_list.mount(Static("─" * 64, classes="menu-divider"))
+        self.query(Button).first().focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id and event.button.id in self._user_paths_by_button_id:
+            self.app.push_screen(MeroSharePortfolioScreen(self._user_paths_by_button_id[event.button.id], self.service))
+
+    def action_focus_next(self) -> None:
+        self.focus_next(Button)
+
+    def action_focus_previous(self) -> None:
+        self.focus_previous(Button)
+
+    def action_activate_focused_user(self) -> None:
+        focused = self.focused
+        if isinstance(focused, Button) and focused.id and focused.id in self._user_paths_by_button_id:
+            self.app.push_screen(MeroSharePortfolioScreen(self._user_paths_by_button_id[focused.id], self.service))
+
+
+class MeroSharePortfolioScreen(Screen[None]):
+    BINDINGS = [
+        ("ctrl+1", "show_portfolio_panel", "Portfolio"),
+        ("ctrl+2", "show_wacc_panel", "WACC"),
+        ("ctrl+3", "show_issues_panel", "Current Issues"),
+        ("ctrl+4", "show_applications_panel", "Applications"),
+        Binding("left", "previous_panel", "Prev Panel", priority=True),
+        Binding("right", "next_panel", "Next Panel", priority=True),
+        ("r", "refresh", "Refresh"),
+        ("escape", "app.pop_screen", "Back"),
+    ]
+
+    _PANELS = (
+        "tab-meroshare-portfolio",
+        "tab-meroshare-wacc",
+        "tab-meroshare-issues",
+        "tab-meroshare-applications",
+    )
+    _PANEL_KEY = {
+        "tab-meroshare-portfolio": "portfolio",
+        "tab-meroshare-wacc": "wacc",
+        "tab-meroshare-issues": "issues",
+        "tab-meroshare-applications": "applications",
+    }
+
+    def __init__(self, user_path: Path, service: MeroShareService | None = None) -> None:
+        super().__init__()
+        self.user_path = user_path
+        self.service = service or MeroShareService()
+        self.user_label = self.service.get_user_label(self.user_path)
+        self._refresh_in_flight = False
+        self.portfolio_rows: list[MeroSharePortfolioRow] = []
+        self.wacc_rows: list[MeroShareWaccRow] = []
+        self.issue_rows: list[MeroShareIssueRow] = []
+        self.application_rows: list[MeroShareApplicationReportRow] = []
+        self._edis_status: bool | None = None
+        self._edis_checked = False
+        self._loaded_panels: set[str] = set()
+        self._symbol_prefix_filter: str | None = None
+        self._symbol_filter_chord_armed = False
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static(f" MEROSHARE ▸ {self.user_label.upper()} ", classes="screen-title")
+        with TabbedContent(initial="tab-meroshare-portfolio", id="meroshare-tabs"):
+            with TabPane("Portfolio", id="tab-meroshare-portfolio"):
+                table = DataTable(
+                    id="meroshare-portfolio-table",
+                    zebra_stripes=True,
+                    cursor_foreground_priority="renderable",
+                    cursor_background_priority="css",
+                )
+                table.cursor_type = "row"
+                yield table
+            with TabPane("WACC", id="tab-meroshare-wacc"):
+                table = DataTable(
+                    id="meroshare-wacc-table",
+                    zebra_stripes=True,
+                    cursor_foreground_priority="renderable",
+                    cursor_background_priority="css",
+                )
+                table.cursor_type = "row"
+                yield table
+            with TabPane("Current Issues", id="tab-meroshare-issues"):
+                table = DataTable(
+                    id="meroshare-issues-table",
+                    zebra_stripes=True,
+                    cursor_foreground_priority="renderable",
+                    cursor_background_priority="css",
+                )
+                table.cursor_type = "row"
+                yield table
+            with TabPane("Application Report", id="tab-meroshare-applications"):
+                table = DataTable(
+                    id="meroshare-applications-table",
+                    zebra_stripes=True,
+                    cursor_foreground_priority="renderable",
+                    cursor_background_priority="css",
+                )
+                table.cursor_type = "row"
+                yield table
+        yield Static("", id="meroshare-status")
+        with Horizontal(id="portfolio-actions"):
+            yield Button("[R] Refresh", id="meroshare-refresh", classes="action-button")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        portfolio_table = self.query_one("#meroshare-portfolio-table", DataTable)
+        portfolio_table.add_columns(
+            "  SCRIPT",
+            "     BAL",
+            "      LTP",
+            "    CLOSE",
+            " WACC RATE",
+            "    WACC VALUE",
+            "       VALUE LTP",
+            "     VALUE CLOSE",
+        )
+        wacc_table = self.query_one("#meroshare-wacc-table", DataTable)
+        wacc_table.add_columns(
+            "  SCRIPT",
+            "     QTY",
+            "    AVG RATE",
+            "      TOTAL COST",
+            " MODIFIED",
+        )
+        issues_table = self.query_one("#meroshare-issues-table", DataTable)
+        issues_table.add_columns(
+            "  SCRIPT",
+            " COMPANY",
+            " TYPE",
+            " GROUP",
+            " STATUS",
+            " OPEN",
+            " CLOSE",
+        )
+        applications_table = self.query_one("#meroshare-applications-table", DataTable)
+        applications_table.add_columns(
+            "  SCRIPT",
+            " COMPANY",
+            " TYPE",
+            " GROUP",
+            " STATUS",
+            " APPLIED",
+            " UNITS",
+            " AMOUNT",
+        )
+        self.query_one(Tabs).mount(Static("", id="meroshare-edis-status"))
+        self.query_one("#meroshare-portfolio-table", DataTable).focus()
+        self.action_refresh()
+        self.set_timer(1.0, self._refresh_edis_status)
+
+    def _active_panel(self) -> str:
+        return self.query_one("#meroshare-tabs", TabbedContent).active
+
+    def _set_panel(self, panel_id: str) -> None:
+        tabs = self.query_one("#meroshare-tabs", TabbedContent)
+        tabs.active = panel_id
+        self._focus_current_panel()
+        if panel_id not in self._loaded_panels:
+            self.action_refresh()
+
+    def action_show_portfolio_panel(self) -> None:
+        self._set_panel("tab-meroshare-portfolio")
+
+    def action_show_wacc_panel(self) -> None:
+        self._set_panel("tab-meroshare-wacc")
+
+    def action_show_issues_panel(self) -> None:
+        self._set_panel("tab-meroshare-issues")
+
+    def action_show_applications_panel(self) -> None:
+        self._set_panel("tab-meroshare-applications")
+
+    def action_previous_panel(self) -> None:
+        current = self._PANELS.index(self._active_panel())
+        self._set_panel(self._PANELS[(current - 1) % len(self._PANELS)])
+
+    def action_next_panel(self) -> None:
+        current = self._PANELS.index(self._active_panel())
+        self._set_panel(self._PANELS[(current + 1) % len(self._PANELS)])
+
+    def _focus_current_panel(self) -> None:
+        if self._active_panel() == "tab-meroshare-wacc":
+            self.query_one("#meroshare-wacc-table", DataTable).focus()
+        elif self._active_panel() == "tab-meroshare-issues":
+            self.query_one("#meroshare-issues-table", DataTable).focus()
+        elif self._active_panel() == "tab-meroshare-applications":
+            self.query_one("#meroshare-applications-table", DataTable).focus()
+        else:
+            self.query_one("#meroshare-portfolio-table", DataTable).focus()
+
+    def on_tabbed_content_tab_activated(self, _event: TabbedContent.TabActivated) -> None:
+        self._focus_current_panel()
+        panel = self._active_panel()
+        if panel not in self._loaded_panels:
+            self.action_refresh()
+
+    def on_key(self, event: events.Key) -> None:
+        key = (event.key or "").lower()
+        if self._symbol_filter_chord_armed:
+            self._symbol_filter_chord_armed = False
+            if key == "enter":
+                self._symbol_prefix_filter = None
+                self._rerender_active_panel()
+                event.stop()
+                return
+            if len(key) == 1 and key.isalpha():
+                self._symbol_prefix_filter = key.upper()
+                self._rerender_active_panel()
+                event.stop()
+                return
+            return
+
+        if key == "k":
+            self._symbol_filter_chord_armed = True
+            self._set_status("Symbol filter: press a letter, or K then Enter to reset.")
+            event.stop()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "meroshare-refresh":
+            self.action_refresh()
+
+    def action_refresh(self) -> None:
+        if self._refresh_in_flight:
+            self._set_status("Refresh already in progress.")
+            return
+        self._refresh_in_flight = True
+        self._refresh_worker(self._active_panel())
+
+    @work(thread=True)
+    def _refresh_worker(self, panel: str) -> None:
+        try:
+            if panel == "tab-meroshare-wacc":
+                rows, payload, last_updated_time = self.service.fetch_wacc(self.user_path)
+                self.app.call_from_thread(self._apply_wacc_rows, rows, payload, last_updated_time)
+                return
+            if panel == "tab-meroshare-issues":
+                rows, last_updated_time = self.service.fetch_current_issues(self.user_path)
+                self.app.call_from_thread(self._apply_issue_rows, rows, last_updated_time)
+                return
+            if panel == "tab-meroshare-applications":
+                rows, last_updated_time = self.service.fetch_application_report(self.user_path)
+                self.app.call_from_thread(self._apply_application_rows, rows, last_updated_time)
+                return
+            rows, last_updated_time = self.service.fetch_portfolio(self.user_path)
+            wacc_rows, _payload, _wacc_updated_time = self.service.fetch_wacc(self.user_path)
+            self.app.call_from_thread(self._cache_wacc_rows, wacc_rows)
+            self.app.call_from_thread(self._apply_portfolio_rows, rows, last_updated_time)
+        except Exception as exc:
+            self.app.call_from_thread(self._set_status, str(exc))
+        finally:
+            self.app.call_from_thread(self._mark_refresh_complete, panel)
+
+    def _mark_refresh_complete(self, panel: str) -> None:
+        self._loaded_panels.add(panel)
+        self._refresh_in_flight = False
+
+    def _set_status(self, message: str) -> None:
+        panel_names = {
+            "tab-meroshare-portfolio": "Portfolio",
+            "tab-meroshare-wacc": "WACC",
+            "tab-meroshare-issues": "Current Issues",
+            "tab-meroshare-applications": "Application Report",
+        }
+        panel = panel_names.get(self._active_panel(), "MeroShare")
+        self.query_one("#meroshare-status", Static).update(f"{panel}: {message}")
+
+    def _matches_symbol_prefix_filter(self, symbol: str) -> bool:
+        if not self._symbol_prefix_filter:
+            return True
+        return str(symbol or "").upper().startswith(self._symbol_prefix_filter)
+
+    def _rerender_active_panel(self) -> None:
+        if self._active_panel() == "tab-meroshare-wacc":
+            self._apply_wacc_rows(self.wacc_rows, {}, "")
+            return
+        if self._active_panel() == "tab-meroshare-issues":
+            self._apply_issue_rows(self.issue_rows, "")
+            return
+        if self._active_panel() == "tab-meroshare-applications":
+            self._apply_application_rows(self.application_rows, "")
+            return
+        self._apply_portfolio_rows(self.portfolio_rows, "")
+
+    def _cache_wacc_rows(self, rows: list[MeroShareWaccRow]) -> None:
+        self.wacc_rows = rows
+
+    def _refresh_edis_status(self) -> None:
+        if self._edis_checked:
+            return
+        self._edis_checked = True
+        self._edis_status_worker()
+
+    @work(thread=True)
+    def _edis_status_worker(self) -> None:
+        try:
+            status = self.service.check_edis_status(self.user_path)
+        except Exception:
+            status = None
+        self.app.call_from_thread(self._apply_edis_status, status)
+
+    def _apply_edis_status(self, status: bool | None) -> None:
+        self._edis_status = status
+        widget = self.query_one("#meroshare-edis-status", Static)
+        if status is None:
+            widget.update("[#6b6b6b]● EDIS ?[/]")
+            return
+        color = "#f47174" if status else "#ffd166"
+        label = "TRUE" if status else "FALSE"
+        widget.update(f"[bold {color}]● EDIS {label}[/]")
+
+    @staticmethod
+    def _float_or_none(value: str) -> float | None:
+        try:
+            return float(str(value).replace(",", ""))
+        except (ValueError, TypeError):
+            return None
+
+    @classmethod
+    def _amount(cls, value: str) -> str:
+        number = cls._float_or_none(value)
+        return f"{number:,.2f}" if number is not None else "-"
+
+    @classmethod
+    def _qty(cls, value: str) -> str:
+        number = cls._float_or_none(value)
+        if number is None:
+            return "-"
+        if number.is_integer():
+            return f"{int(number):,}"
+        return f"{number:,.2f}"
+
+    @staticmethod
+    def _cell(value: str, width: int, color: str = "#e8e8e8", bold: bool = False) -> str:
+        prefix = "bold " if bold else ""
+        return f"[{prefix}{color}]{str(value or '-').rjust(width)}[/]"
+
+    def _apply_portfolio_rows(self, rows: list[MeroSharePortfolioRow], last_updated_time: str) -> None:
+        self.portfolio_rows = rows
+        filtered_rows = [row for row in rows if self._matches_symbol_prefix_filter(row.script)]
+        wacc_by_script = {row.script.upper(): row for row in self.wacc_rows}
+        table = self.query_one("#meroshare-portfolio-table", DataTable)
+        table.clear()
+        total_value = 0.0
+        total_wacc_value = 0.0
+        has_total = False
+        has_wacc_total = False
+        for row in filtered_rows:
+            ltp = self._float_or_none(row.last_transaction_price)
+            close = self._float_or_none(row.previous_closing_price)
+            color = "#e8e8e8"
+            if ltp is not None and close is not None:
+                color = "#62ff7a" if ltp >= close else "#f47174"
+            value = self._float_or_none(row.value_as_of_last_transaction_price)
+            if value is not None:
+                total_value += value
+                has_total = True
+            balance = self._float_or_none(row.current_balance)
+            wacc_row = wacc_by_script.get(row.script.upper())
+            wacc_rate = self._float_or_none(wacc_row.average_buy_rate) if wacc_row else None
+            wacc_value = (wacc_rate * balance) if wacc_rate is not None and balance is not None else None
+            if wacc_value is not None:
+                total_wacc_value += wacc_value
+                has_wacc_total = True
+            table.add_row(
+                f"[bold {color}]{row.script}[/]",
+                self._cell(self._qty(row.current_balance), 8, color),
+                self._cell(self._amount(row.last_transaction_price), 10, color, bold=True),
+                self._cell(self._amount(row.previous_closing_price), 10, "#6b6b6b"),
+                self._cell(f"{wacc_rate:,.2f}" if wacc_rate is not None else "-", 10, "#ffd166"),
+                self._cell(f"{wacc_value:,.2f}" if wacc_value is not None else "-", 14, "#ffd166"),
+                self._cell(self._amount(row.value_as_of_last_transaction_price), 15, color),
+                self._cell(self._amount(row.value_as_of_previous_closing_price), 15, "#6b6b6b"),
+                key=row.script,
+            )
+        if has_total or has_wacc_total:
+            table.add_row("", "", "", "", "", "", "", "", key="__spacer__")
+            table.add_row(
+                "[bold #ff9e1b]TOTAL[/]",
+                "",
+                "",
+                "",
+                "",
+                self._cell(f"{total_wacc_value:,.2f}" if has_wacc_total else "-", 14, "#ffd166", bold=True),
+                self._cell(f"{total_value:,.2f}" if has_total else "-", 15, "#62ff7a", bold=True),
+                "",
+                key="__total__",
+            )
+        self._set_status(
+            f"{len(filtered_rows)} holding(s)"
+            + (f" · filter: {self._symbol_prefix_filter}" if self._symbol_prefix_filter else "")
+            + (f" · updated {last_updated_time}" if last_updated_time else "")
+        )
+
+    def _apply_wacc_rows(self, rows: list[MeroShareWaccRow], payload: dict, last_updated_time: str) -> None:
+        self.wacc_rows = rows
+        filtered_rows = [row for row in rows if self._matches_symbol_prefix_filter(row.script)]
+        table = self.query_one("#meroshare-wacc-table", DataTable)
+        table.clear()
+        total_cost = 0.0
+        has_total = False
+        for row in filtered_rows:
+            cost = self._float_or_none(row.total_cost)
+            if cost is not None:
+                total_cost += cost
+                has_total = True
+            table.add_row(
+                f"[bold #5fd7ff]{row.script}[/]",
+                self._cell(self._qty(row.total_quantity), 8),
+                self._cell(self._amount(row.average_buy_rate), 12, "#ffd166"),
+                self._cell(self._amount(row.total_cost), 15),
+                f"[#6b6b6b]{row.last_modified_date}[/]",
+                key=row.script,
+            )
+        pending = "pending" if payload.get("isWaccPending") else "clear"
+        if has_total:
+            table.add_row("", "", "", "", "", key="__spacer__")
+            table.add_row(
+                "[bold #ff9e1b]TOTAL[/]",
+                "",
+                "",
+                self._cell(f"{total_cost:,.2f}", 15, "#62ff7a", bold=True),
+                f"[#6b6b6b]{pending}[/]",
+                key="__total__",
+            )
+        self._set_status(
+            f"{len(filtered_rows)} row(s)"
+            + (f" · filter: {self._symbol_prefix_filter}" if self._symbol_prefix_filter else "")
+            + (f" · updated {last_updated_time}" if last_updated_time else "")
+        )
+
+    def _apply_issue_rows(self, rows: list[MeroShareIssueRow], last_updated_time: str) -> None:
+        self.issue_rows = rows
+        filtered_rows = [row for row in rows if self._matches_symbol_prefix_filter(row.script)]
+        table = self.query_one("#meroshare-issues-table", DataTable)
+        table.clear()
+        for row in filtered_rows:
+            table.add_row(
+                f"[bold #5fd7ff]{row.script}[/]",
+                f"[#e8e8e8]{row.company_name}[/]",
+                f"[#ffd166]{row.share_type}[/]",
+                f"[#6b6b6b]{row.share_group}[/]",
+                f"[bold #62ff7a]{row.status}[/]",
+                f"[#e8e8e8]{row.open_date}[/]",
+                f"[#e8e8e8]{row.close_date}[/]",
+                key=f"issue-{row.script}",
+            )
+        self._set_status(
+            f"{len(filtered_rows)} current issue(s)"
+            + (f" · filter: {self._symbol_prefix_filter}" if self._symbol_prefix_filter else "")
+            + (f" · updated {last_updated_time}" if last_updated_time else "")
+        )
+
+    def _apply_application_rows(
+        self,
+        rows: list[MeroShareApplicationReportRow],
+        last_updated_time: str,
+    ) -> None:
+        self.application_rows = rows
+        filtered_rows = [row for row in rows if self._matches_symbol_prefix_filter(row.script)]
+        table = self.query_one("#meroshare-applications-table", DataTable)
+        table.clear()
+        for index, row in enumerate(filtered_rows):
+            status_upper = str(row.status or "").upper()
+            if status_upper == "APPROVED":
+                status_color = "#62ff7a"
+            elif "FAILED" in status_upper:
+                status_color = "#f47174"
+            else:
+                status_color = "#ffd166"
+            table.add_row(
+                f"[bold #5fd7ff]{row.script}[/]",
+                f"[#e8e8e8]{row.company_name}[/]",
+                f"[#ffd166]{row.share_type}[/]",
+                f"[#6b6b6b]{row.share_group}[/]",
+                f"[bold {status_color}]{row.status}[/]",
+                f"[#e8e8e8]{row.applied_date}[/]",
+                self._cell(self._qty(row.applied_units), 8),
+                self._cell(self._amount(row.amount), 12),
+                key=f"application-{row.script}-{index}",
+            )
+        self._set_status(
+            f"{len(filtered_rows)} application(s)"
+            + (f" · filter: {self._symbol_prefix_filter}" if self._symbol_prefix_filter else "")
+            + (f" · updated {last_updated_time}" if last_updated_time else "")
+        )
 
 
 class CancelConfirmScreen(ModalScreen[bool]):
@@ -305,9 +860,9 @@ class OrderBookScreen(Screen[None]):
         ("ctrl+4", "show_top_panel", "Top 10"),
         ("ctrl+5", "show_market_panel", "Market"),
         ("ctrl+6", "show_market_depth_panel", "Market Depth"),
-        ("ctrl+7", "show_account_panel", "Account"),
+        ("ctrl+7", "show_portfolio_panel", "Portfolio"),
+        ("ctrl+8", "show_account_panel", "Account"),
         ("s", "change_market_symbol", "Symbol / Sort Watchlist"),
-        ("k", "change_market_symbol", "Search Symbol"),
         ("1", "edit_market_depth_slot_1", "Depth Slot 1"),
         ("2", "edit_market_depth_slot_2", "Depth Slot 2"),
         ("3", "edit_market_depth_slot_3", "Depth Slot 3"),
@@ -352,6 +907,8 @@ class OrderBookScreen(Screen[None]):
         self._last_top_updated_time: str = ""
         self._account_summary: dict = {}
         self._last_account_updated_time: str = ""
+        self._portfolio_rows: list[PortfolioHoldingRow] = []
+        self._last_portfolio_updated_time: str = ""
         self._loaded_panels: set[str] = set()
         self._auto_refresh_enabled = False
         self._auto_refresh_timer: Timer | None = None
@@ -365,6 +922,8 @@ class OrderBookScreen(Screen[None]):
         self._market_depth_refresh_index = 0
         self._market_depth_refresh_in_flight = False
         self._sector_summary: SectorSummary | None = None
+        self._symbol_prefix_filter: str | None = None
+        self._symbol_filter_chord_armed = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -524,6 +1083,16 @@ class OrderBookScreen(Screen[None]):
                                 yield table
                             yield Static("", id="market-depth-summary-3", classes="market-ltp market-depth-text")
 
+            with TabPane("Portfolio", id="tab-portfolio"):
+                table = DataTable(
+                    id="portfolio-table",
+                    zebra_stripes=True,
+                    cursor_foreground_priority="renderable",
+                    cursor_background_priority="css",
+                )
+                table.cursor_type = "row"
+                yield table
+
             with TabPane("Account Summary", id="tab-account"):
                 with VerticalScroll(id="account-summary-scroll", classes="market-ltp-scroll"):
                     yield Static("", id="account-summary", classes="market-ltp")
@@ -537,6 +1106,8 @@ class OrderBookScreen(Screen[None]):
             yield Static("", id="watchlist-response", classes="response-text")
         with VerticalScroll(id="top-response-scroll", classes="response-scroll"):
             yield Static("", id="top-response", classes="response-text")
+        with VerticalScroll(id="portfolio-response-scroll", classes="response-scroll"):
+            yield Static("", id="portfolio-response", classes="response-text")
         with VerticalScroll(id="account-response-scroll", classes="response-scroll"):
             yield Static("", id="account-response", classes="response-text")
         with VerticalScroll(id="market-response-scroll", classes="response-scroll"):
@@ -606,6 +1177,23 @@ class OrderBookScreen(Screen[None]):
         watchlist_table.add_columns(*self._watchlist_column_labels())
         top_table = self.query_one("#top-table", DataTable)
         top_table.add_columns(*self._top_column_labels())
+        portfolio_table = self.query_one("#portfolio-table", DataTable)
+        portfolio_table.add_columns(
+            "  SYMBOL",
+            "     QTY",
+            "    AVG PX",
+            "    TOT COST",
+            "      LAST",
+            "   MKT VALUE",
+            "       PnL",
+            "   CHG",
+            "  CLEARED",
+            " AVAILABLE",
+            " U-BUY",
+            "U-SELL",
+            " P-BUY",
+            "P-SELL",
+        )
         bids_table = self.query_one("#market-bids-table", DataTable)
         bids_table.add_columns("#", "splits", "qty", "bid price")
         asks_table = self.query_one("#market-asks-table", DataTable)
@@ -669,8 +1257,7 @@ class OrderBookScreen(Screen[None]):
         tabs.active = panel_id
         self._focus_current_panel()
         self._update_action_buttons()
-        if panel_id not in self._loaded_panels:
-            self.action_refresh_book()
+        self.action_refresh_book()
 
     def action_show_active_panel(self) -> None:
         self._set_panel("tab-active")
@@ -690,10 +1277,13 @@ class OrderBookScreen(Screen[None]):
     def action_show_top_panel(self) -> None:
         self._set_panel("tab-top")
 
+    def action_show_portfolio_panel(self) -> None:
+        self._set_panel("tab-portfolio")
+
     def action_show_account_panel(self) -> None:
         self._set_panel("tab-account")
 
-    _PANELS = ("tab-active", "tab-completed", "tab-watchlists", "tab-top", "tab-market", "tab-market-depth", "tab-account")
+    _PANELS = ("tab-active", "tab-completed", "tab-watchlists", "tab-top", "tab-market", "tab-market-depth", "tab-portfolio", "tab-account")
 
     def action_previous_panel(self) -> None:
         current = self._PANELS.index(self._active_panel())
@@ -713,6 +1303,8 @@ class OrderBookScreen(Screen[None]):
             self.query_one("#market-bids-table", DataTable).focus()
         elif panel == "tab-market-depth":
             self.query_one("#market-depth-bids-table-0", DataTable).focus()
+        elif panel == "tab-portfolio":
+            self.query_one("#portfolio-table", DataTable).focus()
         elif panel == "tab-top":
             self.query_one("#top-table", DataTable).focus()
         elif panel == "tab-account":
@@ -724,6 +1316,7 @@ class OrderBookScreen(Screen[None]):
         "tab-active": "active",
         "tab-completed": "completed",
         "tab-watchlists": "watchlist",
+        "tab-portfolio": "portfolio",
         "tab-account": "account",
         "tab-market": "market",
         "tab-market-depth": "market-depth",
@@ -736,7 +1329,7 @@ class OrderBookScreen(Screen[None]):
         cancel_button.display = panel == "tab-active"
         selector = self.query_one("#watchlist-selector", Select)
         selector.display = panel == "tab-watchlists"
-        for key in ("active", "completed", "watchlist", "market", "market-depth", "top", "account"):
+        for key in ("active", "completed", "watchlist", "market", "market-depth", "top", "portfolio", "account"):
             self.query_one(f"#{key}-response-scroll").display = self._PANEL_KEY.get(panel) == key and key != "market-depth"
 
     def _update_refresh_button(self) -> None:
@@ -753,6 +1346,7 @@ class OrderBookScreen(Screen[None]):
             "tab-active": "active",
             "tab-completed": "completed",
             "tab-watchlists": "watchlists",
+            "tab-portfolio": "portfolio",
             "tab-account": "account",
             "tab-market": "market",
             "tab-market-depth": "market-depth",
@@ -767,11 +1361,36 @@ class OrderBookScreen(Screen[None]):
         if self._active_panel() == "tab-market-depth":
             self._refresh_market_depth_cards()
 
+    def on_key(self, event: events.Key) -> None:
+        if not self._is_symbol_filter_panel(self._active_panel()):
+            self._symbol_filter_chord_armed = False
+            return
+
+        key = (event.key or "").lower()
+        if self._symbol_filter_chord_armed:
+            self._symbol_filter_chord_armed = False
+            if key == "enter":
+                self._clear_symbol_prefix_filter()
+                event.stop()
+                return
+            if len(key) == 1 and key.isalpha():
+                self._apply_symbol_prefix_filter(key.upper())
+                event.stop()
+                return
+            return
+
+        if key == "k":
+            self._symbol_filter_chord_armed = True
+            panel = self._panel_status_key(self._active_panel())
+            self._set_status("Symbol filter: press a letter, or K then Enter to reset.", panel)
+            event.stop()
+
     def _set_status(self, message: str, panel: str = "active") -> None:
         panel_label = {
             "active": "Active",
             "completed": "Completed",
             "watchlists": "Watchlists",
+            "portfolio": "Portfolio",
             "account": "Account Summary",
             "market": "Market",
             "market-depth": "Market Depth",
@@ -913,6 +1532,10 @@ class OrderBookScreen(Screen[None]):
                 return
             if panel == "tab-market-depth":
                 self.app.call_from_thread(self._trigger_market_depth_refresh, True)
+                return
+            if panel == "tab-portfolio":
+                rows, last_updated_time = self.service.fetch_portfolio(self.user_path)
+                self.app.call_from_thread(self._apply_portfolio_rows, rows, last_updated_time)
                 return
             if panel == "tab-account":
                 summary, last_updated_time = self.service.fetch_account_summary(self.user_path)
@@ -1244,7 +1867,9 @@ class OrderBookScreen(Screen[None]):
                 key=row.security_code,
             )
         self._set_status(
-            f"Watchlist {watch_id} · {len(rows)} symbol(s) · sort: {self._watchlist_sort_label()} · updated {last_updated_time}",
+            f"Watchlist {watch_id} · {len(sorted_rows)} symbol(s)"
+            + (f" · filter: {self._symbol_prefix_filter}" if self._symbol_prefix_filter else "")
+            + f" · sort: {self._watchlist_sort_label()} · updated {last_updated_time}",
             "watchlists",
         )
         self.query_one("#portfolio-total", Static).update("")
@@ -1253,10 +1878,11 @@ class OrderBookScreen(Screen[None]):
         self._loaded_panels.add("tab-top")
         self.top_rows = rows
         self._last_top_updated_time = last_updated_time
+        sorted_rows = self._sorted_top_rows(rows)
         table = self.query_one("#top-table", DataTable)
         table.clear()
         self._refresh_top_headers()
-        for row in self._sorted_top_rows(rows):
+        for row in sorted_rows:
             color = self._watchlist_row_color(row.net_change, row.percent_change)
             try:
                 n = float(str(row.net_change).replace(",", ""))
@@ -1317,10 +1943,91 @@ class OrderBookScreen(Screen[None]):
             )
         mode = "Gainers" if self._top_gainers_mode else "Losers"
         self._set_status(
-            f"Top 10 {mode} · {len(rows)} symbol(s) · sort: {self._top_sort_label()} · updated {last_updated_time}",
+            f"Top 10 {mode} · {len(sorted_rows)} symbol(s)"
+            + (f" · filter: {self._symbol_prefix_filter}" if self._symbol_prefix_filter else "")
+            + f" · sort: {self._top_sort_label()} · updated {last_updated_time}",
             "top",
         )
         self.query_one("#portfolio-total", Static).update("")
+
+    def _apply_portfolio_rows(self, rows: list[PortfolioHoldingRow], last_updated_time: str) -> None:
+        self._loaded_panels.add("tab-portfolio")
+        self._portfolio_rows = rows
+        self._last_portfolio_updated_time = last_updated_time
+        filtered_rows = [row for row in rows if self._matches_symbol_prefix_filter(row.security_code)]
+        table = self.query_one("#portfolio-table", DataTable)
+        table.clear()
+
+        def rjust(value: str, width: int) -> str:
+            return str(value or "-").rjust(width)
+
+        def as_float(value: str) -> float | None:
+            try:
+                return float(str(value).replace(",", ""))
+            except (ValueError, TypeError):
+                return None
+
+        def amount_text(value: str) -> str:
+            number = as_float(value)
+            return f"{number:,.2f}" if number is not None else "-"
+
+        def qty_text(value: str) -> str:
+            number = as_float(value)
+            if number is None:
+                return "-"
+            if float(number).is_integer():
+                return f"{int(number):,}"
+            return f"{number:,.2f}"
+
+        for row in filtered_rows:
+            gain_value = as_float(row.net_gain) or 0.0
+            avg_price_value = as_float(row.avg_price)
+            last_traded_value = as_float(row.last_traded)
+            if avg_price_value is not None and avg_price_value != 0 and last_traded_value is not None:
+                change_value = ((last_traded_value - avg_price_value) / avg_price_value) * 100.0
+            else:
+                change_value = 0.0
+            color = "#62ff7a" if gain_value > 0 else ("#f47174" if gain_value < 0 else None)
+            if color is None and change_value != 0:
+                color = "#62ff7a" if change_value > 0 else "#f47174"
+            arrow = "▲" if change_value > 0 else ("▼" if change_value < 0 else "·")
+            sign_gain = "+" if gain_value > 0 else ""
+            sign_change = "+" if change_value > 0 else ""
+
+            def tinted(text: str, *, bold: bool = False, fallback: str = "#e8e8e8") -> str:
+                if color is None:
+                    prefix = "bold " if bold else ""
+                    return f"[{prefix}{fallback}]{text}[/]"
+                prefix = "bold " if bold else ""
+                return f"[{prefix}{color}]{text}[/]"
+
+            symbol_cell = f"[bold #5fd7ff]{row.security_code}[/]" if color is None else f"[bold {color}]{row.security_code}[/]"
+
+            table.add_row(
+                symbol_cell,
+                tinted(rjust(qty_text(row.quantity), 8)),
+                tinted(rjust(amount_text(row.avg_price), 10)),
+                tinted(rjust(amount_text(row.total_cost), 14)),
+                tinted(rjust(amount_text(row.last_traded), 10), bold=True),
+                tinted(rjust(amount_text(row.market_value), 12)),
+                tinted(rjust(f"{sign_gain}{amount_text(row.net_gain)}", 12), bold=True, fallback="#6b6b6b"),
+                tinted(rjust(f"{arrow} {sign_change}{change_value:,.2f}%", 9), bold=True, fallback="#6b6b6b"),
+                tinted(rjust(qty_text(row.cleared_balance), 8)),
+                tinted(rjust(qty_text(row.available_quantity), 9)),
+                f"[#6b6b6b]{rjust(qty_text(row.unset_buy), 5)}[/]",
+                f"[#6b6b6b]{rjust(qty_text(row.unset_sell), 6)}[/]",
+                f"[#ffd166]{rjust(qty_text(row.pending_buy), 5)}[/]",
+                f"[#ffd166]{rjust(qty_text(row.pending_sell), 6)}[/]",
+                key=row.security_code,
+            )
+
+        self.query_one("#portfolio-total", Static).update("")
+        self._set_status(
+            f"Portfolio · {len(filtered_rows)} holding(s)"
+            + (f" · filter: {self._symbol_prefix_filter}" if self._symbol_prefix_filter else "")
+            + f" · updated {last_updated_time}",
+            "portfolio",
+        )
 
     @staticmethod
     def _summary_amount(value: str) -> str:
@@ -1517,6 +2224,41 @@ class OrderBookScreen(Screen[None]):
             return
         self._prompt_market_symbol()
 
+    @staticmethod
+    def _is_symbol_filter_panel(panel: str) -> bool:
+        return panel in {"tab-watchlists", "tab-top", "tab-portfolio"}
+
+    def _matches_symbol_prefix_filter(self, symbol: str) -> bool:
+        if not self._symbol_prefix_filter:
+            return True
+        return str(symbol or "").upper().startswith(self._symbol_prefix_filter)
+
+    def _apply_symbol_prefix_filter(self, prefix: str) -> None:
+        self._symbol_prefix_filter = prefix
+        self._rerender_symbol_filter_panel()
+
+    def _clear_symbol_prefix_filter(self) -> None:
+        self._symbol_prefix_filter = None
+        self._rerender_symbol_filter_panel()
+
+    def _rerender_symbol_filter_panel(self) -> None:
+        panel = self._active_panel()
+        if panel == "tab-watchlists":
+            if not self._selected_watchlist_id:
+                self._set_status("No watchlist selected.", "watchlists")
+                return
+            try:
+                watch_id = int(self._selected_watchlist_id)
+            except (TypeError, ValueError):
+                return
+            self._apply_watchlist_rows(watch_id, list(self.watchlist_rows), self._last_watchlist_updated_time or "")
+            return
+        if panel == "tab-top":
+            self._apply_top_rows(list(self.top_rows), self._last_top_updated_time or "")
+            return
+        if panel == "tab-portfolio":
+            self._apply_portfolio_rows(list(self._portfolio_rows), self._last_portfolio_updated_time or "")
+
     def action_edit_market_depth_slot_1(self) -> None:
         self._prompt_market_depth_symbol(0)
 
@@ -1624,6 +2366,8 @@ class OrderBookScreen(Screen[None]):
         }.get(self._top_sort_mode, "Chng %")
 
     def _sorted_top_rows(self, rows: list[WatchlistEntryRow]) -> list[WatchlistEntryRow]:
+        rows = [row for row in rows if self._matches_symbol_prefix_filter(row.security_code)]
+
         def _to_float(value: str) -> float:
             try:
                 return float(str(value).replace(",", "").replace("%", ""))
@@ -1642,6 +2386,8 @@ class OrderBookScreen(Screen[None]):
         return sorted(rows, key=lambda r: (r.security_code or "").upper())
 
     def _sorted_watchlist_rows(self, rows: list[WatchlistEntryRow]) -> list[WatchlistEntryRow]:
+        rows = [row for row in rows if self._matches_symbol_prefix_filter(row.security_code)]
+
         def _to_float(value: str) -> float:
             try:
                 return float(str(value).replace(",", "").replace("%", ""))

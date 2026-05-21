@@ -1060,6 +1060,32 @@ def test_execute_trigger_sell_switches_from_slow_to_fast_polling(monkeypatch):
     assert fake_fetcher.settings == [(100, False)]
 
 
+def test_determine_multi_symbol_poll_interval_ms_uses_fast_when_any_symbol_is_near_trigger():
+    from services.fetchers.multi_symbol_price_fetcher import (
+        SymbolConfig,
+        determine_multi_symbol_poll_interval_ms,
+    )
+
+    symbols_config = [
+        SymbolConfig(symbol="AAA", switch_threshold=100.0, order_id="a"),
+        SymbolConfig(symbol="BBB", switch_threshold=200.0, order_id="b"),
+    ]
+
+    assert determine_multi_symbol_poll_interval_ms(
+        latest_ltps={"AAA": 90.0, "BBB": 180.0},
+        symbols_config=symbols_config,
+        slow_poll_interval_ms=500,
+        fast_poll_interval_ms=100,
+    ) == 500
+
+    assert determine_multi_symbol_poll_interval_ms(
+        latest_ltps={"AAA": 97.0, "BBB": 180.0},
+        symbols_config=symbols_config,
+        slow_poll_interval_ms=500,
+        fast_poll_interval_ms=100,
+    ) == 100
+
+
 def test_execute_single_ipo_order_maps_tms_order_fields(monkeypatch):
     service = DummyService()
     captured = {}
@@ -1223,6 +1249,88 @@ def test_execute_multi_queue_ipo_trigger_preserves_just_buy_and_fade_settings(mo
     assert remaining_call["just_buy_timeout"] == 5
     assert remaining_call["just_buy_fade_interval_ms"] == 250
     assert remaining_call["just_buy_fade_timeout"] == 2
+
+
+def test_execute_multi_queue_ipo_trigger_switches_from_slow_to_fast_polling(monkeypatch):
+    service = DummyService()
+    service.client.user_config.multi_fetch_poll_interval_ms = 100
+    service.client.user_config.multi_fetch_slow_poll_interval_ms = 500
+
+    class FakeMultiFetcher:
+        def __init__(self, symbols_config, fetch_clients, poll_interval_ms, user_id, is_atrad):
+            self.symbols_config = symbols_config
+            self.poll_interval_ms = poll_interval_ms
+            self.update_calls = []
+            self.loop_count = 0
+
+        def start(self):
+            return None
+
+        def stop(self):
+            return None
+
+        def update_poll_interval_ms(self, poll_interval_ms):
+            self.update_calls.append(poll_interval_ms)
+            self.poll_interval_ms = poll_interval_ms
+
+        def get_priority_symbol(self):
+            self.loop_count += 1
+            return "BBB" if self.loop_count >= 2 else None
+
+        def get_all_ltps(self):
+            if self.loop_count == 0:
+                return {"AAA": 80.0, "BBB": 85.0}
+            return {"AAA": 95.0, "BBB": 110.0}
+
+    created = {}
+
+    def fake_fetcher_factory(*args, **kwargs):
+        fetcher = FakeMultiFetcher(*args, **kwargs)
+        created["fetcher"] = fetcher
+        return fetcher
+
+    monkeypatch.setattr(
+        "services.fetchers.multi_symbol_price_fetcher.MultiSymbolSequentialPriceFetcher",
+        fake_fetcher_factory,
+    )
+    monkeypatch.setattr("services.workflows.coordinated_workflows.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        service,
+        "_execute_ipo_trigger",
+        lambda **kwargs: {"status": "ok", "ticker": kwargs.get("ticker")},
+    )
+
+    result = service._execute_multi_queue_ipo_trigger(
+        orders=[
+            {
+                "id": "order-a",
+                "ticker": "AAA",
+                "price": 100.0,
+                "quantity": 10,
+                "security_id": 101,
+                "exchange_security_id": 201,
+                "fetch_id": 301,
+                "no_ladder": True,
+                "multi_queue": True,
+            },
+            {
+                "id": "order-b",
+                "ticker": "BBB",
+                "price": 100.0,
+                "quantity": 10,
+                "security_id": 102,
+                "exchange_security_id": 202,
+                "fetch_id": 302,
+                "no_ladder": True,
+                "multi_queue": True,
+            },
+        ],
+        fetch_clients=[object()],
+    )
+
+    assert result["successful_orders"] == ["order-b", "order-a"]
+    assert created["fetcher"].poll_interval_ms == 100
+    assert created["fetcher"].update_calls == [100]
 
 
 def test_place_sell_order_with_retry_retries_and_sets_response(monkeypatch):

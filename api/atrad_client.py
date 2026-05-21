@@ -48,6 +48,7 @@ class ATRADClient:
         self.top_gainers_losers_endpoint = f"{self.base_url}{user_config.atrad_top_gainers_losers_endpoint}"
         self.ohlc_endpoint = f"{self.base_url}{user_config.atrad_ohlc_endpoint}"
         self.account_summary_endpoint = f"{self.base_url}{user_config.atrad_account_summary_endpoint}"
+        self.portfolio_endpoint = f"{self.base_url}{user_config.atrad_portfolio_endpoint}"
         # Thread-safe session
         self.session = requests.Session()
         self._login_lock = threading.Lock()
@@ -522,6 +523,50 @@ class ATRADClient:
                 return result.get("data", {})
             except ValueError:
                 logger.error(f"[{self.user_id}] Invalid ATRAD order book response: {response.text}")
+                return None
+
+    def get_portfolio(self, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
+        """
+        Fetch the client's portfolio summary.
+
+        Args:
+            timeout: Request timeout in seconds.
+
+        Returns:
+            Parsed ATRAD portfolio response, or None if fetching/parsing fails.
+        """
+        logger.debug(f"[{self.user_id}] Fetching portfolio summary")
+
+        endpoint = f"{self.portfolio_endpoint}"
+        body = f"action=getPortfolio&exchange=NEPSE&broker={self.user_config.broker_code}&format=json&portfolioAsset=EQUITY&portfolioClientAccount={quote(str(self.user_config.client_account), safe='()')}"
+
+        with self._request_lock:
+            response = self._request_with_reauth("POST", endpoint, data=body, timeout=timeout)
+
+            if response is None:
+                return None
+
+            logger.debug(f"[{self.user_id}] Portfolio fetch response status: {response.status_code}")
+
+            if response.status_code != 200:
+                logger.warning(
+                    f"[{self.user_id}] Portfolio fetch failed: "
+                    f"{response.status_code} {response.reason}"
+                )
+                return None
+
+            try:
+                result = response.text.strip().replace("'", '"')
+                result = json.loads(result)
+                if str(result.get("code")) != "0":
+                    logger.warning(
+                        f"[{self.user_id}] ATRAD portfolio request failed: "
+                        f"{result.get('description', 'Unknown error')}"
+                    )
+                    return None
+                return result.get("data", {}).get("portfolios", [])
+            except ValueError:
+                logger.error(f"[{self.user_id}] Invalid ATRAD portfolio response: {response.text}")
                 return None
 
     def build_cancel_order_url(

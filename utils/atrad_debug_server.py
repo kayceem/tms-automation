@@ -219,6 +219,14 @@ def build_profiles_from_order_store(order_store_path: str, base_requests_per_ste
     executable_orders = order_store.get_executable_orders()
     validated_orders = [order_store.validate_order(order) for order in executable_orders]
 
+    queue_position_by_order_id: dict[str, int] = {}
+    queue_order_counts: dict[int, int] = defaultdict(int)
+    for order in validated_orders:
+        if order.get("multi_queue", False) or order.get("trigger_sell_queue", False):
+            queue_id = int(order.get("queue_id", 999))
+            queue_order_counts[queue_id] += 1
+            queue_position_by_order_id[str(order["id"])] = queue_order_counts[queue_id]
+
     orders_by_ticker: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for order in validated_orders:
         mode = order.get("mode")
@@ -280,8 +288,9 @@ def build_profiles_from_order_store(order_store_path: str, base_requests_per_ste
             for order in orders
         )
         just_buy_enabled = any(order.get("just_buy", False) for order in orders)
-        if is_multi_queue and len(orders) > 1:
-            requests_per_step = requests_per_step * 2
+        representative_queue_position = queue_position_by_order_id.get(str(representative["id"]), 1)
+        if is_multi_queue:
+            requests_per_step = requests_per_step * max(1, representative_queue_position)
 
 
         profiles[ticker] = TickerProfile(

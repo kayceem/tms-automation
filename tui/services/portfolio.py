@@ -14,6 +14,7 @@ from tui.models import (
     MarketDepthLevelRow,
     MarketDepthSnapshot,
     OrderBookRow,
+    PortfolioHoldingRow,
     SectorSummary,
     WatchlistEntryRow,
 )
@@ -43,6 +44,41 @@ def _amount_text(price: str, quantity: str) -> str:
         return _decimal_text(str(float(price) * float(quantity)))
     except (TypeError, ValueError):
         return "-"
+
+
+def _format_number_text(value: str) -> str:
+    text = str(value).strip()
+    if not text or text == "-":
+        return "-"
+
+    negative = text.startswith("-")
+    if negative:
+        text = text[1:]
+
+    integer_part, dot, decimal_part = text.partition(".")
+    digits = integer_part.replace(",", "")
+    if not digits.isdigit():
+        return str(value)
+
+    if len(digits) <= 3:
+        grouped = digits
+    else:
+        last_three = digits[-3:]
+        remaining = digits[:-3]
+        groups: list[str] = []
+        while len(remaining) > 2:
+            groups.append(remaining[-2:])
+            remaining = remaining[:-2]
+        if remaining:
+            groups.append(remaining)
+        grouped = ",".join(reversed(groups)) + "," + last_three
+
+    formatted = grouped
+    if dot:
+        formatted += f".{decimal_part}"
+    if negative:
+        formatted = f"-{formatted}"
+    return formatted
 
 
 class PortfolioService:
@@ -216,6 +252,38 @@ class PortfolioService:
             raise RuntimeError("Invalid ATRAD account summary payload")
         return summary, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    def fetch_portfolio(self, path: str | Path) -> tuple[list[PortfolioHoldingRow], str]:
+        client = ATRADClient(self.load_user_config(path))
+        payload = client.get_portfolio()
+        if payload is None:
+            raise RuntimeError("Unable to fetch ATRAD portfolio")
+        if not isinstance(payload, list):
+            raise RuntimeError("Invalid ATRAD portfolio payload")
+
+        rows = [
+            PortfolioHoldingRow(
+                security_code=_pick_first(item, "security", default="-"),
+                quantity=_pick_first(item, "quantity", default="-"),
+                avg_price=_pick_first(item, "avgPrice", default="-"),
+                total_cost=_pick_first(item, "totCost", default="-"),
+                last_traded=_pick_first(item, "lastTraded", default="-"),
+                market_value=_pick_first(item, "marketValue", default="-"),
+                net_gain=_pick_first(item, "netGain", default="-"),
+                net_change=_pick_first(item, "netchange", default="-"),
+                cleared_balance=_pick_first(item, "clearedBalance", default="-"),
+                available_quantity=_pick_first(item, "availableQty", default="-"),
+                unset_buy=_pick_first(item, "unsetBuy", default="-"),
+                unset_sell=_pick_first(item, "unsetSell", default="-"),
+                pending_buy=_pick_first(item, "pendBuy", default="-"),
+                pending_sell=_pick_first(item, "pendSell", default="-"),
+                raw=item,
+            )
+            for item in payload
+            if isinstance(item, dict)
+        ]
+        rows.sort(key=lambda row: row.security_code)
+        return rows, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     def fetch_sector_summary(self, path: str | Path) -> SectorSummary | None:
         client = ATRADClient(self.load_user_config(path))
         payload = client.get_sector_data()
@@ -228,7 +296,7 @@ class PortfolioService:
         index_value = _pick_first(first, "pr1", default="-")
         points_change = _pick_first(first, "n1", default="-")
         percent_change = _pick_first(first, "p1", default="-")
-        turnover = _pick_first(first, "to", default="-")
+        turnover = _format_number_text(_pick_first(first, "to", default="-"))
 
         try:
             points_float = float(points_change.replace(",", ""))

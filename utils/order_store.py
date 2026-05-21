@@ -590,13 +590,14 @@ class OrderStore:
             qty = order.get('quantity', 0)
             mode = order.get('mode', 'normal')
             queue_id = order.get('queue_id', 999)
+            user_id = str(order.get('user_id') or '-')
 
             status = "SUCCESS" if success else ("EXECUTE" if execute else "PENDING")
             queue_str = f"Q{queue_id:02d}" if execute and not success else " - "
 
             lines.append(
                 f"{status} | {queue_str} | {order_id:15} | {ticker:8} | "
-                f"₨{price:8.1f} x {qty:4} | {mode:10}"
+                f"₨{price:8.1f} x {qty:4} | {mode:16} | {user_id}"
             )
 
         lines.append("=" * 70)

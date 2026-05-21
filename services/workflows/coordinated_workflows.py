@@ -5,6 +5,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from api import ATRADClient
+from services.fetchers.multi_symbol_price_fetcher import sync_multi_symbol_poll_interval_ms
 
 
 def execute_multi_queue_ipo_trigger(
@@ -50,19 +51,43 @@ def execute_multi_queue_ipo_trigger(
         )
 
     poll_interval_ms = service.client.user_config.multi_fetch_poll_interval_ms
+    slow_poll_interval_ms = getattr(
+        service.client.user_config,
+        "multi_fetch_slow_poll_interval_ms",
+        poll_interval_ms,
+    )
     sleep_duration = max(poll_interval_ms / 10000.0, 0.001)
     multi_fetcher = MultiSymbolSequentialPriceFetcher(
         symbols_config=symbols_config,
         fetch_clients=fetch_clients,
-        poll_interval_ms=poll_interval_ms,
+        poll_interval_ms=slow_poll_interval_ms,
         user_id=service.user_id,
         is_atrad=is_atrad,
     )
+    current_poll_interval_ms = slow_poll_interval_ms
 
     multi_fetcher.start()
     try:
         service.logger.info(f"[{service.user_id}] Waiting for first order to reach switch threshold...")
-        while multi_fetcher.get_priority_symbol() is None:
+        while True:
+            current_ltps = multi_fetcher.get_all_ltps()
+            previous_poll_interval_ms = current_poll_interval_ms
+            current_poll_interval_ms = sync_multi_symbol_poll_interval_ms(
+                fetcher=multi_fetcher,
+                latest_ltps=current_ltps,
+                symbols_config=symbols_config,
+                current_poll_interval_ms=current_poll_interval_ms,
+                slow_poll_interval_ms=slow_poll_interval_ms,
+                fast_poll_interval_ms=poll_interval_ms,
+            )
+            if current_poll_interval_ms != previous_poll_interval_ms:
+                mode_label = "FAST" if current_poll_interval_ms == poll_interval_ms else "SLOW"
+                service.logger.info(
+                    f"[{service.user_id}] Multi-queue switched to {mode_label} polling "
+                    f"({current_poll_interval_ms}ms)"
+                )
+            if multi_fetcher.get_priority_symbol() is not None:
+                break
             time.sleep(sleep_duration)
         priority_symbol = multi_fetcher.get_priority_symbol()
         all_ltps = multi_fetcher.get_all_ltps()

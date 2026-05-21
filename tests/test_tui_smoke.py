@@ -14,7 +14,7 @@ from tui.screens.main_menu import MainMenuScreen
 from tui.screens.config_menu import ConfigMenuScreen
 from tui.screens.order_logs import OrderLogsScreen
 from tui.screens.orders import ORDER_TEMPLATE, OrderEditorScreen
-from tui.screens.portfolio import ATRADUserSelectScreen, OrderBookScreen, PortfolioScreen
+from tui.screens.portfolio import ATRADUserSelectScreen, MeroSharePortfolioScreen, MeroShareUserSelectScreen, OrderBookScreen, PortfolioScreen
 from tui.screens.orders import OrdersScreen
 
 
@@ -85,6 +85,24 @@ def test_global_shortcut_ctrl_a_opens_portfolio_atrad():
             assert isinstance(app.screen_stack[-3], MainMenuScreen)
             assert isinstance(app.screen_stack[-2], PortfolioScreen)
             assert isinstance(app.screen_stack[-1], ATRADUserSelectScreen)
+
+    asyncio.run(run())
+
+
+def test_global_shortcut_ctrl_w_opens_portfolio_meroshare():
+    async def run() -> None:
+        app = TMSAutomationTUI()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            await pilot.press("ctrl+w")
+            await pilot.pause()
+
+            assert isinstance(app.screen, MeroShareUserSelectScreen)
+            assert len(app.screen_stack) == 4
+            assert isinstance(app.screen_stack[-3], MainMenuScreen)
+            assert isinstance(app.screen_stack[-2], PortfolioScreen)
+            assert isinstance(app.screen_stack[-1], MeroShareUserSelectScreen)
 
     asyncio.run(run())
 
@@ -246,7 +264,8 @@ def test_order_book_top_tab_defaults_and_toggle_behavior():
     assert any(_binding_key(binding) == "ctrl+4" and _binding_action(binding) == "show_top_panel" for binding in screen.BINDINGS)
     assert any(_binding_key(binding) == "ctrl+5" and _binding_action(binding) == "show_market_panel" for binding in screen.BINDINGS)
     assert any(_binding_key(binding) == "ctrl+6" and _binding_action(binding) == "show_market_depth_panel" for binding in screen.BINDINGS)
-    assert any(_binding_key(binding) == "ctrl+7" and _binding_action(binding) == "show_account_panel" for binding in screen.BINDINGS)
+    assert any(_binding_key(binding) == "ctrl+7" and _binding_action(binding) == "show_portfolio_panel" for binding in screen.BINDINGS)
+    assert any(_binding_key(binding) == "ctrl+8" and _binding_action(binding) == "show_account_panel" for binding in screen.BINDINGS)
     assert screen._top_sort_mode == "chng_pct"
 
     screen.action_toggle_top_or_cycle_watchlist()
@@ -274,7 +293,7 @@ def test_order_book_t_binding_is_noop_outside_watchlists_and_top():
     assert calls == []
 
 
-def test_order_book_panel_switch_only_refreshes_unloaded_panels():
+def test_order_book_panel_switch_refreshes_every_time():
     class FakePortfolioService:
         def get_user_label(self, _path: Path) -> str:
             return "demo"
@@ -299,14 +318,14 @@ def test_order_book_panel_switch_only_refreshes_unloaded_panels():
 
     screen._set_panel("tab-market")
     screen._loaded_panels.add("tab-market")
-    screen._set_panel("tab-account")
-    screen._loaded_panels.add("tab-account")
+    screen._set_panel("tab-portfolio")
+    screen._loaded_panels.add("tab-portfolio")
     screen._set_panel("tab-market")
-    screen._set_panel("tab-account")
+    screen._set_panel("tab-portfolio")
 
-    assert refresh_calls == ["tab-market", "tab-account"]
-    assert focus_calls == ["tab-market", "tab-account", "tab-market", "tab-account"]
-    assert action_updates == ["tab-market", "tab-account", "tab-market", "tab-account"]
+    assert refresh_calls == ["tab-market", "tab-portfolio", "tab-market", "tab-portfolio"]
+    assert focus_calls == ["tab-market", "tab-portfolio", "tab-market", "tab-portfolio"]
+    assert action_updates == ["tab-market", "tab-portfolio", "tab-market", "tab-portfolio"]
 
 
 def test_order_book_account_panel_focuses_scroll_container():
@@ -372,6 +391,154 @@ def test_order_book_market_depth_panel_focuses_first_depth_table():
     screen._focus_current_panel()
 
     assert target.focus_calls == 1
+
+
+def test_order_book_portfolio_panel_focuses_portfolio_table():
+    class FakePortfolioService:
+        def get_user_label(self, _path: Path) -> str:
+            return "demo"
+
+        def load_tickers(self) -> list[dict]:
+            return []
+
+    class FocusTarget:
+        def __init__(self) -> None:
+            self.focus_calls = 0
+
+        def focus(self) -> None:
+            self.focus_calls += 1
+
+    screen = OrderBookScreen(Path("users/default.json"), service=FakePortfolioService())
+
+    class FakeTabs:
+        def __init__(self) -> None:
+            self.active = "tab-portfolio"
+
+    tabs = FakeTabs()
+    target = FocusTarget()
+
+    screen.query_one = lambda selector, _type=None: tabs if selector == "#portfolio-tabs" else target  # type: ignore[method-assign]
+
+    screen._focus_current_panel()
+
+    assert target.focus_calls == 1
+
+
+def test_order_book_symbol_filter_chord_applies_prefix_on_portfolio_panel():
+    class FakePortfolioService:
+        def get_user_label(self, _path: Path) -> str:
+            return "demo"
+
+        def load_tickers(self) -> list[dict]:
+            return []
+
+    screen = OrderBookScreen(Path("users/default.json"), service=FakePortfolioService())
+    rerender_calls: list[str | None] = []
+    statuses: list[tuple[str, str]] = []
+
+    screen._active_panel = lambda: "tab-portfolio"  # type: ignore[method-assign]
+    screen._rerender_symbol_filter_panel = lambda: rerender_calls.append(screen._symbol_prefix_filter)  # type: ignore[method-assign]
+    screen._set_status = lambda message, panel="active": statuses.append((message, panel))  # type: ignore[method-assign]
+
+    screen.on_key(type("KeyEvent", (), {"key": "k", "stop": lambda self: None})())
+    screen.on_key(type("KeyEvent", (), {"key": "r", "stop": lambda self: None})())
+
+    assert rerender_calls == ["R"]
+    assert screen._symbol_prefix_filter == "R"
+    assert any("Symbol filter" in message for message, _panel in statuses)
+
+
+def test_order_book_symbol_filter_chord_enter_resets_prefix():
+    class FakePortfolioService:
+        def get_user_label(self, _path: Path) -> str:
+            return "demo"
+
+        def load_tickers(self) -> list[dict]:
+            return []
+
+    screen = OrderBookScreen(Path("users/default.json"), service=FakePortfolioService())
+    rerender_calls: list[str | None] = []
+
+    screen._active_panel = lambda: "tab-portfolio"  # type: ignore[method-assign]
+    screen._rerender_symbol_filter_panel = lambda: rerender_calls.append(screen._symbol_prefix_filter)  # type: ignore[method-assign]
+    screen._set_status = lambda _message, panel="active": None  # type: ignore[method-assign]
+    screen._symbol_prefix_filter = "S"
+
+    screen.on_key(type("KeyEvent", (), {"key": "k", "stop": lambda self: None})())
+    screen.on_key(type("KeyEvent", (), {"key": "enter", "stop": lambda self: None})())
+
+    assert rerender_calls == [None]
+    assert screen._symbol_prefix_filter is None
+
+
+def test_meroshare_symbol_filter_chord_applies_prefix():
+    class FakeMeroShareService:
+        def get_user_label(self, _path: Path) -> str:
+            return "demo"
+
+    screen = MeroSharePortfolioScreen(Path("users/meroshare_user1.json"), service=FakeMeroShareService())
+    rerender_calls: list[str | None] = []
+    statuses: list[str] = []
+
+    screen._rerender_active_panel = lambda: rerender_calls.append(screen._symbol_prefix_filter)  # type: ignore[method-assign]
+    screen._set_status = lambda message: statuses.append(message)  # type: ignore[method-assign]
+
+    screen.on_key(type("KeyEvent", (), {"key": "k", "stop": lambda self: None})())
+    screen.on_key(type("KeyEvent", (), {"key": "a", "stop": lambda self: None})())
+
+    assert rerender_calls == ["A"]
+    assert screen._symbol_prefix_filter == "A"
+    assert any("Symbol filter" in message for message in statuses)
+
+
+def test_meroshare_symbol_filter_chord_enter_resets_prefix():
+    class FakeMeroShareService:
+        def get_user_label(self, _path: Path) -> str:
+            return "demo"
+
+    screen = MeroSharePortfolioScreen(Path("users/meroshare_user1.json"), service=FakeMeroShareService())
+    rerender_calls: list[str | None] = []
+
+    screen._rerender_active_panel = lambda: rerender_calls.append(screen._symbol_prefix_filter)  # type: ignore[method-assign]
+    screen._set_status = lambda _message: None  # type: ignore[method-assign]
+    screen._symbol_prefix_filter = "S"
+
+    screen.on_key(type("KeyEvent", (), {"key": "k", "stop": lambda self: None})())
+    screen.on_key(type("KeyEvent", (), {"key": "enter", "stop": lambda self: None})())
+
+    assert rerender_calls == [None]
+    assert screen._symbol_prefix_filter is None
+
+
+def test_meroshare_tabs_load_once_and_edis_checks_once():
+    class FakeMeroShareService:
+        def get_user_label(self, _path: Path) -> str:
+            return "demo"
+
+    screen = MeroSharePortfolioScreen(Path("users/meroshare_user1.json"), service=FakeMeroShareService())
+    refresh_calls: list[str] = []
+    edis_calls: list[str] = []
+    focused: list[str] = []
+
+    screen.action_refresh = lambda: refresh_calls.append(screen._active_panel())  # type: ignore[method-assign]
+    screen._edis_status_worker = lambda: edis_calls.append("edis")  # type: ignore[method-assign]
+    screen._focus_current_panel = lambda: focused.append(screen._active_panel())  # type: ignore[method-assign]
+    screen._active_panel = lambda: "tab-meroshare-wacc"  # type: ignore[method-assign]
+    fake_tabs = type("FakeTabs", (), {"active": "tab-meroshare-wacc"})()
+    screen.query_one = lambda selector, _expect=None: fake_tabs if selector == "#meroshare-tabs" else None  # type: ignore[method-assign]
+
+    screen._loaded_panels = {"tab-meroshare-wacc"}
+    screen._set_panel("tab-meroshare-wacc")
+    assert refresh_calls == []
+
+    screen._loaded_panels = set()
+    screen._set_panel("tab-meroshare-wacc")
+    assert refresh_calls == ["tab-meroshare-wacc"]
+
+    screen._edis_checked = False
+    MeroSharePortfolioScreen._refresh_edis_status(screen)
+    MeroSharePortfolioScreen._refresh_edis_status(screen)
+    assert edis_calls == ["edis"]
 
 
 def test_orders_screen_can_reload_store_from_disk():

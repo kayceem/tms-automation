@@ -40,6 +40,7 @@ class UserConfig:
     # Trigger mode settings
     trigger_mode_poll_interval_ms: int = 100  # Polling interval in milliseconds for fetching LTP (buy trigger)
     multi_fetch_poll_interval_ms: int = 100  # Polling interval in milliseconds for multi-queue symbol fetching
+    multi_fetch_slow_poll_interval_ms: int = 500  # Slower polling for multi-symbol queue monitoring until any symbol nears trigger
     trigger_mode_refresh_interval_seconds: int = 60  # Token refresh interval to keep main user ready
     trigger_sell_poll_interval_ms: int = 500  # Polling interval in milliseconds for sell trigger (less aggressive)
     trigger_sell_slow_poll_interval_ms: int = 500  # Slower polling when trigger-sell LTP is still far below target
@@ -93,6 +94,7 @@ class UserConfig:
             'default_buy_or_sell': self.default_buy_or_sell,
             'trigger_mode_poll_interval_ms': self.trigger_mode_poll_interval_ms,
             'multi_fetch_poll_interval_ms': self.multi_fetch_poll_interval_ms,
+            'multi_fetch_slow_poll_interval_ms': self.multi_fetch_slow_poll_interval_ms,
             'trigger_mode_refresh_interval_seconds': self.trigger_mode_refresh_interval_seconds,
             'trigger_sell_poll_interval_ms': self.trigger_sell_poll_interval_ms,
             'trigger_sell_slow_poll_interval_ms': self.trigger_sell_slow_poll_interval_ms,

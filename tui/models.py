@@ -103,3 +103,70 @@ class SectorSummary:
     turnover: str
     is_up: bool
     is_down: bool
+
+
+@dataclass(frozen=True)
+class PortfolioHoldingRow:
+    security_code: str
+    quantity: str
+    avg_price: str
+    total_cost: str
+    last_traded: str
+    market_value: str
+    net_gain: str
+    net_change: str
+    cleared_balance: str
+    available_quantity: str
+    unset_buy: str
+    unset_sell: str
+    pending_buy: str
+    pending_sell: str
+    raw: dict
+
+
+@dataclass(frozen=True)
+class MeroSharePortfolioRow:
+    script: str
+    script_desc: str
+    current_balance: str
+    last_transaction_price: str
+    previous_closing_price: str
+    value_as_of_last_transaction_price: str
+    value_as_of_previous_closing_price: str
+    raw: dict
+
+
+@dataclass(frozen=True)
+class MeroShareWaccRow:
+    script: str
+    demat: str
+    total_quantity: str
+    average_buy_rate: str
+    total_cost: str
+    last_modified_date: str
+    raw: dict
+
+
+@dataclass(frozen=True)
+class MeroShareIssueRow:
+    script: str
+    company_name: str
+    share_type: str
+    share_group: str
+    status: str
+    open_date: str
+    close_date: str
+    raw: dict
+
+
+@dataclass(frozen=True)
+class MeroShareApplicationReportRow:
+    script: str
+    company_name: str
+    share_type: str
+    share_group: str
+    status: str
+    applied_date: str
+    applied_units: str
+    amount: str
+    raw: dict

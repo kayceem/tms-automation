@@ -11,7 +11,7 @@ from utils.order_store import OrderStore
 class OrderStoreService:
     """Wrapper over OrderStore that exposes TUI-friendly summaries."""
 
-    def __init__(self, store_path: str | Path = "stores/order_store.json") -> None:
+    def __init__(self, store_path: str | Path = "stores/sell_store.json") -> None:
         self.store = OrderStore(str(store_path))
 
     def list_rows(self) -> list[OrderRow]:

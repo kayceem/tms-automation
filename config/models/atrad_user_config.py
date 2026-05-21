@@ -39,6 +39,7 @@ class ATRADUserConfig:
     # Trigger mode settings (same as TMS for consistency)
     trigger_mode_poll_interval_ms: int = 100
     multi_fetch_poll_interval_ms: int = 100
+    multi_fetch_slow_poll_interval_ms: int = 500
     trigger_mode_refresh_interval_seconds: int = 60
     trigger_sell_poll_interval_ms: int = 500
     trigger_sell_slow_poll_interval_ms: int = 500
@@ -66,6 +67,7 @@ class ATRADUserConfig:
     atrad_top_gainers_losers_endpoint: str = '/atsweb/watch?action=place_holder&format=json&size=10&exchange=NEPSE&bookDefId=1&lastUpdatedId=0'
     atrad_ohlc_endpoint: str = '/atsweb/marketdetails?action=getOHLC&format=json&asset=Equity&board=All&pageNumber=1'
     atrad_account_summary_endpoint: str = '/atsweb/client?action=getClientAccountSummary&format=json&exchange=NEPSE'
+    atrad_portfolio_endpoint: str = '/atsweb/client'
     # Session management (populated after login)
     _session_id: Optional[str] = None  # JSESSIONID
     _role: Optional[str] = None  # OnlineUser, Manager, etc.
@@ -115,6 +117,7 @@ class ATRADUserConfig:
             'default_product': self.default_product,
             'trigger_mode_poll_interval_ms': self.trigger_mode_poll_interval_ms,
             'multi_fetch_poll_interval_ms': self.multi_fetch_poll_interval_ms,
+            'multi_fetch_slow_poll_interval_ms': self.multi_fetch_slow_poll_interval_ms,
             'trigger_mode_refresh_interval_seconds': self.trigger_mode_refresh_interval_seconds,
             'trigger_sell_poll_interval_ms': self.trigger_sell_poll_interval_ms,
             'trigger_sell_slow_poll_interval_ms': self.trigger_sell_slow_poll_interval_ms,

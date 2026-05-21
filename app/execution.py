@@ -9,7 +9,11 @@ from typing import Any, Dict, List, Optional
 from config import ATRADUserConfig
 from services.scheduling import OrderScheduler
 from utils import OrderStore
-from services.fetchers.multi_symbol_price_fetcher import MultiSymbolSequentialPriceFetcher, SymbolConfig
+from services.fetchers.multi_symbol_price_fetcher import (
+    MultiSymbolSequentialPriceFetcher,
+    SymbolConfig,
+    sync_multi_symbol_poll_interval_ms,
+)
 from services.workflows.order_ladders import calculate_price_levels
 
 from app.config_loader import load_trader_config, load_just_buy_user_specs, load_user_configs_by_paths
@@ -348,8 +352,13 @@ def execute_trigger_sell_queue_group(
         except Exception as exc:
             raise ValueError(f"Ticker lookup failed for '{order['ticker']}': {exc}")
 
-    poll_interval_ms = monitoring_user_config.trigger_sell_poll_interval_ms
-    sleep_duration = max(poll_interval_ms / 10000.0, 0.001)
+    fast_poll_interval_ms = monitoring_user_config.multi_fetch_poll_interval_ms
+    slow_poll_interval_ms = getattr(
+        monitoring_user_config,
+        "multi_fetch_slow_poll_interval_ms",
+        fast_poll_interval_ms,
+    )
+    sleep_duration = max(fast_poll_interval_ms / 10000.0, 0.001)
 
     def calculate_trigger_sell_targets(order: Dict[str, Any]) -> tuple[float, float]:
         limit_price = order.get("limit")
@@ -433,15 +442,34 @@ def execute_trigger_sell_queue_group(
             multi_fetcher = MultiSymbolSequentialPriceFetcher(
                 symbols_config=symbols_config,
                 fetch_clients=fetch_clients,
-                poll_interval_ms=poll_interval_ms,
+                poll_interval_ms=slow_poll_interval_ms,
                 user_id=monitoring_user_config.user_id,
                 is_atrad=monitoring_is_atrad_fetch,
             )
+            current_poll_interval_ms = slow_poll_interval_ms
 
             multi_fetcher.start()
             try:
                 logger.info(f"[{monitoring_user_config.user_id}] Waiting for next trigger-sell queue order to trigger...")
-                while multi_fetcher.get_priority_symbol() is None:
+                while True:
+                    current_ltps = multi_fetcher.get_all_ltps()
+                    previous_poll_interval_ms = current_poll_interval_ms
+                    current_poll_interval_ms = sync_multi_symbol_poll_interval_ms(
+                        fetcher=multi_fetcher,
+                        latest_ltps=current_ltps,
+                        symbols_config=symbols_config,
+                        current_poll_interval_ms=current_poll_interval_ms,
+                        slow_poll_interval_ms=slow_poll_interval_ms,
+                        fast_poll_interval_ms=fast_poll_interval_ms,
+                    )
+                    if current_poll_interval_ms != previous_poll_interval_ms:
+                        mode_label = "FAST" if current_poll_interval_ms == fast_poll_interval_ms else "SLOW"
+                        logger.info(
+                            f"[{monitoring_user_config.user_id}] Trigger-sell queue switched to {mode_label} polling "
+                            f"({current_poll_interval_ms}ms)"
+                        )
+                    if multi_fetcher.get_priority_symbol() is not None:
+                        break
                     time.sleep(sleep_duration)
                 priority_symbol = multi_fetcher.get_priority_symbol()
                 all_ltps = multi_fetcher.get_all_ltps()

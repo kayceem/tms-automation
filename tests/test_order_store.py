@@ -132,6 +132,43 @@ def test_validate_order_accepts_trigger_sell_queue_for_trigger_sell(tmp_path):
     assert order["trigger_sell_queue"] is True
 
 
+def test_get_order_summary_includes_user_id(tmp_path):
+    store_path = tmp_path / "order_store.json"
+    write_store(
+        store_path,
+        [
+            {
+                "id": "hfin_sell",
+                "ticker": "HFIN",
+                "price": 1320,
+                "quantity": 100,
+                "mode": "trigger-sell",
+                "execute": False,
+                "success": False,
+                "user_id": "atrad_user1",
+                "queue_id": 1,
+            },
+            {
+                "id": "skhel_sell",
+                "ticker": "SKHEL",
+                "price": 1750,
+                "quantity": 100,
+                "mode": "trigger-sell",
+                "execute": True,
+                "success": False,
+                "user_id": "atrad_user6",
+                "queue_id": 1,
+            },
+        ],
+    )
+
+    summary = OrderStore(str(store_path)).get_order_summary()
+
+    assert "atrad_user1" in summary
+    assert "atrad_user6" in summary
+    assert "trigger-sell" in summary
+
+
 def test_validate_order_rejects_trigger_sell_queue_for_non_trigger_sell(tmp_path):
     store_path = tmp_path / "order_store.json"
     write_store(store_path, [])
